@@ -23,7 +23,9 @@ the same Vertex AI foundation that MVP 1 sets up.
    deterministic, sourced data. Never from a model.
 3. **Read-only money.** Roamie can see transactions. It can never move money, and it
    never stores card numbers or bank credentials.
-4. **Works when it matters.** SOS and the phrase book work offline. Everything else fails
+4. **Free, no sign-in.** No accounts, no subscriptions, no in-app payments. Install it
+   and it works. Your data stays on your phone.
+5. **Works when it matters.** SOS and the phrase book work offline. Everything else fails
    politely.
 
 ## Documents

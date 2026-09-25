@@ -6,7 +6,7 @@
 Expo app (iOS/Android)
    │  HTTPS + WebSocket (Talk streaming)
    ▼
-roamie-api (Go 1.26, modular monolith)
+roamie-api (Rust, axum + tokio, modular monolith)
    ├── talk      → ai gateway → Speech-to-Text v2 (Chirp, auto language) → Gemini → Text-to-Speech
    ├── wallet    → aggregator adapter (Basiq | Plaid | TrueLayer | Setu), FX, budget engine
    ├── nearby    → Google Places API (New), ranking by profile + budget
@@ -20,15 +20,20 @@ roamie-api (Go 1.26, modular monolith)
 MVP 2: roamie-agents (Python, ADK base image) ──MCP──▶ roamie-api tools
 ```
 
-- **One Go service** for MVP 0–1. Packages own their tables. A package is split into a
+- **One Rust service** (axum, tokio, sqlx) for MVP 0–1, chosen for low latency on the Talk
+  path and a small memory footprint. Modules own their tables. A module is split into a
   separate service only when it has a different scaling or failure profile.
-- **Auth** uses Zitadel OIDC (PKCE on mobile).
+- **No user accounts.** Each install generates an anonymous install ID, kept in the
+  Keychain. Because the API is public and every Gemini call costs money, requests carry an
+  Apple App Attest or Play Integrity assertion, and the API rate-limits per install
+  and per IP. The server stores no profile or trip data. The only server-side record is
+  the read-only card-link consent, which is keyed to the install ID.
 - **Delivery** follows the house path of CI → GHCR → GAR → Kargo → ArgoCD. Schemas live
   in `tesserix-k8s`, never in this repo.
 
 ## Vertex AI gateway
 
-Every model call goes through one `ai` package in roamie-api:
+Every model call goes through one `ai` module in roamie-api:
 
 - Workload identity to Vertex AI in `asia-south1`, with no keys in the app
 - Model IDs and prompt versions set in config and pinned per release

@@ -28,7 +28,7 @@ failure scenario is mandatory.
 
 | Value | Contents |
 |---|---|
-| MVP 0: Foundations | ADRs, app shell, API scaffold, auth, Vertex AI gateway, CI, privacy baseline, spikes |
+| MVP 0: Foundations | ADRs, app shell, API scaffold, anonymous install identity, Vertex AI gateway, CI, privacy baseline, spikes |
 | MVP 1: Travel Mate v1 | Talk (1:1 auto-detect), Wallet (budget, read-only link, receipts, alerts), Profile and Nearby, SOS |
 | MVP 2: AI Companion | ADK agent runtime, MCP tools over Roamie data, companion chat, daily brief, budget coach, group Talk |
 

@@ -7,6 +7,16 @@ language they do not speak. They use a phone and are often offline or on roaming
 v1 their day-to-day problems are talking to people, keeping track of money, finding food
 they can eat, and knowing what to do in an emergency.
 
+## Free and account-free
+
+Roamie is free for every traveller. It has **no sign-in, no accounts, no subscriptions,
+no ads and no in-app payments**. It works the moment it's installed.
+
+- Profile, trip, budget, expenses, emergency contacts and conversations are stored
+  **on the device**. The server keeps no per-person data, except the read-only card
+  link's consent token (see Wallet), which is keyed to an anonymous install ID.
+- "Delete my data" is one button. It clears the device and revokes any card link.
+
 ## The app in one screen
 
 Four tabs, nothing hidden:
@@ -146,14 +156,15 @@ show "confirm with staff", with the allergy card one tap away.
 
 | Phase | Goal | Contents |
 |---|---|---|
-| **MVP 0: Foundations** | Can ship safely | Architecture decisions, Expo app shell, Go API, auth, Vertex AI gateway, CI, privacy baseline |
+| **MVP 0: Foundations** | Can ship safely | Architecture decisions, Expo app shell, Rust API, anonymous install identity and abuse protection, Vertex AI gateway, CI, privacy baseline |
 | **MVP 1: Travel Mate v1** | The three pillars, end to end | Talk (1:1 auto-detect), Wallet (budget, read-only link in one region, receipts, alerts), Preferences and Nearby, SOS |
 | **MVP 2: AI Companion** | Roamie becomes an assistant | Agent runtime on ADK and Vertex AI with tools over the MVP 1 data: trip-aware Q&A, daily brief, budget coach, "find me dinner" agent, and group translation |
 
 ### Explicitly out of v1
 
 - Bookings of any kind (flights, hotels, tables)
-- Moving money, splitting bills, or payments
+- Accounts, sign-in, subscriptions, ads, or any in-app payment
+- Moving money or splitting bills
 - Group conversations (three or more people)
 - Itinerary planning (TripBaba covers that; a bridge could come later)
 
