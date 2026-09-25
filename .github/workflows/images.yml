@@ -1,0 +1,25 @@
+name: Release images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - services/**
+      - docker/**
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/images.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  publish:
+    uses: tesserix/tesserix-workflows/.github/workflows/container-release.yml@62f7f663a98d5ef92567850dd03c8c2513c9068e # v2.3.0
+    with:
+      namespace: tesserix
+      images: >-
+        {"include":[{"name":"roamie-api","context":".","dockerfile":"docker/api.Dockerfile","target":"","source_root":"services/api","build_args":"","requires_application_build_secret":false,"trivy_ignore_file":"","smoke_port":8080,"smoke_path":"/healthz"}]}

@@ -50,7 +50,11 @@ fn model_reply(answer: Value) -> Value {
 fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc<AppState> {
     let http = reqwest::Client::new();
     Arc::new(AppState {
-        ai: gemini::Gemini::with_auth(http.clone(), gemini_url.into(), Arc::new(FakeToken)),
+        ai: Some(gemini::Gemini::with_auth(
+            http.clone(),
+            gemini_url.into(),
+            Arc::new(FakeToken),
+        )),
         fx: fx::Fx::new(fx_url),
         places: places.map(|base| nearby::Places {
             key: "k".into(),
@@ -215,6 +219,26 @@ async fn receipt_must_be_an_image() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn ai_routes_without_credentials_are_unavailable() {
+    let mut s = state("http://unused", "http://unused", None);
+    Arc::get_mut(&mut s).expect("sole owner").ai = None;
+    for (uri, body) in [
+        (
+            "/v1/talk/turn",
+            json!({ "mine": "en", "partner": "th", "text": "hi" }),
+        ),
+        (
+            "/v1/receipts/extract",
+            json!({ "data": "aGk=", "mimeType": "image/png" }),
+        ),
+    ] {
+        let (status, got) = call(s.clone(), "POST", uri, Some(body)).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{uri}");
+        assert_eq!(got["error"], "unavailable", "{uri}");
+    }
 }
 
 #[tokio::test]

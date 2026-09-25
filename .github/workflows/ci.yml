@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: tesserix/tesserix-workflows/.github/workflows/ci.yml@62f7f663a98d5ef92567850dd03c8c2513c9068e # v2.3.0
+    with:
+      rust_enabled: true
+      rust_toolchain: "1.97"
+      rust_coverage_min_lines: 70
+      expo_enabled: true
+      expo_working_directory: apps/mobile
+      expo_install_directory: apps/mobile
+      expo_lockfile_path: apps/mobile/package-lock.json
+      expo_node_version: 22.19.0
+      expo_package_manager: npm
+      containers_enabled: true
+      container_images: >-
+        {"include":[{"name":"roamie-api","context":".","dockerfile":"docker/api.Dockerfile","target":"","source_root":"services/api","build_args":"","requires_application_build_secret":false,"trivy_ignore_file":"","smoke_port":8080,"smoke_path":"/healthz"}]}
+
+  secrets:
+    uses: tesserix/tesserix-workflows/.github/workflows/secret-scan.yml@62f7f663a98d5ef92567850dd03c8c2513c9068e # v2.3.0

@@ -25,7 +25,7 @@ use error::{Error, Result};
 
 struct AppState {
     http: reqwest::Client,
-    ai: gemini::Gemini,
+    ai: Option<gemini::Gemini>,
     fx: fx::Fx,
     places: Option<nearby::Places>,
 }
@@ -52,7 +52,11 @@ async fn main() -> anyhow::Result<()> {
         &env_or("VERTEX_LOCATION", "global"),
         &env_or("GEMINI_MODEL", "gemini-2.5-flash"),
     )
-    .await?;
+    .await
+    .inspect_err(
+        |e| tracing::warn!(error = %e, "no Google credentials; talk and receipts will return 503"),
+    )
+    .ok();
     let places = std::env::var("PLACES_API_KEY")
         .ok()
         .filter(|k| !k.is_empty())
@@ -116,14 +120,18 @@ async fn talk_turn(
     State(s): State<Arc<AppState>>,
     Json(req): Json<talk::TurnRequest>,
 ) -> Result<Json<talk::TurnResponse>> {
-    Ok(Json(talk::interpret(&s.ai, &req).await?))
+    let ai = s.ai.as_ref().ok_or(Error::Unavailable("Translation"))?;
+    Ok(Json(talk::interpret(ai, &req).await?))
 }
 
 async fn receipt_extract(
     State(s): State<Arc<AppState>>,
     Json(req): Json<receipts::ReceiptRequest>,
 ) -> Result<Json<receipts::Receipt>> {
-    Ok(Json(receipts::extract(&s.ai, &req).await?))
+    let ai =
+        s.ai.as_ref()
+            .ok_or(Error::Unavailable("Receipt scanning"))?;
+    Ok(Json(receipts::extract(ai, &req).await?))
 }
 
 async fn nearby_search(
