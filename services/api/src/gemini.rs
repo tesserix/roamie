@@ -59,11 +59,11 @@ impl Gemini {
             format!("{location}-aiplatform.googleapis.com")
         };
         let url = format!("https://{host}/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent");
-        Ok(Self {
-            http,
-            auth: gcp_auth::provider().await?,
-            url,
-        })
+        Ok(Self::with_auth(http, url, gcp_auth::provider().await?))
+    }
+
+    pub fn with_auth(http: reqwest::Client, url: String, auth: Arc<dyn TokenProvider>) -> Self {
+        Self { http, auth, url }
     }
 
     pub fn inline(mime_type: &str, base64_data: &str) -> Value {

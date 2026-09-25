@@ -91,8 +91,24 @@ pub struct Query {
 const RADIUS_M: f64 = 1500.0;
 const FIELDS: &str = "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.priceLevel,places.currentOpeningHours.openNow,places.servesVegetarianFood,places.googleMapsUri";
 
+pub const PLACES_BASE: &str = "https://places.googleapis.com/v1";
+
 /// Google Places (New). The key stays on the server.
-pub async fn search(http: &reqwest::Client, key: &str, q: &Query) -> Result<Results> {
+#[derive(Clone)]
+pub struct Places {
+    pub key: String,
+    pub base: String,
+}
+
+impl std::fmt::Debug for Places {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Places")
+            .field("base", &self.base)
+            .finish_non_exhaustive()
+    }
+}
+
+pub async fn search(http: &reqwest::Client, places: &Places, q: &Query) -> Result<Results> {
     if !(-90.0..=90.0).contains(&q.lat) || !(-180.0..=180.0).contains(&q.lng) {
         return Err(Error::Invalid("location out of range".into()));
     }
@@ -105,17 +121,17 @@ pub async fn search(http: &reqwest::Client, key: &str, q: &Query) -> Result<Resu
     };
     let (url, body) = match text_query {
         Some(t) => (
-            "https://places.googleapis.com/v1/places:searchText",
+            "places:searchText",
             json!({ "textQuery": t, "locationBias": circle, "pageSize": 20 }),
         ),
         None => (
-            "https://places.googleapis.com/v1/places:searchNearby",
+            "places:searchNearby",
             json!({ "includedTypes": q.kind.types(), "maxResultCount": 20, "locationRestriction": circle, "rankPreference": "DISTANCE" }),
         ),
     };
     let res = http
-        .post(url)
-        .header("X-Goog-Api-Key", key)
+        .post(format!("{}/{url}", places.base))
+        .header("X-Goog-Api-Key", &places.key)
         .header("X-Goog-FieldMask", FIELDS)
         .json(&body)
         .send()

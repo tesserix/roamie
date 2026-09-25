@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Error, Result};
 use crate::money::Currency;
 
+pub const FX_BASE: &str = "https://open.er-api.com/v6";
 const TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,12 +26,20 @@ struct Upstream {
 }
 
 /// Daily reference rates, cached per base currency.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Fx {
+    url: String,
     cache: Mutex<HashMap<String, (Instant, Rates)>>,
 }
 
 impl Fx {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            cache: Mutex::default(),
+        }
+    }
+
     pub async fn latest(&self, http: &reqwest::Client, base: Currency) -> Result<Rates> {
         let key = String::from(base.clone());
         if let Some((at, rates)) = self.cache.lock().expect("fx cache poisoned").get(&key) {
@@ -39,7 +48,7 @@ impl Fx {
             }
         }
         let res = http
-            .get(format!("https://open.er-api.com/v6/latest/{key}"))
+            .get(format!("{}/latest/{key}", self.url))
             .send()
             .await?;
         if !res.status().is_success() {
