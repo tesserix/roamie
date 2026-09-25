@@ -1,3 +1,4 @@
+mod database;
 mod error;
 mod fx;
 mod gemini;
@@ -27,6 +28,7 @@ use tower_http::trace::TraceLayer;
 use error::{Error, Result};
 
 struct AppState {
+    database: Option<database::Database>,
     http: reqwest::Client,
     ai: Option<gemini::Gemini>,
     fx: fx::Fx,
@@ -47,6 +49,16 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    let database = database::Database::from_env(false).await?;
+    if std::env::args().nth(1).as_deref() == Some("migrate") {
+        database
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("database configuration required"))?
+            .migrate()
+            .await?;
+        tracing::info!("database migrations complete");
+        return Ok(());
+    }
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(25))
         .build()?;
@@ -77,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .ok();
     let state = Arc::new(AppState {
+        database,
         ocr,
         http,
         ai,
@@ -103,6 +116,7 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/fx", get(fx_latest));
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
+        .route("/readyz", get(readiness))
         .nest("/v1", v1)
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(12 * 1024 * 1024))
@@ -200,4 +214,11 @@ async fn fx_latest(
     Query(q): Query<FxQuery>,
 ) -> Result<Json<fx::Rates>> {
     Ok(Json(s.fx.latest(&s.http, q.base).await?))
+}
+
+async fn readiness(State(state): State<Arc<AppState>>) -> StatusCode {
+    match &state.database {
+        Some(database) if !database.healthy().await => StatusCode::SERVICE_UNAVAILABLE,
+        _ => StatusCode::OK,
+    }
 }

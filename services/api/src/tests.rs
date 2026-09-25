@@ -50,6 +50,7 @@ fn model_reply(answer: Value) -> Value {
 fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc<AppState> {
     let http = reqwest::Client::new();
     Arc::new(AppState {
+        database: None,
         ai: Some(gemini::Gemini::with_auth(
             http.clone(),
             gemini_url.into(),
@@ -585,4 +586,42 @@ async fn same_sign_photo_twice_reuses_the_stored_upload() {
             call(s.clone(), "POST", "/v1/signs/translate", Some(sign_photo())).await;
         assert_eq!(status, StatusCode::OK, "{attempt}: {body}");
     }
+}
+
+#[tokio::test]
+async fn readiness_is_available_without_database_configuration() {
+    let (status, _) = call(
+        state("http://unused", "http://unused", None),
+        "GET",
+        "/readyz",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+#[ignore = "requires isolated Postgres"]
+async fn database_outage_changes_readiness_but_not_liveness() {
+    use std::str::FromStr;
+    let database = crate::database::Database::connect(
+        sqlx::postgres::PgConnectOptions::from_str(
+            &std::env::var("ROAMIE_TEST_DATABASE_URL").expect("isolated database"),
+        )
+        .expect("options"),
+    )
+    .await
+    .expect("connect");
+    let mut app = state("http://unused", "http://unused", None);
+    Arc::get_mut(&mut app).expect("unique state").database = Some(database.clone());
+    assert_eq!(
+        call(app.clone(), "GET", "/readyz", None).await.0,
+        StatusCode::OK
+    );
+    database.pool.close().await;
+    assert_eq!(
+        call(app.clone(), "GET", "/readyz", None).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(call(app, "GET", "/healthz", None).await.0, StatusCode::OK);
 }
