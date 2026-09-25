@@ -29,5 +29,3 @@ jobs:
       container_images: >-
         {"include":[{"name":"roamie-api","context":".","dockerfile":"docker/api.Dockerfile","target":"","source_root":"services/api","build_args":"","requires_application_build_secret":false,"trivy_ignore_file":"","smoke_port":8080,"smoke_path":"/healthz"}]}
 
-  secrets:
-    uses: tesserix/tesserix-workflows/.github/workflows/secret-scan.yml@62f7f663a98d5ef92567850dd03c8c2513c9068e # v2.3.0

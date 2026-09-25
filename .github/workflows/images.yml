@@ -23,3 +23,19 @@ jobs:
       namespace: tesserix
       images: >-
         {"include":[{"name":"roamie-api","context":".","dockerfile":"docker/api.Dockerfile","target":"","source_root":"services/api","build_args":"","requires_application_build_secret":false,"trivy_ignore_file":"","smoke_port":8080,"smoke_path":"/healthz"}]}
+
+  # Kargo watches `deploy`, so a commit only lands there once its image is pullable.
+  advance-deploy:
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: advance-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Fast-forward deploy
+        run: git push origin "${GITHUB_SHA}:refs/heads/deploy"
