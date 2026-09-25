@@ -22,6 +22,28 @@ The first-run setup takes three questions (under 60 seconds), and every answer c
 2. **Your trip**: destination country or countries, dates, budget, and home currency.
 3. **You**: diet and allergies, plus your nationality, which is used to find your embassy.
 
+## Simple by default: the design rules
+
+Roamie is used by tired people on a street corner, so simplicity is a requirement. These
+rules are part of the Definition of Done for every UI story.
+
+- **Four tabs, no more.** No hamburger menu, no settings maze. Settings are one screen.
+- **The main task in any tab takes at most two taps.** Talk: tap the mic. SOS: tap the
+  number. Wallet: tap + to add.
+- **One primary action per screen.** Everything else is visually secondary.
+- **Infer, don't ask.** The country comes from location, the partner language from the
+  country, the currency from the country, and the daily allowance from the budget.
+  Anything Roamie infers is shown, and one tap changes it.
+- **Plain words.** The UI never shows jargon such as "source/target language",
+  "aggregator", "consent token" or "category split". It says "Connect your card
+  (read-only)", "You have $42 left today", "Tap and talk".
+- **Readable in the sun, usable with one hand.** Large type, touch targets of 48 pt or
+  more, primary controls in the thumb zone, full dynamic type and screen-reader support.
+- **Errors say what to do next.** Every error says what happened and gives one action to
+  take.
+- **Proof:** five first-time travellers complete each pillar's core task, unaided and on
+  the first try, before MVP 1 ships.
+
 ---
 
 ## Pillar 1: Talk (conversation translation)
