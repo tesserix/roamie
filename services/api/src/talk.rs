@@ -4,6 +4,7 @@ use serde_json::json;
 use crate::error::{Error, Result};
 use crate::gemini::Gemini;
 use crate::lang::Lang;
+use crate::translate::pronunciation;
 
 const MAX_TEXT_CHARS: usize = 1000;
 const MAX_HISTORY: usize = 6;
@@ -71,6 +72,7 @@ pub struct TurnResponse {
     pub candidates: Vec<Lang>,
     pub transcript: String,
     pub translation: String,
+    pub romanized: String,
     pub target: Lang,
     pub partner: Lang,
     pub same_language: bool,
@@ -85,6 +87,10 @@ struct Heard {
     transcript: String,
     to_mine: String,
     to_partner: String,
+    #[serde(default)]
+    to_mine_romanized: String,
+    #[serde(default)]
+    to_partner_romanized: String,
 }
 
 const SYSTEM: &str = "You are Roamie, a live interpreter between a traveller and one local person. \
@@ -93,6 +99,7 @@ You receive one utterance as audio or text. \
 2. transcript: exactly what was said, in its original language and script. \
 3. to_mine and to_partner: translate the transcript into the two requested languages. Natural, polite, spoken register. \
 Keep numbers, prices, times, and names exact. Use the recent conversation only to resolve references. \
+to_mine_romanized and to_partner_romanized: pronunciation guides for each translation in Latin letters, empty when already Latin script. \
 Output translations only, never commentary. If there is no intelligible speech, return an empty transcript.";
 
 /// One model call returns the transcript translated both ways; code, not the model,
@@ -119,9 +126,11 @@ pub async fn interpret(ai: &Gemini, req: &TurnRequest) -> Result<TurnResponse> {
             "candidates": { "type": "ARRAY", "items": { "type": "STRING" } },
             "transcript": { "type": "STRING" },
             "to_mine": { "type": "STRING" },
-            "to_partner": { "type": "STRING" }
+            "to_partner": { "type": "STRING" },
+            "to_mine_romanized": { "type": "STRING" },
+            "to_partner_romanized": { "type": "STRING" }
         },
-        "required": ["language", "confidence", "transcript", "to_mine", "to_partner"]
+        "required": ["language", "confidence", "transcript", "to_mine", "to_partner", "to_mine_romanized", "to_partner_romanized"]
     });
     let heard: Heard = ai
         .json(SYSTEM, vec![Gemini::text(context), input], schema)
@@ -133,13 +142,14 @@ pub async fn interpret(ai: &Gemini, req: &TurnRequest) -> Result<TurnResponse> {
         .ok_or_else(|| Error::Upstream(format!("unknown language {:?}", heard.language)))?;
     let direction = resolve(&req.mine, &req.partner, &detected);
     let same_language = direction.same_language(&detected);
-    let translation = if same_language {
-        heard.transcript.clone()
+    let (translation, romanized) = if same_language {
+        (heard.transcript.clone(), String::new())
     } else if direction.target == req.mine {
-        heard.to_mine
+        (heard.to_mine, heard.to_mine_romanized)
     } else {
-        heard.to_partner
+        (heard.to_partner, heard.to_partner_romanized)
     };
+    let romanized = pronunciation(&translation, &romanized);
     Ok(TurnResponse {
         candidates: heard
             .candidates
@@ -151,6 +161,7 @@ pub async fn interpret(ai: &Gemini, req: &TurnRequest) -> Result<TurnResponse> {
         confidence: heard.confidence.clamp(0.0, 1.0),
         transcript: heard.transcript,
         translation,
+        romanized,
         target: direction.target,
         partner: direction.partner,
         same_language,

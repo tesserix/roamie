@@ -9,6 +9,8 @@ pub enum Error {
     Invalid(String),
     #[error("no speech in utterance")]
     NoSpeech,
+    #[error("no readable text in image")]
+    Unreadable,
     #[error("{0} is not configured")]
     Unavailable(&'static str),
     #[error("upstream returned {0}")]
@@ -29,6 +31,11 @@ impl IntoResponse for Error {
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "no_speech",
                 "Didn't catch that. Try again a little closer.".into(),
+            ),
+            Error::Unreadable => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "no_text",
+                "Couldn't find any text in that photo. Try again closer and steadier.".into(),
             ),
             Error::Unavailable(what) => (
                 StatusCode::SERVICE_UNAVAILABLE,
