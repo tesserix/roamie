@@ -4,10 +4,13 @@ mod gemini;
 mod lang;
 mod money;
 mod nearby;
+mod ocr;
 mod receipts;
+mod signs;
 mod talk;
 #[cfg(test)]
 mod tests;
+mod translate;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,6 +31,7 @@ struct AppState {
     ai: Option<gemini::Gemini>,
     fx: fx::Fx,
     places: Option<nearby::Places>,
+    ocr: Option<ocr::Ocr>,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -67,7 +71,13 @@ async fn main() -> anyhow::Result<()> {
     if places.is_none() {
         tracing::warn!("PLACES_API_KEY unset; nearby will return 503");
     }
+    let ocr = ocr_from_env(&http)
+        .inspect_err(
+            |e| tracing::warn!(error = %e, "OCR not configured; sign translation will return 503"),
+        )
+        .ok();
     let state = Arc::new(AppState {
+        ocr,
         http,
         ai,
         fx: fx::Fx::new(fx::FX_BASE),
@@ -86,6 +96,8 @@ async fn main() -> anyhow::Result<()> {
 fn router(state: Arc<AppState>) -> Router {
     let v1 = Router::new()
         .route("/talk/turn", post(talk_turn))
+        .route("/translate/text", post(translate_text))
+        .route("/signs/translate", post(sign_translate))
         .route("/receipts/extract", post(receipt_extract))
         .route("/nearby", get(nearby_search))
         .route("/fx", get(fx_latest));
@@ -96,9 +108,27 @@ fn router(state: Arc<AppState>) -> Router {
         .layer(RequestBodyLimitLayer::new(12 * 1024 * 1024))
         .layer(TimeoutLayer::with_status_code(
             StatusCode::GATEWAY_TIMEOUT,
-            Duration::from_secs(30),
+            Duration::from_secs(60),
         ))
         .layer(TraceLayer::new_for_http())
+}
+
+fn ocr_from_env(http: &reqwest::Client) -> anyhow::Result<ocr::Ocr> {
+    let var = |k: &str| std::env::var(k).map_err(|_| anyhow::anyhow!("{k} unset"));
+    let tenant = env_or("OCR_TENANT", "ten_roamie_public");
+    anyhow::ensure!(
+        ocr::valid_tenant(&tenant),
+        "OCR_TENANT must match ten_[A-Za-z0-9_]{{1,64}}"
+    );
+    Ok(ocr::Ocr {
+        http: http.clone(),
+        upload_base: var("OCR_UPLOAD_URL")?,
+        job_base: var("OCR_JOB_URL")?,
+        key_id: var("OCR_KEY_ID")?,
+        secret: hex::decode(var("OCR_KEY_SECRET")?.trim())?,
+        tenant,
+        deadline: Duration::from_secs(env_or("OCR_DEADLINE_SECS", "40").parse()?),
+    })
 }
 
 async fn shutdown() {
@@ -122,6 +152,24 @@ async fn talk_turn(
 ) -> Result<Json<talk::TurnResponse>> {
     let ai = s.ai.as_ref().ok_or(Error::Unavailable("Translation"))?;
     Ok(Json(talk::interpret(ai, &req).await?))
+}
+
+async fn translate_text(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<translate::TextRequest>,
+) -> Result<Json<translate::TextResponse>> {
+    let ai = s.ai.as_ref().ok_or(Error::Unavailable("Translation"))?;
+    Ok(Json(translate::text(ai, &req).await?))
+}
+
+async fn sign_translate(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<signs::SignRequest>,
+) -> Result<Json<signs::SignResponse>> {
+    let (Some(ocr), Some(ai)) = (s.ocr.as_ref(), s.ai.as_ref()) else {
+        return Err(Error::Unavailable("Photo translation"));
+    };
+    Ok(Json(signs::translate(ocr, ai, &req).await?))
 }
 
 async fn receipt_extract(

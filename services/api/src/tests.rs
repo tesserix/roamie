@@ -60,6 +60,7 @@ fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc<AppState> 
             key: "k".into(),
             base: base.into(),
         }),
+        ocr: None,
         http,
     })
 }
@@ -329,4 +330,221 @@ async fn fx_provider_error_is_bad_gateway() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn text_is_translated_with_pronunciation() {
+    let (ai, _) = upstream(
+        StatusCode::OK,
+        model_reply(json!({
+            "language": "en", "translation": "ขอบคุณครับ", "romanized": "khob khun khrap",
+            "source_romanized": "", "alternatives": ["ขอบคุณมากครับ", " "]
+        })),
+    )
+    .await;
+    let (status, body) = call(
+        state(&ai, "http://unused", None),
+        "POST",
+        "/v1/translate/text",
+        Some(json!({ "text": "Thank you", "to": "th" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["detected"], "en");
+    assert_eq!(body["translation"], "ขอบคุณครับ");
+    assert_eq!(body["romanized"], "khob khun khrap");
+    assert_eq!(body["alternatives"], json!(["ขอบคุณมากครับ"]));
+}
+
+#[tokio::test]
+async fn blank_text_is_rejected_before_the_model() {
+    let (ai, hits) = upstream(StatusCode::OK, model_reply(json!({}))).await;
+    let (status, _) = call(
+        state(&ai, "http://unused", None),
+        "POST",
+        "/v1/translate/text",
+        Some(json!({ "text": "  ", "to": "th" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
+
+const OCR_SECRET: &str = "00112233445566778899aabbccddeeff";
+
+/// A fake Document Intelligence: walks one upload and one job through their lifecycle,
+/// rejecting any request whose workload signature does not verify.
+async fn ocr_service(upload_status: &'static str, observations: Value) -> String {
+    use axum::http::{HeaderMap, Method, Uri};
+    use axum::routing::{get, post, put};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    let put_url = format!("{base}/storage");
+    let signed = |h: &HeaderMap, m: &Method, u: &Uri| {
+        let v = |k: &str| {
+            h.get(k)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string()
+        };
+        let want = crate::ocr::sign(
+            &hex::decode(OCR_SECRET).expect("hex"),
+            &v("x-ocr-key-id"),
+            &v("x-ocr-tenant-id"),
+            v("x-ocr-timestamp").parse().unwrap_or(0),
+            m.as_str(),
+            u.path(),
+        );
+        v("x-ocr-signature") == want && v("x-ocr-tenant-id") == "ten_roamie_public"
+    };
+    let guard = move |h: HeaderMap, m: Method, u: Uri, reply: Value| async move {
+        if signed(&h, &m, &u) {
+            (StatusCode::OK, axum::Json(reply))
+        } else {
+            (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(json!({ "code": "authentication_required" })),
+            )
+        }
+    };
+    let app = axum::Router::new()
+        .route(
+            "/v1/ocr/uploads",
+            post(move |h, m, u| guard(h, m, u, json!({
+                "upload_id": "upl_1", "method": "PUT", "upload_url": put_url,
+                "required_headers": { "content-type": "image/jpeg" }, "expires_at": "2026-09-25T00:00:00Z"
+            }))),
+        )
+        .route("/storage", put(|| async { StatusCode::OK }))
+        .route(
+            "/v1/ocr/uploads/{id}/complete",
+            post(move |h, m, u| guard(h, m, u, json!({ "upload_id": "upl_1", "status": "uploaded" }))),
+        )
+        .route(
+            "/v1/ocr/uploads/{id}",
+            get(move |h, m, u| guard(h, m, u, json!({ "upload_id": "upl_1", "status": upload_status }))),
+        )
+        .route(
+            "/v1/ocr/jobs",
+            post(move |h, m, u| guard(h, m, u, json!({ "job_id": "job_1", "status": "processing", "created_at": "x" }))),
+        )
+        .route(
+            "/v1/ocr/jobs/{id}",
+            get(move |h, m, u| guard(h, m, u, json!({ "job_id": "job_1", "status": "completed", "created_at": "x" }))),
+        )
+        .route(
+            "/v1/ocr/jobs/{id}/result",
+            get(move |h, m, u| {
+                let pages = json!([{ "page": 1, "width": 100, "height": 100, "observations": observations.clone() }]);
+                guard(h, m, u, json!({ "pages": pages }))
+            }),
+        );
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    base
+}
+
+fn with_ocr(state: Arc<AppState>, base: &str) -> Arc<AppState> {
+    let mut s = Arc::into_inner(state).expect("sole owner");
+    s.ocr = Some(crate::ocr::Ocr {
+        http: s.http.clone(),
+        upload_base: base.into(),
+        job_base: base.into(),
+        key_id: "roamie-v1".into(),
+        secret: hex::decode(OCR_SECRET).expect("hex"),
+        tenant: "ten_roamie_public".into(),
+        deadline: std::time::Duration::from_secs(5),
+    });
+    Arc::new(s)
+}
+
+fn sign_photo() -> Value {
+    json!({ "data": "/9j/AAAA", "mimeType": "image/jpeg", "to": "en" })
+}
+
+fn observation(text: &str, order: u32) -> Value {
+    json!({
+        "observation_id": format!("o{order}"), "level": "line", "text": text, "confidence": 0.9,
+        "reading_order": order, "parent_observation_id": null,
+        "polygon": { "points": [{ "x": 0.1, "y": 0.2 }, { "x": 0.5, "y": 0.2 }, { "x": 0.5, "y": 0.3 }] }
+    })
+}
+
+#[tokio::test]
+async fn sign_photo_is_read_and_translated_line_by_line() {
+    let ocr = ocr_service(
+        "accepted",
+        json!([observation("出口", 0), observation("禁煙", 1)]),
+    )
+    .await;
+    let (ai, _) = upstream(
+        StatusCode::OK,
+        model_reply(json!({
+            "language": "ja", "gist": "Exit this way; no smoking.",
+            "lines": [
+                { "index": 1, "translation": "No smoking", "romanized": "kin'en" },
+                { "index": 0, "translation": "Exit", "romanized": "deguchi" }
+            ]
+        })),
+    )
+    .await;
+    let (status, body) = call(
+        with_ocr(state(&ai, "http://unused", None), &ocr),
+        "POST",
+        "/v1/signs/translate",
+        Some(sign_photo()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["detected"], "ja");
+    assert_eq!(body["gist"], "Exit this way; no smoking.");
+    assert_eq!(body["lines"][0]["original"], "出口");
+    assert_eq!(body["lines"][0]["translation"], "Exit");
+    assert_eq!(body["lines"][1]["romanized"], "kin'en");
+    let b = &body["lines"][0]["box"];
+    assert!((b["x"].as_f64().unwrap() - 0.1).abs() < 1e-6, "{b}");
+    assert!((b["w"].as_f64().unwrap() - 0.4).abs() < 1e-6, "{b}");
+}
+
+#[tokio::test]
+async fn sign_photo_without_text_is_unprocessable() {
+    let cases = [
+        ("no text found", ocr_service("accepted", json!([])).await),
+        ("upload rejected", ocr_service("rejected", json!([])).await),
+    ];
+    for (name, ocr) in cases {
+        let (ai, hits) = upstream(StatusCode::OK, model_reply(json!({}))).await;
+        let (status, body) = call(
+            with_ocr(state(&ai, "http://unused", None), &ocr),
+            "POST",
+            "/v1/signs/translate",
+            Some(sign_photo()),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "case {name}: {body}"
+        );
+        assert_eq!(body["error"], "no_text", "case {name}");
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            0,
+            "case {name}: model not called"
+        );
+    }
+}
+
+#[tokio::test]
+async fn sign_photo_is_unavailable_without_ocr() {
+    let (status, _) = call(
+        state("http://unused", "http://unused", None),
+        "POST",
+        "/v1/signs/translate",
+        Some(sign_photo()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
 }
