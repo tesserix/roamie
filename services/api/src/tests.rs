@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -410,6 +410,9 @@ async fn ocr_service(upload_status: &'static str, observations: Value) -> String
             )
         }
     };
+    let stored = Arc::new(AtomicBool::new(false));
+    let completed = Arc::new(AtomicBool::new(false));
+    let seen = completed.clone();
     let app = axum::Router::new()
         .route(
             "/v1/ocr/uploads",
@@ -418,14 +421,30 @@ async fn ocr_service(upload_status: &'static str, observations: Value) -> String
                 "required_headers": { "content-type": "image/jpeg" }, "expires_at": "2026-09-25T00:00:00Z"
             }))),
         )
-        .route("/storage", put(|| async { StatusCode::OK }))
+        .route(
+            "/storage",
+            put(move || async move {
+                // The signer is create-only, so storage refuses a second write to the same object.
+                if stored.swap(true, Ordering::SeqCst) {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::OK
+                }
+            }),
+        )
         .route(
             "/v1/ocr/uploads/{id}/complete",
-            post(move |h, m, u| guard(h, m, u, json!({ "upload_id": "upl_1", "status": "uploaded" }))),
+            post(move |h, m, u| {
+                completed.store(true, Ordering::SeqCst);
+                guard(h, m, u, json!({ "upload_id": "upl_1", "status": "uploaded" }))
+            }),
         )
         .route(
             "/v1/ocr/uploads/{id}",
-            get(move |h, m, u| guard(h, m, u, json!({ "upload_id": "upl_1", "status": upload_status }))),
+            get(move |h, m, u| {
+                let status = if seen.load(Ordering::SeqCst) { upload_status } else { "reserved" };
+                guard(h, m, u, json!({ "upload_id": "upl_1", "status": status }))
+            }),
         )
         .route(
             "/v1/ocr/jobs",
@@ -547,4 +566,23 @@ async fn sign_photo_is_unavailable_without_ocr() {
     )
     .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn same_sign_photo_twice_reuses_the_stored_upload() {
+    let ocr = ocr_service("accepted", json!([observation("出口", 0)])).await;
+    let (ai, _) = upstream(
+        StatusCode::OK,
+        model_reply(json!({
+            "language": "ja", "gist": "Exit.",
+            "lines": [{ "index": 0, "translation": "Exit", "romanized": "deguchi" }]
+        })),
+    )
+    .await;
+    let s = with_ocr(state(&ai, "http://unused", None), &ocr);
+    for attempt in ["first", "retry"] {
+        let (status, body) =
+            call(s.clone(), "POST", "/v1/signs/translate", Some(sign_photo())).await;
+        assert_eq!(status, StatusCode::OK, "{attempt}: {body}");
+    }
 }

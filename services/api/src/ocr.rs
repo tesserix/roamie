@@ -175,24 +175,36 @@ impl Ocr {
                 Some(&format!("{key}-u")),
             )
             .await?;
-        let mut put = self.http.put(&upload.upload_url).body(bytes);
-        for (k, v) in &upload.required_headers {
-            put = put.header(k, v);
-        }
-        let stored = put.send().await?.status();
-        if !stored.is_success() {
-            return Err(Error::Upstream(format!("ocr upload put {stored}")));
-        }
         let id = &upload.upload_id;
-        let _: Upload = self
+        // The idempotency key replays a recent upload of the same photo, which is already stored.
+        let current: Upload = self
             .call(
-                Method::POST,
+                Method::GET,
                 &self.upload_base,
-                format!("/v1/ocr/uploads/{id}/complete"),
+                format!("/v1/ocr/uploads/{id}"),
                 None,
                 None,
             )
             .await?;
+        if current.status == "reserved" {
+            let mut put = self.http.put(&upload.upload_url).body(bytes);
+            for (k, v) in &upload.required_headers {
+                put = put.header(k, v);
+            }
+            let stored = put.send().await?.status();
+            if !stored.is_success() {
+                return Err(Error::Upstream(format!("ocr upload put {stored}")));
+            }
+            let _: Upload = self
+                .call(
+                    Method::POST,
+                    &self.upload_base,
+                    format!("/v1/ocr/uploads/{id}/complete"),
+                    None,
+                    None,
+                )
+                .await?;
+        }
         self.wait(
             until,
             |s: &Upload| match s.status.as_str() {
