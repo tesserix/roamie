@@ -85,6 +85,7 @@ export default function Talk() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [turns, setTurns] = useState<Turn[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [typing, setTyping] = useState(false);
   const [keyboard, setKeyboard] = useState(false);
@@ -102,14 +103,11 @@ export default function Talk() {
   }, []);
 
   async function send(input: Pick<TurnRequest, 'audio' | 'text'>) {
-    if (!partner) {
-      setPicking(true);
-      return;
-    }
     setPhase('thinking');
     setError(null);
+    setNotice(null);
     try {
-      const res = await talkTurn({ mine, partner, history: history.current, ...input });
+      const res = await talkTurn({ mine, partner: partner ?? mine, history: history.current, ...input });
       history.current = [...history.current, { original: res.transcript, translation: res.translation }].slice(-6);
       const fromMe = res.detected === mine;
       setTurns((t) => [
@@ -126,7 +124,8 @@ export default function Talk() {
         },
       ]);
       if (focusedRef.current) signalFeedback(accessibilityRef.current.vibration);
-      if (res.partner !== partner) setPartner(res.partner);
+      if (res.detected !== mine && res.partner !== partner) setPartner(res.partner);
+      if (!partner && fromMe) setNotice('Let the other person speak once so we can detect their language, or choose it above.');
       if (!res.sameLanguage && !accessibilityRef.current.quiet && !accessibilityRef.current.screenReader) void speak(res.translation, res.target);
       if (accessibilityRef.current.screenReader) AccessibilityInfo.announceForAccessibility('Translation ready.');
     } catch (e) {
@@ -137,7 +136,6 @@ export default function Talk() {
   }
 
   async function startListening() {
-    if (!partner) { setPicking(true); return; }
     if (recordingLock.current) return;
     recordingLock.current = true;
     setPhase('starting');
@@ -204,7 +202,7 @@ export default function Talk() {
 
   const status =
     error ??
-    (phase === 'listening' ? 'Listening…' : phase === 'thinking' ? 'Translating…' : typing ? null : accessibility.quiet ? 'Quiet mode · both sides stay on screen.' : null);
+    (phase === 'listening' ? 'Listening…' : phase === 'thinking' ? 'Translating…' : notice ? notice : typing ? null : accessibility.quiet ? 'Quiet mode · both sides stay on screen.' : null);
 
   useEffect(() => {
     if (accessibility.screenReader && (error || phase !== 'idle')) {
@@ -269,13 +267,13 @@ export default function Talk() {
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={partner ? `Their language: ${languageName(partner)}. Change` : 'Choose their language'}
+          accessibilityLabel={partner ? `Their language: ${languageName(partner)}. Change` : 'Their language: Auto-detect. Choose manually'}
           onPress={() => setPicking(true)}
           style={({ pressed }) => [styles.langSide, { minHeight: 48, justifyContent: 'center', alignItems: 'flex-end', opacity: pressed ? 0.6 : 1 }]}>
-          <Text maxFontSizeMultiplier={2} style={[font.overline, { color: c.muted }]}>{saved ? 'Them' : 'Them · auto'}</Text>
+          <Text maxFontSizeMultiplier={2} style={[font.overline, { color: c.muted }]}>Them · auto</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <Text maxFontSizeMultiplier={2} style={[font.headline, { color: partner ? c.text : c.accent, flexShrink: 1 }]} >
-              {partner ? languageName(partner) : 'Choose'}
+              {partner ? languageName(partner) : 'Auto-detect'}
             </Text>
             <Icon name="chevron.down" size={12} color={c.muted} />
           </View>
@@ -293,8 +291,8 @@ export default function Talk() {
               title="Talk to anyone"
               body={
                 partner
-                  ? `Tap the mic, speak, then tap again. Translate between ${languageName(mine)} and ${languageName(partner)}.`
-                  : 'Choose their language, then tap the microphone. You can type instead.'
+                  ? `Tap to speak. Tap again to translate. Replies switch automatically between ${languageName(mine)} and the other person’s language.`
+                  : `Let the other person speak first. We’ll detect their language and translate into ${languageName(mine)}. Then reply in ${languageName(mine)}.`
               }
             />
           </View>
