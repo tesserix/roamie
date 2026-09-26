@@ -171,11 +171,18 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/auth/audit", get(accounts::audit))
         .route("/reference/trip-styles", get(accounts::styles))
         .route("/trips/plan", post(trips::plan))
+        .route("/memories/capabilities", post(memories::capabilities))
         .layer(timeout(60))
+        .layer(RequestBodyLimitLayer::new(12 * 1024 * 1024))
         // Rendering outlasts the standard budget but must finish inside Cloudflare's 100s origin limit.
         .route(
             "/memories/render",
-            post(memories::render).layer(timeout(90)),
+            post(memories::render)
+                .layer::<_, std::convert::Infallible>(axum::extract::DefaultBodyLimit::max(
+                    18 * 1024 * 1024,
+                ))
+                .layer::<_, std::convert::Infallible>(RequestBodyLimitLayer::new(18 * 1024 * 1024))
+                .layer(timeout(90)),
         )
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -191,9 +198,9 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/readyz", get(readiness))
         .route("/v1/auth/config", get(auth::configuration))
         .layer(timeout(60))
+        .layer(RequestBodyLimitLayer::new(12 * 1024 * 1024))
         .nest("/v1", v1)
         .with_state(state)
-        .layer(RequestBodyLimitLayer::new(12 * 1024 * 1024))
         .layer(TraceLayer::new_for_http())
 }
 

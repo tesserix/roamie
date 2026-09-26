@@ -451,6 +451,25 @@ async fn memory_render_rejects_requests_without_photos() {
 }
 
 #[tokio::test]
+async fn memory_editor_capabilities_and_large_render_body() {
+    let (status, body) = call(
+        state("http://unused", "http://unused", None),
+        "POST",
+        "/v1/memories/capabilities",
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["editorVersion"], 1);
+    let (status, _) = call(state("http://unused", "http://unused", None), "POST", "/v1/memories/render", Some(json!({"title":"Test", "durationSeconds":60,"images":["A".repeat(699_000),"A".repeat(699_000),"A".repeat(699_000),"A".repeat(699_000)]}))).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "large valid-sized request must reach image validation, not JSON's default 2 MiB limit"
+    );
+}
+
+#[tokio::test]
 async fn fx_rates_are_cached_per_base() {
     let (fx_url, hits) = upstream(
         StatusCode::OK,

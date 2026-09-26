@@ -1,3 +1,4 @@
+import { getDocumentAsync } from 'expo-document-picker';
 import { Directory, File, Paths } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
@@ -45,15 +46,15 @@ export async function suggestPhotos(account: string, trip: Trip): Promise<Memory
   catch (error) { deletePhotos(account, trip.id, photos); throw error; }
 }
 export function deletePhotos(account: string, trip: string, photos: MemoryPhoto[]) {
-  const prefix = tripDirectory(account, trip).uri + '/';
-  for (const photo of photos) if (photo.uri.startsWith(prefix)) { const file = new File(photo.uri); if (file.exists) file.delete(); }
+  const prefix = tripDirectory(account, trip).uri.replace(/\/+$/, '') + '/';
+  for (const photo of photos) if (/^[a-z0-9-]{1,80}$/.test(photo.id) && photo.uri === `${prefix}${photo.id}.jpg`) { const file = new File(photo.uri); if (file.exists) file.delete(); }
 }
 export async function photoData(account: string, trip: Trip) {
   validatePhotos(trip.photos.map(p => p.id));
-  const prefix = tripDirectory(account, trip.id).uri + '/';
+  const prefix = tripDirectory(account, trip.id).uri.replace(/\/+$/, '') + '/';
   const result: { data: string; caption: string }[] = [];
   for (const photo of trip.photos) {
-    if (!photo.uri.startsWith(prefix)) throw new Error('Choose these photos again on this account.');
+    if (!/^[a-z0-9-]{1,80}$/.test(photo.id) || photo.uri !== `${prefix}${photo.id}.jpg`) throw new Error('Choose these photos again on this account.');
     const file = new File(photo.uri);
     if (!file.exists || file.size > 500000) throw new Error('A photo is unavailable. Choose it again.');
     result.push({ data: await file.base64(), caption: photo.caption });
@@ -80,4 +81,20 @@ export async function saveToPhotos(uri: string) {
 export function saveVideo(account: string, tripId: string, bytes: Uint8Array): string {
   const directory = tripDirectory(account, tripId); directory.create({ intermediates: true, idempotent: true });
   const file = new File(directory, 'memory.mp4'); file.write(bytes); return file.uri;
+}
+
+export function discardVideo(account: string, tripId: string) {
+  const file = new File(tripDirectory(account, tripId), 'memory.mp4');
+  if (file.exists) file.delete();
+}
+export async function chooseMusic(): Promise<{name: string; data: string} | null> {
+  const result = await getDocumentAsync({ type: ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-wav', 'audio/aac'], copyToCacheDirectory: true, multiple: false });
+  if (result.canceled) return null;
+  const asset = result.assets[0], file = new File(asset.uri);
+  try {
+    if (!/\.(mp3|wav|m4a|aac)$/i.test(asset.name) || !file.exists || file.size <= 0 || file.size > 3_000_000) throw new Error('Choose an MP3, WAV, M4A or AAC file up to 3 MB.');
+    return { name: asset.name, data: await file.base64() };
+  } finally {
+    if (file.uri.startsWith(Paths.cache.uri.replace(/\/+$/, '') + '/') && file.exists) file.delete();
+  }
 }

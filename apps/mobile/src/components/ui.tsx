@@ -240,8 +240,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingBottom: space.md,
   },
-  card: { borderRadius: radius.lg, padding: space.md },
+  card: { borderRadius: 24, padding: 20, gap: 14 },
   button: {
+    flexShrink: 1,
+    minWidth: 48,
     minHeight: touch + 4,
     borderRadius: radius.md,
     flexDirection: 'row',
