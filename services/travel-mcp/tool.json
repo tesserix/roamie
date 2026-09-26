@@ -3,7 +3,7 @@
   "kind": "Tool",
   "metadata": {
     "annotations": {
-      "discovery.agentic.dev/summary": "Read real nearby places for traveller recommendations.",
+      "discovery.agentic.dev/summary": "Read sourced attractions, restaurants and accommodation for reviewed travel planning.",
       "discovery.agentic.dev/when-to-use": "find nearby restaurants or attractions",
       "mcp.devai.io/wire-name": "travel_search"
     },
@@ -16,7 +16,7 @@
     "name": "roamie-travel-search",
     "namespace": "roamie",
     "orgId": "tesserix",
-    "tag": "1.0.1",
+    "tag": "1.1.0",
     "tenantId": "roamie",
     "visibility": "public"
   },
@@ -45,6 +45,29 @@
             "longitude"
           ],
           "title": "Location",
+          "type": "object"
+        },
+        "PlanningStay": {
+          "additionalProperties": false,
+          "properties": {
+            "days": {
+              "maximum": 14,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            },
+            "destination": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Destination",
+              "type": "string"
+            }
+          },
+          "required": [
+            "destination",
+            "days"
+          ],
+          "title": "PlanningStay",
           "type": "object"
         },
         "RecommendationRequest": {
@@ -190,6 +213,11 @@
               "title": "Photo Ids",
               "type": "array"
             },
+            "plan_options": {
+              "default": false,
+              "title": "Plan Options",
+              "type": "boolean"
+            },
             "preferences": {
               "default": [],
               "items": {
@@ -219,6 +247,22 @@
               ],
               "default": null,
               "title": "Start Date"
+            },
+            "stays": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/PlanningStay"
+              },
+              "maxItems": 4,
+              "title": "Stays",
+              "type": "array"
+            },
+            "travellers": {
+              "default": 1,
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Travellers",
+              "type": "integer"
             }
           },
           "required": [
@@ -346,6 +390,19 @@
               "default": null,
               "title": "Currency"
             },
+            "destination": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Destination"
+            },
             "dietary_tags": {
               "default": [],
               "items": {
@@ -464,6 +521,15 @@
               ],
               "default": null,
               "title": "Photo Id"
+            },
+            "place_kind": {
+              "default": "place",
+              "enum": [
+                "place",
+                "accommodation"
+              ],
+              "title": "Place Kind",
+              "type": "string"
             },
             "price_is_estimate": {
               "default": true,

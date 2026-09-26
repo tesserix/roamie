@@ -16,6 +16,7 @@ mod nearby;
 mod ocr;
 mod receipts;
 mod signs;
+mod statements;
 mod talk;
 #[cfg(test)]
 mod tests;
@@ -156,14 +157,11 @@ fn router(state: Arc<AppState>) -> Router {
                 .put(travel_profiles::put)
                 .layer(RequestBodyLimitLayer::new(32768)),
         )
-        .route(
-            "/trip-manager",
-            post(trip_manager::recommend).layer(RequestBodyLimitLayer::new(32768)),
-        )
         .route("/talk/turn", post(talk_turn))
         .route("/translate/text", post(translate_text))
         .route("/signs/translate", post(sign_translate))
         .route("/receipts/extract", post(receipt_extract))
+        .route("/statements/extract", post(statement_extract))
         .route("/destinations/search", post(destinations::search))
         .route("/nearby", get(nearby_search))
         .route("/fx", get(fx_latest))
@@ -174,6 +172,12 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/memories/capabilities", post(memories::capabilities))
         .layer(timeout(60))
         .layer(RequestBodyLimitLayer::new(12 * 1024 * 1024))
+        .route(
+            "/trip-manager",
+            post(trip_manager::recommend)
+                .layer::<_, std::convert::Infallible>(RequestBodyLimitLayer::new(32768))
+                .layer(timeout(90)),
+        )
         // Rendering outlasts the standard budget but must finish inside Cloudflare's 100s origin limit.
         .route(
             "/memories/render",
@@ -190,6 +194,7 @@ fn router(state: Arc<AppState>) -> Router {
         ));
     Router::new()
         .route("/internal/v1/travel/nearby", get(travel_mcp::nearby))
+        .route("/internal/v1/travel/planning", get(travel_mcp::planning))
         .route(
             "/internal/v1/travel/profile/verify",
             post(travel_profiles::verify).layer(RequestBodyLimitLayer::new(32768)),
@@ -271,6 +276,16 @@ async fn receipt_extract(
         s.ai.as_ref()
             .ok_or(Error::Unavailable("Receipt scanning"))?;
     Ok(Json(receipts::extract(ai, &req).await?))
+}
+
+async fn statement_extract(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<statements::StatementRequest>,
+) -> Result<Json<statements::Statement>> {
+    let ai =
+        s.ai.as_ref()
+            .ok_or(Error::Unavailable("Statement import"))?;
+    Ok(Json(statements::extract(ai, &req).await?))
 }
 
 async fn nearby_search(

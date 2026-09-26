@@ -1,4 +1,5 @@
 import { authFetch, session } from './auth-client';
+import type { StatementLine } from './statement';
 const OFFLINE = "Can't reach Roamie. Check your connection and try again.";
 
 export class ApiError extends Error {}
@@ -83,6 +84,14 @@ export const readReceipt = (data: string, mimeType: string, localCurrency?: stri
   call<Receipt>('/v1/receipts/extract', {
     method: 'POST',
     body: JSON.stringify({ data, mimeType, localCurrency }),
+  });
+
+export type Statement = { transactions: StatementLine[]; outsideTrip: number; unreadable: number };
+
+export const readStatement = (data: string, mimeType: string, from: string, to: string) =>
+  call<Statement>('/v1/statements/extract', {
+    method: 'POST',
+    body: JSON.stringify({ data, mimeType, from, to }),
   });
 
 export type Place = {

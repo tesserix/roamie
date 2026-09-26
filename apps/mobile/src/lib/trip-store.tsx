@@ -1,3 +1,4 @@
+import { restoreChosenPlan } from './trip-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { tripStorageKey, createTrip, updateStop, type Trip } from './trips';
@@ -15,6 +16,7 @@ export function TripsProvider({ children, accountId }: { children: ReactNode; ac
       if (!Array.isArray(data) || data.length > 20 || data.some(t => !t || typeof t.id !== 'string' || !Array.isArray(t.days) || !Array.isArray(t.photos))) throw new Error('Invalid saved trips');
       for (const trip of data) {
         const blank = createTrip(trip);
+        if (trip.managerPlan) trip.managerPlan = restoreChosenPlan(trip.managerPlan, trip);
         if (typeof trip.notice !== 'string' || typeof trip.updatedAt !== 'string' || trip.days.length !== blank.days.length || trip.photos.length > 15) throw new Error('Invalid saved trip');
         for (const [index, day] of trip.days.entries()) {
           if (day.date !== blank.days[index].date || !Array.isArray(day.stops)) throw new Error('Invalid saved day');

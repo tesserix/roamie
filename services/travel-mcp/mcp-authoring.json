@@ -2,7 +2,7 @@
   "manifest_version": "1.0",
   "name": "io.github.tesserix/roamie-travel-mcp",
   "version": "0.1.0rc6",
-  "description": "Read sourced Roamie nearby travel evidence with verified caller authorization.",
+  "description": "Read sourced nearby and destination travel evidence with verified caller authorization.",
   "title": "Roamie Travel MCP",
   "repository": {
     "source": "github",
@@ -38,7 +38,7 @@
     "roamie:travel:read"
   ],
   "semantic": {
-    "summary": "Read real nearby places for traveller recommendations.",
+    "summary": "Read sourced attractions, restaurants and accommodation for reviewed travel planning.",
     "domains": [
       "travel"
     ],

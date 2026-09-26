@@ -14,7 +14,7 @@ def test_mcp_catalog_exposes_a_versioned_tool_from_the_real_contract(tmp_path, m
     mcp = json.loads((tmp_path / "mcpserver.json").read_text())
     tool = json.loads((tmp_path / "tool.json").read_text())
     assert mcp["metadata"]["visibility"] == tool["metadata"]["visibility"] == "public"
-    assert mcp["metadata"]["tag"] == tool["metadata"]["tag"] == "1.0.1"
+    assert mcp["metadata"]["tag"] == tool["metadata"]["tag"] == "1.1.0"
     assert mcp["metadata"]["labels"]["mcp.tesserix.app/gateway-export"] == "false"
     assert mcp["spec"]["tools"] == [tool["metadata"]["name"]]
     assert mcp["spec"]["toolSelector"]["matchLabels"] == {
