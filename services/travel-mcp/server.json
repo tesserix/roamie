@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "description": "Read sourced Roamie nearby travel evidence with verified caller authorization.",
+  "name": "io.github.tesserix/roamie-travel-mcp",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://roamie-travel-mcp.roamie.svc.cluster.local/mcp"
+    }
+  ],
+  "repository": {
+    "source": "github",
+    "url": "https://github.com/tesserix/roamie"
+  },
+  "title": "Roamie Travel MCP",
+  "version": "0.1.0rc6"
+}

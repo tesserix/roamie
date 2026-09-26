@@ -17,16 +17,39 @@ permissions:
   id-token: write
 
 jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
   publish:
+    needs: verify
     uses: tesserix/tesserix-workflows/.github/workflows/container-release.yml@62f7f663a98d5ef92567850dd03c8c2513c9068e # v2.3.0
     with:
       namespace: tesserix
       images: >-
-        {"include":[{"name":"roamie-api","context":".","dockerfile":"docker/api.Dockerfile","target":"","source_root":"services/api","build_args":"","requires_application_build_secret":false,"trivy_ignore_file":"","smoke_port":8080,"smoke_path":"/healthz"}]}
+        {"include":[{"name":"roamie-api","context":".","dockerfile":"docker/api.Dockerfile","target":"","source_root":"services/api","build_args":"","requires_application_build_secret":false,"trivy_ignore_file":"","smoke_port":0,"smoke_path":"/healthz"}]}
+
+  verify-published:
+    needs: publish
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify published image with TLS Postgres and authentication
+        env:
+          API_IMAGE: ghcr.io/tesserix/roamie-api:sha-${{ github.sha }}
+        run: |
+          docker pull "$API_IMAGE"
+          bash scripts/ci/smoke-api.sh
 
   # Kargo watches `deploy`, so a commit only lands there once its image is pullable.
   advance-deploy:
-    needs: publish
+    needs: verify-published
     runs-on: ubuntu-24.04
     permissions:
       contents: write
