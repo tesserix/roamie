@@ -1,5 +1,5 @@
 import { afterEach, expect, jest, test } from '@jest/globals';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { fetch } from 'expo/fetch';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -61,7 +61,8 @@ test('traveller creates a trip, adds a timed meal and reopens the saved calendar
  jest.spyOn(media, 'photoData').mockResolvedValue([{data:'YWJj',caption:'A memory'}]);
  jest.spyOn(tripApi, 'memoryCapabilities').mockResolvedValue({editorVersion:1,maxAudioBytes:3000000});
  const discard = jest.spyOn(media, 'discardVideo').mockImplementation(() => {});
- const renderVideo = jest.spyOn(tripApi, 'renderMemory').mockResolvedValue(new Uint8Array([1,2,3]));
+ let finishRender!: (bytes: Awaited<ReturnType<typeof tripApi.renderMemory>>) => void;
+ const renderVideo = jest.spyOn(tripApi, 'renderMemory').mockImplementation(() => new Promise(resolve => { finishRender = resolve; }));
  jest.spyOn(media, 'saveVideo').mockReturnValue('file:///memory.mp4');
  await fireEvent.press(screen.getByRole('button', { name: 'Choose photos' }));
  await fireEvent.press(await screen.findByRole('button', { name: 'Use these photos' }));
@@ -71,11 +72,31 @@ test('traveller creates a trip, adds a timed meal and reopens the saved calendar
  await fireEvent.press(screen.getByRole('button', { name: 'Cinema' }));
  await fireEvent.press(screen.getByRole('button', { name: 'Sunset' }));
  await fireEvent.press(screen.getByRole('button', { name: 'Create memory video' }));
+ expect(await screen.findByRole('progressbar', { name: 'Creating your video' })).toBeTruthy();
+ expect(screen.getByText('Keep Roamie open. Your preview will appear here when it is ready.')).toBeTruthy();
+ expect(screen.getByRole('button', { name: 'Cancel video' })).toBeTruthy();
+ await act(async () => finishRender(new Uint8Array([1,2,3])));
  expect(await screen.findByRole('button', { name: 'Save video to Photos' })).toBeTruthy();
+ expect(screen.queryByRole('progressbar')).toBeNull();
  expect(renderVideo).toHaveBeenCalledWith('Kyoto memories', 60, ['YWJj'], ['A memory'], expect.any(AbortSignal), expect.objectContaining({theme:'cinema',soundtrack:'sunset',openingCaption:'My best trip'}));
  await fireEvent.press(screen.getByRole('button', { name: 'Discard video' }));
  expect(discard).toHaveBeenCalled();
  expect(screen.queryByRole('button', { name: 'Save video to Photos' })).toBeNull();
+ expect(screen.getByRole('button', { name: 'Remove photo 1' })).toBeTruthy();
+ renderVideo.mockImplementationOnce((_title, _duration, _images, _captions, signal) => new Promise((_resolve, reject) => {
+   signal?.addEventListener('abort', () => reject(new Error('Aborted')), {once:true});
+ }));
+ await fireEvent.press(screen.getByRole('button', { name: 'Create memory video' }));
+ expect(await screen.findByRole('progressbar', { name: 'Creating your video' })).toBeTruthy();
+ await fireEvent.press(screen.getByRole('button', { name: 'Cancel video' }));
+ expect(await screen.findByText('Video cancelled. Your photos and choices are safe.')).toBeTruthy();
+ expect(screen.queryByRole('progressbar')).toBeNull();
+ expect(screen.getByRole('button', { name: 'Create memory video' })).toBeEnabled();
+ renderVideo.mockRejectedValueOnce(new Error('Connection lost. Try again.'));
+ await fireEvent.press(screen.getByRole('button', { name: 'Create memory video' }));
+ expect(await screen.findByText('Connection lost. Try again.')).toBeTruthy();
+ expect(screen.queryByRole('progressbar')).toBeNull();
+ expect(screen.getByRole('button', { name: 'Create memory video' })).toBeEnabled();
  expect(screen.getByRole('button', { name: 'Remove photo 1' })).toBeTruthy();
  confirm.mockRestore();
  await fireEvent.press(screen.getByRole('tab', { name: 'Your days' }));

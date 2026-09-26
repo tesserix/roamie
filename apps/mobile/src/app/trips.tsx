@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -112,6 +112,8 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
   const store = useTrips(), c = useColors(), insets = useSafeAreaInsets();
   const { width, fontScale } = useWindowDimensions();
   const [day, setDay] = useState(0), [tab, setTab] = useState<'calendar' | 'memories'>('calendar'), [editor, setEditor] = useState<TripStop | 'new' | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(''), [seconds, setSeconds] = useState<60 | 90>(60), [video, setVideo] = useState<string | null>(null), [pdf, setPdf] = useState<string | null>(null), [suggested, setSuggested] = useState<MemoryPhoto[] | null>(null);
+  const [videoStage, setVideoStage] = useState<'preparing' | 'rendering' | null>(null);
+  const [videoNotice, setVideoNotice] = useState('');
   const [options, setOptions] = useState<MemoryOptions>({theme:'postcard',soundtrack:'none',openingCaption:'',year:Number(trip.startDate.slice(0,4))});
   const [musicName, setMusicName] = useState(''), [editorReady, setEditorReady] = useState(false), [editorError, setEditorError] = useState(''), [capabilityAttempt, setCapabilityAttempt] = useState(0);
   useEffect(() => {
@@ -150,9 +152,20 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
   function exportPdf() { void work('Making your keepsake…', async () => { const uri = await exportTrip(store.accountId, trip, tab === 'calendar' ? 'itinerary' : 'album'); if (alive.current) setPdf(uri); }); }
   function makeVideo() {
     Alert.alert('Create your memory video?', 'Your selected photos will upload to Roamie for rendering, then be removed from the server. Your music selection, if any, is also uploaded temporarily. The result is a private MP4 with gentle motion. Nothing is posted automatically.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Create video', onPress: () => { void work('Making your memory video…', async signal => {
-      const photos = await photoData(store.accountId, trip); if (signal.aborted) return;
-      const bytes = await renderMemory(trip.title, seconds, photos.map(p => p.data), photos.map(p => p.caption), signal, options);
-      if (alive.current && !signal.aborted) { setVideo(saveVideo(store.accountId, trip.id, bytes)); }
+      setVideoNotice(''); setVideoStage('preparing');
+      try {
+        const photos = await photoData(store.accountId, trip);
+        if (signal.aborted) throw new Error('Cancelled');
+        if (!alive.current) return;
+        setVideoStage('rendering');
+        const bytes = await renderMemory(trip.title, seconds, photos.map(p => p.data), photos.map(p => p.caption), signal, options);
+        if (signal.aborted) throw new Error('Cancelled');
+        if (alive.current) setVideo(saveVideo(store.accountId, trip.id, bytes));
+      } catch (e) {
+        if (alive.current) setVideoNotice(signal.aborted ? 'Video cancelled. Your photos and choices are safe.' : e instanceof Error ? e.message : 'Could not create your video. Please try again.');
+      } finally {
+        if (alive.current) setVideoStage(null);
+      }
     }); } }]);
   }
   async function shareCard() {
@@ -183,7 +196,7 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
           <Text style={[font.body, { color: tab === option.key ? c.onAccent : c.muted, fontWeight: '600', textAlign: 'center' }]}>{option.label}</Text>
         </Pressable>)}
       </View>
-      {busy ? <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text accessibilityRole="alert" style={[font.headline, { color: c.text }]}>{busy}</Text><Text style={[font.caption, { color: c.muted }]}>Keep Roamie open while this finishes.</Text><Button label="Cancel task" kind="secondary" onPress={() => controller.current?.abort()} /></Card> : null}
+      {busy && !(videoStage && tab === 'memories') ? <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text accessibilityRole="alert" style={[font.headline, { color: c.text }]}>{busy}</Text><Text style={[font.caption, { color: c.muted }]}>Keep Roamie open while this finishes.</Text><Button label="Cancel task" kind="secondary" onPress={() => controller.current?.abort()} /></Card> : null}
       {error ? <Card><Text accessibilityRole="alert" style={[font.body, { color: c.danger }]}>{error}</Text></Card> : null}
       {tab === 'calendar' ? <>
         <Card style={{ padding: 20, borderRadius: 24, gap: 18 }}>
@@ -234,7 +247,23 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
             {!!musicName && <Text style={[font.caption,{color:c.text}]}>{musicName}</Text>}
             <Text style={[font.caption,{color:c.muted}]}>MP3, WAV, M4A or AAC · up to 3 MB. Use music you have permission to share. Audio loops or trims to fit, with a soft fade.</Text>
             <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}><Chip label="60 seconds" selected={seconds===60} onPress={() => { if (!busy) setSeconds(60); }} /><Chip label="90 seconds" selected={seconds===90} onPress={() => { if (!busy) setSeconds(90); }} /></View>
-            <Button label="Create memory video" disabled={!!busy || !!video} onPress={makeVideo} />
+            {videoStage ? <View style={{ padding: 20, gap: 16, borderRadius: 20, backgroundColor: c.accentSoft, borderWidth: 1, borderColor: c.border }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <ActivityIndicator color={c.accent} accessible accessibilityRole="progressbar" accessibilityLabel={videoStage === 'preparing' ? 'Preparing your photos' : 'Creating your video'} />
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Your memories, in motion</Text>
+                  <Text accessibilityLiveRegion="polite" style={[font.caption, { color: c.muted }]}>{videoStage === 'preparing' ? 'Preparing your photos…' : 'Creating your video…'}</Text>
+                </View>
+              </View>
+              <View style={{ gap: 10 }}>
+                <Text style={[font.caption, { color: c.text }]}>{videoStage === 'preparing' ? '1 · Preparing photos' : '✓ Photos prepared'}</Text>
+                <Text style={[font.caption, { color: videoStage === 'rendering' ? c.text : c.muted }]}>2 · Uploading & creating video</Text>
+                <Text style={[font.caption, { color: c.muted }]}>3 · Preview ready to save & share</Text>
+              </View>
+              <Text style={[font.caption, { color: c.muted }]}>Keep Roamie open. Your preview will appear here when it is ready.</Text>
+              <Button label="Cancel video" kind="secondary" onPress={() => controller.current?.abort()} />
+            </View> : <Button label="Create memory video" disabled={!!busy || !!video} onPress={makeVideo} />}
+            {!!videoNotice && <Text accessibilityRole="alert" style={[font.body, { color: c.text }]}>{videoNotice}</Text>}
           </>}
           {video && <><Text style={[font.headline,{color:c.text}]}>Your preview</Text><Text style={[font.caption,{color:c.muted}]}>Save this version, or discard it to make another.</Text><MemoryPlayer key={video} uri={video} disabled={!!busy} discard={() => { discardVideo(store.accountId,trip.id); setVideo(null); }} /><Button label="Save video to Photos" disabled={!!busy} onPress={() => { void work('Saving video…', async () => { await saveToPhotos(video); Alert.alert('Saved', 'Your memory is in Photos.'); }); }} /><Button label="Share video" kind="secondary" disabled={!!busy} onPress={() => { void work('Opening sharing…', () => shareFile(video, 'video/mp4')); }} /></>}
         </Card>}
