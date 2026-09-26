@@ -4,12 +4,12 @@
     "slug": "roamie",
     "version": "0.1.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/brand/roamie-icon.png",
     "scheme": "roamie",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "app.tesserix.roamie",
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/brand/roamie-icon.png",
       "supportsTablet": false,
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Roamie listens only while you hold the mic, to translate what is said.",
@@ -21,10 +21,9 @@
     "android": {
       "package": "app.tesserix.roamie",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/brand/roamie-adaptive.png",
+        "backgroundColor": "#115E59",
+        "monochromeImage": "./assets/brand/roamie-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -47,9 +46,13 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0E7C66",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "image": "./assets/brand/roamie-mark.png",
+          "imageWidth": 112,
+          "resizeMode": "contain",
+          "backgroundColor": "#F6F5F2",
+          "dark": {
+            "backgroundColor": "#0C0E10"
+          }
         }
       ],
       [
@@ -100,6 +103,9 @@
       "eas": {
         "projectId": "63682eea-a1b0-4b53-aa53-0873e7a88135"
       }
+    },
+    "web": {
+      "favicon": "./assets/brand/roamie-mark.png"
     }
   }
 }
