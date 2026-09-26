@@ -13,7 +13,7 @@ args=()
 for pair in "KEY=$(openssl rand -hex 32)" "ISSUER=https://identity.example" "AUDIENCE=smoke" "JWKS_URL=https://identity.example/keys" "JWKS_HOSTS=identity.example" "GATEWAY_CIDRS=127.0.0.1/32" "ALLOWED_HOSTS=127.0.0.1" "ALLOWED_ORIGINS=https://smoke.example" "HOST=0.0.0.0" "LISTEN_HOST=0.0.0.0"; do
   args+=(-e "${MCP_PREFIX}_MCP_${pair}")
 done
-args+=(-e ROAMIE_MCP_API_ORIGIN=http://127.0.0.1:9000 -e ROAMIE_MCP_API_TOKEN=isolated-smoke-only)
+args+=(-e ROAMIE_MCP_MANAGER_SUBJECT=smoke-manager -e ROAMIE_MCP_ORGANIZATION=smoke-org -e ROAMIE_MCP_API_ORIGIN=http://127.0.0.1:9000 -e ROAMIE_MCP_API_TOKEN=isolated-smoke-only)
 docker run -d --name "$name" -p 127.0.0.1:8080:8080 "${args[@]}" "$MCP_IMAGE" >/dev/null
 for ((attempt=0; attempt<30; attempt++)); do
   if curl -fsS http://127.0.0.1:8080/readyz >/dev/null; then break; fi

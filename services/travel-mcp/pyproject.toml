@@ -3,6 +3,7 @@ name = "roamie-travel-mcp"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
+  "PyJWT[crypto]>=2.13,<3",
   "tesserix-mcp-runtime @ https://github.com/tesserix/tesserix-mcp-runtime/releases/download/v0.1.0-rc.6/tesserix_mcp_runtime-0.1.0rc6-py3-none-any.whl",
   "jsonschema>=4.26,<5",
 ]

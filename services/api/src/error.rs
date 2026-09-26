@@ -5,6 +5,8 @@ use serde_json::json;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("profile changed")]
+    ProfileChanged,
     #[error("account conflict")]
     Conflict,
     #[error("storage unavailable")]
@@ -30,6 +32,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, code, message) = match &self {
+            Error::ProfileChanged => (
+                StatusCode::CONFLICT,
+                "profile_changed",
+                "Save or refresh your travel preferences before continuing.".into(),
+            ),
             Error::Conflict => (
                 StatusCode::CONFLICT,
                 "account_conflict",
