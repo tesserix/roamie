@@ -22,6 +22,12 @@ pub struct Destination {
     pub label: String,
     pub country_code: String,
     pub country: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub latitude: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub longitude: Option<f64>,
 }
 
 pub async fn search(
@@ -45,7 +51,7 @@ pub async fn search(
         .header("X-Goog-Api-Key", &config.key)
         .header(
             "X-Goog-FieldMask",
-            "places.id,places.displayName,places.formattedAddress,places.addressComponents",
+            "places.id,places.displayName,places.formattedAddress,places.addressComponents,places.location",
         )
         .json(&json!({"textQuery":query,"pageSize":5,"languageCode":"en"}))
         .send()
@@ -95,6 +101,12 @@ pub async fn search(
             label: label.into(),
             country_code: code.into(),
             country: country_name.into(),
+            latitude: place["location"]["latitude"]
+                .as_f64()
+                .filter(|v| (-90.0..=90.0).contains(v)),
+            longitude: place["location"]["longitude"]
+                .as_f64()
+                .filter(|v| (-180.0..=180.0).contains(v)),
         });
     }
     Ok(Json(destinations))

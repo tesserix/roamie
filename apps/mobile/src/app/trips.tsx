@@ -15,6 +15,7 @@ import { FOOD_PREFERENCES, TRIP_STYLES, type Destination } from '@/lib/trip-cont
 import { SearchPicker } from '@/components/search-picker';
 import { CURRENCIES } from '@/data/currencies';
 import { applyReviewedPlan } from '@/lib/trip-manager';
+import { TripReadiness } from '@/components/trip-readiness';
 import { TripManager, PlanCard } from '@/components/trip-manager';
 import { TripMemoryCard } from '@/components/trip-memory-card';
 import { font, useColors } from '@/constants/theme';
@@ -197,6 +198,7 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
       {busy && !(videoStage && tab === 'memories') ? <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text accessibilityRole="alert" style={[font.headline, { color: c.text }]}>{busy}</Text><Text style={[font.caption, { color: c.muted }]}>Keep Roamie open while this finishes.</Text><Button label="Cancel task" kind="secondary" onPress={() => controller.current?.abort()} /></Card> : null}
       {error ? <Card><Text accessibilityRole="alert" style={[font.body, { color: c.danger }]}>{error}</Text></Card> : null}
       {tab === 'calendar' ? <>
+        <TripReadiness key={trip.updatedAt} trip={trip} />
         {trip.managerPlan?<><Text style={[font.caption,{color:c.muted}]}>Original reviewed plan · Manual edits below are not re-reviewed. Refresh before booking.</Text><PlanCard option={trip.managerPlan.option} advice={trip.managerPlan.advice} currency={trip.managerPlan.currency}/></>:null}
         <Card style={{ padding: 20, borderRadius: 24, gap: 18 }}>
           <View style={{ flexDirection: 'row', gap: 20 }}>

@@ -1,5 +1,5 @@
 // Generated from Rust trips.rs; run cargo test export_mobile_contract.
-export type Destination = { placeId: string, name: string, label: string, countryCode: string, country: string, };
+export type Destination = { placeId: string, name: string, label: string, countryCode: string, country: string, latitude?: number, longitude?: number, };
 export type PlanningPreferences = { styles: string[], adults: number, children: number, luggage: number, foodPreferences: string[], };
 export type TripStay = { destination: Destination, days: number, };
 export type PlanRequest = { title: string, destination: string, startDate: string, endDate: string, currency: string, budgetMinor: number, diet: string, interests: string, travellers: number, preferences?: PlanningPreferences, stays?: TripStay[], };
