@@ -29,6 +29,10 @@ test('a new profile is created and each destination uses its own dates and verif
   expect(sent[0].request.origin).toEqual({ latitude: 35, longitude: 139 });
   expect(sent[0].profile.revision).toBe('revision-1');
   expect(sent[0].profile.subject).toBeUndefined();
+  expect(sent[0].request.prompt.toLowerCase()).toContain('weather');
+  expect(sent[0].request.prompt.toLowerCase()).not.toContain('entry');
+  expect(sent[1].request.prompt.toLowerCase()).toContain('entry');
+  expect(sent[1].request.prompt.toLowerCase()).not.toContain('weather');
 });
 
 test('an account switch prevents saving or returning another account profile', async () => {

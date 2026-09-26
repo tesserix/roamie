@@ -45,11 +45,11 @@ export async function checkTripReadiness(trip: Trip, signal: AbortSignal): Promi
       try {
         const matches = await searchDestinations(stay.destination.label, controller.signal);
         const place = matches.find(p => p.placeId === stay.destination.placeId);
-        const base = { prompt: 'Review weather and entry preparation for this destination and these dates. Preserve all missing information and official source links.', destination: stay.destination.label, destination_country: stay.destination.countryCode, start_date: range.start, end_date: range.end, currency: trip.currency };
+        const base = { destination: stay.destination.label, destination_country: stay.destination.countryCode, start_date: range.start, end_date: range.end, currency: trip.currency };
         const send = (specialist: string, request: unknown) => call<PlanningResponse>('/v1/trip-manager', 'POST', { profile: { trip_id: trip.id, revision: saved.revision }, specialist, request }, controller.signal);
         const results = await Promise.allSettled([
-          place?.latitude != null && place.longitude != null ? send('weather', { ...base, origin: { latitude: place.latitude, longitude: place.longitude } }) : Promise.resolve(null),
-          send('entry-guidance', base),
+          place?.latitude != null && place.longitude != null ? send('weather', { ...base, prompt: 'Review weather for this destination and these dates. Preserve forecast coverage warnings and preparation suggestions.', origin: { latitude: place.latitude, longitude: place.longitude } }) : Promise.resolve(null),
+          send('entry-guidance', { ...base, prompt: 'Review entry preparation for this destination and these dates. Provide the official-source checklist and clearly identify unverified eligibility, fees and missing traveller information.' }),
         ]);
         result.weather = results[0].status === 'fulfilled' ? results[0].value ?? undefined : undefined;
         result.entry = results[1].status === 'fulfilled' ? results[1].value ?? undefined : undefined;
