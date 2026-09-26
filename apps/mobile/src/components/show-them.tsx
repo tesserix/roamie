@@ -12,21 +12,21 @@ export type Shown = { text: string; lang: string; romanized?: string };
 export function ShowThem({ shown, onClose }: { shown: Shown | null; onClose: () => void }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
-  const [flipped, setFlipped] = useState(false);
+  const [flipped, setFlipped] = useState(true);
   const { reducedMotion } = useAccessibility();
   return (
-    <Modal onShow={() => setFlipped(false)} visible={!!shown} animationType={reducedMotion ? 'none' : 'fade'} onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top, paddingBottom: insets.bottom + space.md }}>
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.text, flipped && { transform: [{ rotate: '180deg' }] }]} accessibilityViewIsModal>
+    <Modal onShow={() => setFlipped(true)} visible={!!shown} animationType={reducedMotion ? 'none' : 'fade'} onRequestClose={onClose}>
+      <View accessibilityViewIsModal style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top, paddingBottom: insets.bottom + space.md }}>
+        <ScrollView testID="enlarged-conversation" style={{ flex: 1 }} contentContainerStyle={[styles.text, flipped && { transform: [{ rotate: '180deg' }] }]}>
           <Text style={{ color: c.text, fontSize: 38, lineHeight: 50, fontWeight: '600', textAlign: 'center' }} accessibilityLanguage={shown?.lang} selectable>
             {shown?.text}
           </Text>
-        </ScrollView>
         {shown?.romanized ? (
           <Text style={{ color: c.muted, fontSize: 17, textAlign: 'center', paddingHorizontal: space.lg, paddingBottom: space.md }}>
             {shown.romanized}
           </Text>
         ) : null}
+        </ScrollView>
         <View style={styles.bar}>
           <IconButton icon="arrow.up.arrow.down" label="Flip text" tone="soft" onPress={() => setFlipped((f) => !f)} />
           {shown ? <SpeakButton text={shown.text} lang={shown.lang} /> : null}

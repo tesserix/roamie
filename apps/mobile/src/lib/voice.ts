@@ -30,20 +30,40 @@ function setCurrent(key: string | null) {
   listeners.forEach((l) => l());
 }
 
-export async function speak(text: string, lang: string, key = text) {
-  Speech.stop();
-  voices ??= Speech.getAvailableVoicesAsync().catch(() => []);
-  const region = lang === getLocales()[0]?.languageCode ? (getLocales()[0]?.regionCode ?? undefined) : undefined;
-  const voice = pickVoice(await voices, lang, region);
-  setCurrent(key);
-  const done = () => {
-    if (current === key) setCurrent(null);
-  };
-  Speech.speak(text, { language: lang, voice, rate: RATE, onDone: done, onStopped: done, onError: done });
+let speechRevision = 0;
+let finishSpeech: ((completed: boolean) => void) | null = null;
+
+export function speak(text: string, lang: string, key = text): Promise<boolean> {
+  stopSpeaking();
+  const revision = speechRevision;
+  return new Promise(resolve => {
+    let finished = false;
+    const done = (completed: boolean) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      if (revision === speechRevision) { finishSpeech = null; setCurrent(null); }
+      resolve(completed);
+    };
+    const timeout = setTimeout(() => { stopSpeaking(); done(false); }, 60000);
+    finishSpeech = done;
+    const play = async () => {
+      voices ??= Speech.getAvailableVoicesAsync().catch(() => []);
+      const region = lang === getLocales()[0]?.languageCode ? (getLocales()[0]?.regionCode ?? undefined) : undefined;
+      const voice = pickVoice(await voices, lang, region);
+      if (finished || revision !== speechRevision) return;
+      setCurrent(key);
+      Speech.speak(text, { language: lang, voice, rate: RATE, onDone: () => done(true), onStopped: () => done(false), onError: () => done(false) });
+    };
+    void play().catch(() => done(false));
+  });
 }
 
 export function stopSpeaking() {
-  Speech.stop();
+  speechRevision++;
+  finishSpeech?.(false);
+  finishSpeech = null;
+  void Promise.resolve(Speech.stop()).catch(() => {});
   setCurrent(null);
 }
 
