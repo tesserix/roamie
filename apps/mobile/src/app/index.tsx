@@ -10,6 +10,7 @@ import { File } from 'expo-file-system';
 import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
+  ActivityIndicator,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
@@ -59,6 +60,12 @@ const MODES: { value: Mode; label: string; icon: SFSymbol }[] = [
 ];
 
 const MIN_HOLD_MS = 400;
+const SPEECH_RECORDING = {
+  ...RecordingPresets.HIGH_QUALITY,
+  numberOfChannels: 1,
+  bitRate: 64000,
+  web: { ...RecordingPresets.HIGH_QUALITY.web, bitsPerSecond: 64000 },
+};
 
 
 export default function Talk() {
@@ -76,15 +83,17 @@ export default function Talk() {
   const mine = profile!.language;
   const partner = saved ?? countryLanguage(country) ?? null;
 
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorder = useAudioRecorder(SPEECH_RECORDING);
   const startedAt = useRef(0);
   const recording = useRef(false);
   const recordingLock = useRef(false);
+  const sending = useRef(false);
   const history = useRef<TurnRequest['history']>([]);
   const list = useRef<FlatList<Turn>>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [turns, setTurns] = useState<Turn[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<Pick<TurnRequest, 'text'> | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [typing, setTyping] = useState(false);
@@ -103,6 +112,9 @@ export default function Talk() {
   }, []);
 
   async function send(input: Pick<TurnRequest, 'audio' | 'text'>) {
+    if (sending.current) return;
+    sending.current = true;
+    setPending({ text: input.text });
     setPhase('thinking');
     setError(null);
     setNotice(null);
@@ -126,17 +138,20 @@ export default function Talk() {
       if (focusedRef.current) signalFeedback(accessibilityRef.current.vibration);
       if (res.detected !== mine && res.partner !== partner) setPartner(res.partner);
       if (!partner && fromMe) setNotice('Let the other person speak once so we can detect their language, or choose it above.');
-      if (!res.sameLanguage && !accessibilityRef.current.quiet && !accessibilityRef.current.screenReader) void speak(res.translation, res.target);
+      if (focusedRef.current && !res.sameLanguage && !accessibilityRef.current.quiet && !accessibilityRef.current.screenReader) void speak(res.translation, res.target);
       if (accessibilityRef.current.screenReader) AccessibilityInfo.announceForAccessibility('Translation ready.');
     } catch (e) {
+      if (input.text) setDraft(current => current || input.text!);
       setError(e instanceof ApiError ? e.message : 'Something went wrong. Please try again.');
     } finally {
+      sending.current = false;
+      setPending(null);
       setPhase('idle');
     }
   }
 
   async function startListening() {
-    if (recordingLock.current) return;
+    if (recordingLock.current || sending.current) return;
     recordingLock.current = true;
     setPhase('starting');
     setError(null);
@@ -195,7 +210,7 @@ export default function Talk() {
 
   function submitDraft() {
     const text = draft.trim();
-    if (!text) return;
+    if (!text || sending.current || phase !== 'idle') return;
     setDraft('');
     send({ text });
   }
@@ -284,7 +299,7 @@ export default function Talk() {
         }
         onContentSizeChange={() => { if (turns.length) list.current?.scrollToEnd({ animated: !accessibility.reducedMotion }); }}
         keyboardShouldPersistTaps="handled"
-        ListEmptyComponent={
+        ListEmptyComponent={pending ? null :
           <View style={{ flex: 1, justifyContent: 'center' }}>
             <Message
               icon="bubble.left.and.bubble.right.fill"
@@ -297,6 +312,13 @@ export default function Talk() {
             />
           </View>
         }
+        ListFooterComponent={pending ? <View style={{ padding: space.md, borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, gap: 12 }}>
+          {pending.text ? <Text style={[font.body, { color: c.text }]}>{pending.text}</Text> : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <ActivityIndicator color={c.accent} accessible={false} />
+            <Text accessibilityLiveRegion="polite" style={[font.body, { color: c.muted }]}>Finding the words…</Text>
+          </View>
+        </View> : null}
         renderItem={({ item }) => (
           <Bubble turn={item} onShow={() => setShowing({ text: item.theirText, lang: item.theirLang, romanized: item.theirRoman })} />
         )}
