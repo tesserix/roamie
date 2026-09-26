@@ -1,36 +1,66 @@
-import { useColorScheme } from 'react-native';
+import { Platform, useColorScheme, type ViewStyle } from 'react-native';
+
+import { useAccessibility } from '@/lib/accessibility';
 
 const palette = {
   light: {
-    text: '#11181C',
-    muted: '#5F6B73',
-    background: '#FFFFFF',
-    card: '#F2F5F4',
-    border: '#DDE3E1',
-    accent: '#0E7C66',
+    text: '#101828',
+    muted: '#667085',
+    faint: '#667085',
+    background: '#F6F5F2',
+    surface: '#FFFFFF',
+    card: '#EFEEEA',
+    border: '#E4E2DC',
+    accent: '#0F766E',
+    accentSoft: '#E1F0EE',
     onAccent: '#FFFFFF',
-    warn: '#B45309',
-    danger: '#C62828',
+    warn: '#B54708',
+    warnSoft: '#FEF0E1',
+    danger: '#D92D20',
+    dangerSoft: '#FDECEA',
   },
   dark: {
-    text: '#ECEDEE',
-    muted: '#9BA7AE',
-    background: '#0B0F0E',
-    card: '#161C1B',
-    border: '#26302E',
-    accent: '#34C3A0',
-    onAccent: '#04221B',
-    warn: '#F59E0B',
-    danger: '#EF5350',
+    text: '#F2F4F7',
+    muted: '#98A2B3',
+    faint: '#98A2B3',
+    background: '#0C0E10',
+    surface: '#16191C',
+    card: '#1F2327',
+    border: '#2A2F34',
+    accent: '#2DD4BF',
+    accentSoft: '#12302D',
+    onAccent: '#042F2A',
+    warn: '#F79009',
+    warnSoft: '#35230F',
+    danger: '#F97066',
+    dangerSoft: '#3A1714',
   },
 } as const;
 
-export type Colors = (typeof palette)['light'] | (typeof palette)['dark'];
+export type Colors = { [K in keyof typeof palette.light]: string };
 
 export function useColors(): Colors {
-  return palette[useColorScheme() === 'dark' ? 'dark' : 'light'];
+  const dark = useColorScheme() === 'dark';
+  const { highContrast } = useAccessibility();
+  const base = palette[dark ? 'dark' : 'light'];
+  return highContrast ? { ...base, text: dark ? '#FFFFFF' : '#000000', muted: dark ? '#F2F4F7' : '#344054', faint: dark ? '#D0D5DD' : '#475467', border: dark ? '#D0D5DD' : '#475467' } : base;
 }
 
 export const space = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 } as const;
-export const radius = { md: 12, lg: 20, pill: 999 } as const;
+export const radius = { sm: 10, md: 14, lg: 22, pill: 999 } as const;
 export const touch = 48;
+
+export const font = {
+  largeTitle: { fontSize: 34, fontWeight: '700', letterSpacing: -0.6 },
+  title: { fontSize: 22, fontWeight: '700', letterSpacing: -0.3 },
+  headline: { fontSize: 17, fontWeight: '600' },
+  body: { fontSize: 16, lineHeight: 22 },
+  caption: { fontSize: 13, lineHeight: 18 },
+  overline: { fontSize: 12, fontWeight: '600', letterSpacing: 0.6, textTransform: 'uppercase' },
+} as const;
+
+// Soft elevation for white cards; Android has no coloured shadows so it gets elevation.
+export const lift: Pick<ViewStyle, 'shadowColor' | 'shadowOpacity' | 'shadowRadius' | 'shadowOffset' | 'elevation'> = Platform.select({
+  ios: { shadowColor: '#101828', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
+  default: { elevation: 1 },
+});

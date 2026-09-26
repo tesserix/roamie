@@ -1,9 +1,12 @@
-import { FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { space, touch, useColors } from '@/constants/theme';
+import { Icon } from '@/components/ui';
+import { font, radius, space, touch, useColors } from '@/constants/theme';
 import { LANGUAGES } from '@/lib/languages';
 
 const ITEMS = Object.entries(LANGUAGES).sort((a, b) => a[1].localeCompare(b[1]));
+const ROW = touch + 4;
 
 type Props = {
   visible: boolean;
@@ -15,32 +18,61 @@ type Props = {
 
 export function LanguagePicker({ visible, title, selected, onPick, onClose }: Props) {
   const c = useColors();
+  const [query, setQuery] = useState('');
+  const items = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? ITEMS.filter(([code, name]) => name.toLowerCase().includes(q) || code === q) : ITEMS;
+  }, [query]);
+
+  const close = () => {
+    setQuery('');
+    onClose();
+  };
+
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>
       <View style={{ flex: 1, backgroundColor: c.background }}>
         <View style={styles.head}>
-          <Text style={{ color: c.text, fontSize: 20, fontWeight: '700' }}>{title}</Text>
-          <Pressable accessibilityRole="button" onPress={onClose} hitSlop={12}>
-            <Text style={{ color: c.accent, fontSize: 17, fontWeight: '600' }}>Done</Text>
+          <Text style={[font.title, { color: c.text }]}>{title}</Text>
+          <Pressable accessibilityRole="button" onPress={close} hitSlop={12}>
+            <Text style={[font.headline, { color: c.accent }]}>Done</Text>
           </Pressable>
         </View>
+        <View style={[styles.search, { backgroundColor: c.card }]}>
+          <Icon name="magnifyingglass" size={17} color={c.muted} />
+          <TextInput
+            accessibilityLabel="Search languages"
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search"
+            placeholderTextColor={c.faint}
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+            style={{ flex: 1, fontSize: 17, color: c.text }}
+          />
+        </View>
         <FlatList
-          data={ITEMS}
+          data={items}
           keyExtractor={([code]) => code}
-          getItemLayout={(_, index) => ({ length: touch + 4, offset: (touch + 4) * index, index })}
-          renderItem={({ item: [code, name] }) => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: code === selected }}
-              onPress={() => {
-                onPick(code);
-                onClose();
-              }}
-              style={({ pressed }) => [styles.row, { borderColor: c.border, opacity: pressed ? 0.6 : 1 }]}>
-              <Text style={{ color: c.text, fontSize: 17 }}>{name}</Text>
-              {code === selected ? <Text style={{ color: c.accent, fontSize: 17 }}>✓</Text> : null}
-            </Pressable>
-          )}
+          keyboardShouldPersistTaps="handled"
+          getItemLayout={(_, index) => ({ length: ROW, offset: ROW * index, index })}
+          contentContainerStyle={{ paddingBottom: space.xl }}
+          renderItem={({ item: [code, name] }) => {
+            const on = code === selected;
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                onPress={() => {
+                  onPick(code);
+                  close();
+                }}
+                style={({ pressed }) => [styles.row, { borderColor: c.border, backgroundColor: pressed ? c.card : 'transparent' }]}>
+                <Text style={[font.body, { color: on ? c.accent : c.text, fontWeight: on ? '600' : '400' }]}>{name}</Text>
+                {on ? <Icon name="checkmark" size={17} color={c.accent} /> : null}
+              </Pressable>
+            );
+          }}
         />
       </View>
     </Modal>
@@ -52,14 +84,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: space.md,
+    paddingHorizontal: space.lg,
+    paddingTop: space.lg,
+    paddingBottom: space.md,
+  },
+  search: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    height: 40,
+    borderRadius: radius.sm,
+    paddingHorizontal: 12,
+    marginHorizontal: space.md,
+    marginBottom: space.sm,
   },
   row: {
-    height: touch + 4,
+    height: ROW,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: space.md,
+    marginLeft: space.lg,
+    paddingRight: space.lg,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
 });

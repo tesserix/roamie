@@ -1,0 +1,38 @@
+name: Mobile Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Target platform
+        type: choice
+        options: [ios, android, all]
+        default: android
+      profile:
+        description: EAS build profile
+        type: choice
+        options: [development, preview, production]
+        default: preview
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: tesserix/tesserix-workflows/.github/workflows/expo-eas-build.yml@62f7f663a98d5ef92567850dd03c8c2513c9068e # v2.3.0
+    with:
+      working_directory: apps/mobile
+      install_directory: apps/mobile
+      lockfile_path: apps/mobile/package-lock.json
+      node_version: 22.19.0
+      package_manager: npm
+      platform: ${{ inputs.platform }}
+      profile: ${{ inputs.profile }}
+      no_wait: false
+      auto_submit: false
+    secrets:
+      expo_token: ${{ secrets.EXPO_TOKEN }}
