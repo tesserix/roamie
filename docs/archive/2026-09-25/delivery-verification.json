@@ -1,0 +1,19 @@
+{
+  "snapshot_date": "2026-09-25",
+  "status": "historical; not reverified against live GitHub",
+  "issues": 71,
+  "epics": 11,
+  "stories": 60,
+  "native_parent_links": 60,
+  "native_dependency_links": 173,
+  "stories_by_phase": {
+    "0": 12,
+    "1": 30,
+    "2": 17,
+    "3": 1
+  },
+  "missing_labels_or_milestones": 0,
+  "dependency_cycles": 0,
+  "later_phase_blockers": 0,
+  "board": "not configured: missing project scope"
+}
