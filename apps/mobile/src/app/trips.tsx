@@ -9,7 +9,7 @@ import { File } from 'expo-file-system';
 import { Button, Card, Chip, Icon, Screen, TAB_CLEARANCE } from '@/components/ui';
 import { TripDatePicker, localDate, tripDateLabel } from '@/components/trip-date-picker';
 import { DestinationLookup } from '@/components/destination-lookup';
-import { InterestList } from '@/components/interest-list';
+import { InterestList, combineInterests } from '@/components/interest-list';
 import { FOOD_PREFERENCES, TRIP_STYLES, type Destination } from '@/lib/trip-contract';
 import { SearchPicker } from '@/components/search-picker';
 import { CURRENCIES } from '@/data/currencies';
@@ -30,6 +30,7 @@ function NewTrip({ done, cancel }: { done: (id: string) => void; cancel: () => v
   const c = useColors(), store = useTrips(), { profile } = useStore();
   const today = localDate();
   const [request, setRequest] = useState<PlanRequest>({ title: '', destination: '', startDate: '', endDate: '', currency: profile?.homeCurrency ?? 'USD', budgetMinor: 0, diet: profile?.diet ?? 'none', interests: '', travellers: 1 });
+  const [interestDraft, setInterestDraft] = useState('');
   const [details, setDetails] = useState(false), [styles, setStyles] = useState<string[]>([]), [foods, setFoods] = useState<string[]>(profile?.diet && profile.diet !== 'none' ? [profile.diet[0].toUpperCase() + profile.diet.slice(1)] : []);
   const [children, setChildren] = useState('0'), [luggage, setLuggage] = useState('0');
   const toggle = (values: string[], value: string) => values.includes(value) ? values.filter(item => item !== value) : [...values, value];
@@ -41,7 +42,7 @@ function NewTrip({ done, cancel }: { done: (id: string) => void; cancel: () => v
   const moveStay = (index: number) => setStays(values => { const next = [...values]; [next[index-1],next[index]] = [next[index],next[index-1]]; return next; });
   const [budget, setBudget] = useState(''), [people, setPeople] = useState('1'), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const field = (key: keyof PlanRequest) => (value: string) => setRequest(r => ({ ...r, [key]: key === 'currency' ? value.toUpperCase() : value }));
-  async function create() { setBusy(true); setError(''); try { if (!request.startDate) throw new Error('Choose your departure date.'); if (request.startDate < localDate()) throw new Error('Choose today or a future departure date.'); if (!destination || stays.some(stay => !stay.destination)) throw new Error('Search and select every destination first.'); const periods = stayDates(request.startDate, stays.map(stay => Number(stay.days))); const amount = budget ? toMinor(budget, request.currency) : 0; if (amount === null) throw new Error('Enter a valid budget.'); const trip = createTrip({ ...request, destination: destination.label, endDate: periods[periods.length-1].end, stays: stays.map(stay => ({destination:stay.destination!,days:Number(stay.days)})), diet: foods.map(food => food.toLowerCase()).find(food => ['vegetarian', 'vegan', 'jain', 'pescatarian', 'halal', 'kosher'].includes(food)) ?? 'none', budgetMinor: amount, travellers: Number(people), preferences: { styles, foodPreferences: foods, adults: Number(people) - Number(children), children: Number(children), luggage: Number(luggage) } }); await store.save({ ...trip, destinationDetails: destination }); done(trip.id); } catch (e) { setError(e instanceof Error ? e.message : 'Could not save your trip.'); } finally { setBusy(false); } }
+  async function create() { setBusy(true); setError(''); try { if (!request.startDate) throw new Error('Choose your departure date.'); if (request.startDate < localDate()) throw new Error('Choose today or a future departure date.'); if (!destination || stays.some(stay => !stay.destination)) throw new Error('Search and select every destination first.'); const periods = stayDates(request.startDate, stays.map(stay => Number(stay.days))); const amount = budget ? toMinor(budget, request.currency) : 0; if (amount === null) throw new Error('Enter a valid budget.'); const trip = createTrip({ ...request, interests: combineInterests(request.interests, interestDraft), destination: destination.label, endDate: periods[periods.length-1].end, stays: stays.map(stay => ({destination:stay.destination!,days:Number(stay.days)})), diet: foods.map(food => food.toLowerCase()).find(food => ['vegetarian', 'vegan', 'jain', 'pescatarian', 'halal', 'kosher'].includes(food)) ?? 'none', budgetMinor: amount, travellers: Number(people), preferences: { styles, foodPreferences: foods, adults: Number(people) - Number(children), children: Number(children), luggage: Number(luggage) } }); await store.save({ ...trip, destinationDetails: destination }); done(trip.id); } catch (e) { setError(e instanceof Error ? e.message : 'Could not save your trip.'); } finally { setBusy(false); } }
   return <Screen title="Where to next?" subtitle="Make room for a little adventure."><KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: TAB_CLEARANCE + 24, gap: 28 }}>
     <View style={{ gap: 20 }}>
     <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>The essentials</Text>
@@ -84,7 +85,7 @@ function NewTrip({ done, cancel }: { done: (id: string) => void; cancel: () => v
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{FOOD_PREFERENCES.map(food => <Chip key={food} label={food} selected={foods.includes(food)} onPress={() => setFoods(toggle(foods, food))} />)}</View>
       <Text style={[font.caption, { color: c.muted }]}>Choose all that apply. Confirm ingredients and allergy safety directly with the venue.</Text>
     </View> : null}
-    <InterestList label="Things you love" value={request.interests} change={field('interests')} placeholder="Gardens, street food, a slower pace…" />
+    <InterestList label="Things you love" value={request.interests} draft={interestDraft} changeDraft={setInterestDraft} change={field('interests')} placeholder="Gardens, street food, a slower pace…" />
     </View>
     <View style={{ gap: 12, paddingTop: 8 }}>
     {error ? <Text accessibilityRole="alert" style={{ color: c.danger }}>{error}</Text> : null}
@@ -207,5 +208,42 @@ export default function Trips() {
       </View>
     </ScrollView>
   </Screen>;
-  return <Screen title="Your trips" subtitle="Good days. Great memories." right={<Button label="New trip" onPress={() => setCreating(true)} />}><FlatList data={store.trips} keyExtractor={t => t.id} contentContainerStyle={{ padding: space.md, paddingBottom: TAB_CLEARANCE, gap: 16 }} ListEmptyComponent={<Card><Text style={[font.title, { color: c.text }]}>Every adventure starts here.</Text><Text style={[font.body, { color: c.muted }]}>Plan your days, find your favourite spots, and turn your photos into memories.</Text><Button label="Plan my first trip" onPress={() => setCreating(true)} /></Card>} renderItem={({ item }) => <Card><Text style={[font.title, { color: c.text }]}>{item.title}</Text><Text style={[font.body, { color: c.muted }]}>{item.destination} · {item.days.length} days</Text><Text style={[font.caption, { color: c.muted }]}>{item.startDate} — {item.endDate} · {item.photos.length} photos</Text><Button label="Open trip" onPress={() => setSelected(item.id)} /><Button label="Delete trip" kind="secondary" onPress={() => Alert.alert('Delete this local trip?', 'This removes its itinerary and Roamie photo copies. Originals in Photos and files you shared stay where they are.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { void store.remove(item.id).then(() => { const folder = tripDirectory(store.accountId, item.id); if (folder.exists) folder.delete(); }).catch(() => Alert.alert('Could not finish deleting', 'Please try again. Some local copies may remain.')); } }])} /></Card>} /></Screen>;
+  return <Screen title="Your trips" subtitle="Good days. Great memories.">
+    <FlatList data={store.trips} keyExtractor={t => t.id}
+      contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: TAB_CLEARANCE + 24, gap: 20 }}
+      ListHeaderComponent={<View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <Text style={[font.caption, { color: c.muted, flex: 1 }]}>{store.trips.length} {store.trips.length === 1 ? 'saved trip' : 'saved trips'}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="New trip" onPress={() => setCreating(true)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, paddingHorizontal: 16, borderRadius: 24, backgroundColor: c.accent, opacity: pressed ? 0.75 : 1 })}>
+          <Icon name="plus" size={16} color={c.onAccent} /><Text style={[font.body, { color: c.onAccent, fontWeight: '600' }]}>New trip</Text>
+        </Pressable>
+      </View>}
+      renderItem={({ item }) => {
+        const destination = item.stays && item.stays.length > 1 ? item.stays.map(stay => stay.destination.name).join(' → ') : item.destinationDetails ? `${item.destinationDetails.name}, ${item.destinationDetails.country}` : item.destination;
+        const date = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+        return <Card style={{ padding: 20, borderRadius: 24, gap: 18 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14 }}>
+            <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}><Icon name="map" size={22} color={c.accent} /></View>
+            <View style={{ flex: 1, gap: 6 }}>
+              <Text accessibilityRole="header" style={[font.title, { color: c.text }]}>{item.title}</Text>
+              <Text style={[font.body, { color: c.muted }]}>{destination}</Text>
+            </View>
+          </View>
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Icon name="calendar" size={16} color={c.muted} />
+              <Text style={[font.caption, { flex: 1, color: c.text }]}>{date(item.startDate)} – {date(item.endDate)}</Text>
+            </View>
+            <Text style={[font.caption, { color: c.muted, paddingLeft: 26 }]}>{item.days.length} {item.days.length === 1 ? 'day' : 'days'} · {item.photos.length ? `${item.photos.length} ${item.photos.length === 1 ? 'photo' : 'photos'}` : 'No photos yet'}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: c.border }}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Open ${item.title}`} onPress={() => setSelected(item.id)} style={({ pressed }) => ({ flex: 1, minHeight: 48, paddingHorizontal: 14, borderRadius: 14, backgroundColor: c.accentSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, opacity: pressed ? 0.7 : 1 })}>
+              <Text style={[font.body, { color: c.accent, fontWeight: '600' }]}>View trip</Text><Icon name="chevron.right" size={14} color={c.accent} />
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Delete ${item.title}`} onPress={() => Alert.alert('Delete this local trip?', 'This removes its itinerary and Roamie photo copies. Originals in Photos and files you shared stay where they are.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { void store.remove(item.id).then(() => { const folder = tripDirectory(store.accountId, item.id); if (folder.exists) folder.delete(); }).catch(() => Alert.alert('Could not finish deleting', 'Please try again. Some local copies may remain.')); } }])} style={({ pressed }) => ({ width: 48, minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+              <Icon name="trash" size={20} color={c.muted} />
+            </Pressable>
+          </View>
+        </Card>;
+      }} />
+  </Screen>;
 }

@@ -4,8 +4,8 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { InterestList } from '../../components/interest-list';
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}) }));
 function Harness({ seen }: { seen: (value: string) => void }) {
- const [value, setValue] = useState('');
- return <InterestList label="Things you love" value={value} change={next => { setValue(next); seen(next); }} />;
+ const [value, setValue] = useState(''), [draft, setDraft] = useState('');
+ return <InterestList label="Things you love" value={value} draft={draft} changeDraft={setDraft} change={next => { setValue(next); seen(next); }} />;
 }
 it('adds each entry below on enter, skips duplicates and removes on tap', async () => {
  const seen = jest.fn<(value: string) => void>();
@@ -28,4 +28,13 @@ it('keeps a typed entry when the field loses focus', async () => {
  await fireEvent.changeText(input, 'Museums');
  await fireEvent(input, 'blur');
  expect(seen).toHaveBeenLastCalledWith('Museums');
+});
+
+it('adds an interest using the visible Add button', async () => {
+ const seen = jest.fn<(value: string) => void>();
+ await render(<Harness seen={seen} />);
+ await fireEvent.changeText(screen.getByLabelText('Things you love'), 'Gardens');
+ await fireEvent.press(screen.getByRole('button', { name: 'Add interest' }));
+ expect(screen.getByRole('button', { name: 'Remove Gardens' })).toBeTruthy();
+ expect(seen).toHaveBeenLastCalledWith('Gardens');
 });
