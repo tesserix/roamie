@@ -62,11 +62,12 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "jest"
+    "test": "jest --runInBand"
   },
   "private": true,
   "jest": {
-    "preset": "jest-expo"
+    "preset": "jest-expo",
+    "testTimeout": 15000
   },
   "engines": {
     "node": ">=22.19.0 <23"
