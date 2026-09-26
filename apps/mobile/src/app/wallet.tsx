@@ -2,12 +2,12 @@ import { getDocumentAsync } from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
 import type { SFSymbol } from 'expo-symbols';
 import * as ImagePicker from 'expo-image-picker';
-import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
 import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -22,6 +22,7 @@ import { Badge, Button, Icon, IconButton, Message, Screen, SectionLabel, TAB_CLE
 import { font, lift, radius, space, useColors } from '@/constants/theme';
 import { StatementReview } from '@/components/statement-review';
 import { ApiError, fxRates, readReceipt, readStatement } from '@/lib/api';
+import { nudge } from '@/lib/budget-nudge';
 import { session } from '@/lib/auth-client';
 import { signOut } from '@/lib/sign-out';
 import { crossed, decimals, format, toHome, toMinor } from '@/lib/money';
@@ -39,15 +40,6 @@ const CATEGORIES: { value: string; label: string; icon: SFSymbol }[] = [
   { value: 'other', label: 'Other', icon: 'square.grid.2x2.fill' },
 ];
 const categoryOf = (v: string) => CATEGORIES.find((k) => k.value === v) ?? CATEGORIES[5];
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-  }),
-});
 
 type Draft = { amount: string; currency: string; category: string; note: string };
 type Review = { rows: StatementRow[]; range: string };
@@ -177,6 +169,17 @@ export default function Wallet() {
     if (hit) await nudge(hit, total, budget, home);
   }
 
+  function setUpApplePay() {
+    Alert.alert(
+      'Add Apple Pay payments automatically',
+      '1. In Shortcuts, open Automation and tap New Automation.\n2. Choose Transaction, pick your cards and choose Run Immediately.\n3. Add the Roamie action "Log card payment" and set Merchant and Amount from the transaction.\n\nPayments you make during a trip then appear here next time you open Roamie.',
+      [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Open Shortcuts', onPress: () => { void Linking.openURL('shortcuts://'); } },
+      ],
+    );
+  }
+
   function menu() {
     Alert.alert('Your account', session.current()?.email, [
       { text: 'Cancel', style: 'cancel' },
@@ -196,6 +199,7 @@ export default function Wallet() {
         <Button label="Scan" icon="doc.text.viewfinder" kind="secondary" busy={scanning} onPress={scan} style={{ flex: 0.7 }} />
       </View>
       <Button label="Import card statement" icon="creditcard" kind="secondary" busy={importing} onPress={importStatement} />
+      {Platform.OS === 'ios' ? <Button label="Track Apple Pay" icon="wave.3.right" kind="secondary" onPress={setUpApplePay} /> : null}
       {expenses.length ? <SectionLabel>Recent</SectionLabel> : null}
     </View>
   );
@@ -395,16 +399,6 @@ function AddSheet({
       </KeyboardAvoidingView>
     </Modal>
   );
-}
-
-async function nudge(threshold: number, spent: number, budget: number, home: string) {
-  const perm = await Notifications.requestPermissionsAsync();
-  if (!perm.granted) return;
-  const body =
-    threshold >= 100
-      ? `You've used your whole budget (${format(spent, home)} of ${format(budget, home)}).`
-      : `You've used ${threshold}% of your budget. ${format(budget - spent, home)} left.`;
-  await Notifications.scheduleNotificationAsync({ content: { title: 'Roamie budget', body }, trigger: null });
 }
 
 const styles = StyleSheet.create({

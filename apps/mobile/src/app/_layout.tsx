@@ -9,6 +9,7 @@ import { TravelLoading } from '@/components/travel-brand';
 import Welcome from '@/components/welcome';
 import SignIn from '@/components/sign-in';
 import { AuthProvider, useAuth } from '@/lib/auth';
+import { useCardPaymentCapture } from '@/lib/card-payment-capture';
 import { StoreProvider, useStore } from '@/lib/store';
 import { TripsProvider } from '@/lib/trip-store';
 
@@ -16,6 +17,7 @@ SplashScreen.preventAutoHideAsync();
 
 function Root() {
   const { ready, profile } = useStore();
+  useCardPaymentCapture();
   useEffect(() => {
     if (ready) SplashScreen.hideAsync();
   }, [ready]);
