@@ -1,6 +1,7 @@
 import { afterEach, expect, jest, test } from '@jest/globals';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { fetch } from 'expo/fetch';
+import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Trips from '../../app/trips';
 import { StoreProvider } from '../store';
@@ -44,6 +45,7 @@ test('traveller creates a trip, adds a timed meal and reopens the saved calendar
  await fireEvent.press(screen.getByRole('button', { name: 'Halal' }));
  await fireEvent.changeText(screen.getByLabelText('Children included in your travellers'), '1');
  await fireEvent.changeText(screen.getByLabelText('Bags for the whole group (0–24)'), '2');
+ await fireEvent.changeText(screen.getByLabelText('Things you love'), 'Gardens');
  await fireEvent.press(screen.getByRole('button', { name: 'Create my trip' }));
  await fireEvent.press(await screen.findByRole('button', { name: 'Add a stop' }));
  await fireEvent.changeText(screen.getByLabelText('Place or activity'), 'Lunch by the river');
@@ -51,11 +53,20 @@ test('traveller creates a trip, adds a timed meal and reopens the saved calendar
  expect(await screen.findAllByText('Lunch by the river')).toHaveLength(2);
  await fireEvent.press(screen.getByRole('button', { name: 'All trips' }));
  expect(await screen.findByText('Kyoto memories')).toBeTruthy();
+ await fireEvent.press(screen.getByRole('button', { name: 'Open Kyoto memories' }));
+ expect(await screen.findByRole('button', { name: 'All trips' })).toBeTruthy();
+ await fireEvent.press(screen.getByRole('button', { name: 'All trips' }));
+ const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+ await fireEvent.press(screen.getByRole('button', { name: 'Delete Kyoto memories' }));
+ expect(alert).toHaveBeenCalledWith('Delete this local trip?', expect.any(String), expect.arrayContaining([expect.objectContaining({ text: 'Cancel', style: 'cancel' })]));
+ expect(screen.getByText('Kyoto memories')).toBeTruthy();
+ alert.mockRestore();
  const writes = jest.mocked(AsyncStorage.setItem).mock.calls.filter(([key]) => key === tripStorageKey('traveller'));
  expect(JSON.parse(writes[writes.length - 1][1])[0].days[3].destination).toBe('Osaka, Japan');
  expect(JSON.parse(writes[writes.length - 1][1])[0].destinationDetails.countryCode).toBe('JP');
  expect(JSON.parse(writes[writes.length - 1][1])[0].preferences).toEqual({styles:['Family'],adults:2,children:1,luggage:2,foodPreferences:['Halal']});
  expect(JSON.parse(writes[writes.length - 1][1])[0].currency).toBe('JPY');
+ expect(JSON.parse(writes[writes.length - 1][1])[0].interests).toBe('Gardens');
  expect(JSON.parse(writes[writes.length - 1][1])[0].startDate).toBe(`${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-15`);
  expect(JSON.parse(writes[writes.length - 1][1])[0].days[4].date).toBe(`${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-19`);
  expect(JSON.parse(writes[writes.length - 1][1])[0].days[0].stops[0].title).toBe('Lunch by the river');
