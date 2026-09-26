@@ -1,5 +1,5 @@
 import { afterEach, expect, jest, test } from '@jest/globals';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { requestRecordingPermissionsAsync } from 'expo-audio';
 import * as Speech from 'expo-speech';
@@ -61,4 +61,38 @@ test('speaking the preferred language first does not invent a partner language',
   await fireEvent.press(screen.getByRole('button', { name: 'Translate' }));
   expect(await screen.findByText('Let the other person speak once so we can detect their language, or choose it above.')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Their language: Auto-detect. Choose manually' })).toBeTruthy();
+});
+
+test('a pending turn is visible and keyboard submit cannot queue duplicate translations', async () => {
+  jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
+  let finish!: (response: Response) => void;
+  const fetch = jest.fn<typeof global.fetch>().mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  global.fetch = fetch;
+  await open();
+  await fireEvent.press(await screen.findByRole('button', { name: 'Type instead' }));
+  const input = screen.getByLabelText('Type something to translate');
+  await fireEvent.changeText(input, 'नमस्ते');
+  await fireEvent(input, 'submitEditing');
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  expect(screen.getByText('नमस्ते')).toBeTruthy();
+  expect(screen.getByText('Finding the words…')).toBeTruthy();
+  await fireEvent.changeText(input, 'Next turn');
+  await fireEvent(input, 'submitEditing');
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(screen.getByLabelText('Type something to translate').props.value).toBe('Next turn');
+  await act(async () => { finish({ ok: true, status: 200, json: async () => ({ detected: 'hi', partner: 'hi', target: 'en', transcript: 'नमस्ते', translation: 'Hello', sameLanguage: false }) } as Response); });
+  expect(await screen.findByText('Hello')).toBeTruthy();
+  expect(screen.queryByText('Finding the words…')).toBeNull();
+});
+
+test('a failed translation restores the submitted text for retry', async () => {
+  jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
+  global.fetch = jest.fn<typeof global.fetch>().mockRejectedValue(new Error('network unavailable'));
+  await open();
+  await fireEvent.press(await screen.findByRole('button', { name: 'Type instead' }));
+  await fireEvent.changeText(screen.getByLabelText('Type something to translate'), 'Please help');
+  await fireEvent.press(screen.getByRole('button', { name: 'Translate' }));
+  expect(await screen.findByRole('alert')).toBeTruthy();
+  expect(screen.getByLabelText('Type something to translate').props.value).toBe('Please help');
+  expect(screen.queryByText('Finding the words…')).toBeNull();
 });
