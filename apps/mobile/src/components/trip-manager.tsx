@@ -79,7 +79,7 @@ function SourceLink({url,label}:{url:string;label:string}) {
   return safe?<Button label={label} kind="secondary" onPress={()=>void Linking.openURL(url).catch(()=>{})}/>:<Text style={{color:c.muted}}>Source unavailable</Text>;
 }
 export function PlanCard({option,advice,currency,select,disabled}:{option:TripOption;advice:Advice;currency:string;select?:()=>void;disabled?:boolean}) {
-  const c=useColors(); const byId=new Map(advice.response.recommendations.map(item=>[item.id,item]));
+  const c=useColors(); const [expanded,setExpanded]=useState(false); const byId=new Map(advice.response.recommendations.map(item=>[item.id,item]));
   const labels={accommodation_minor:'Accommodation',food_minor:'Food',activities_minor:'Activities',transport_minor:'Transport',contingency_minor:'Contingency'};
   return <Card style={{gap:14,padding:20}}>
     <Text accessibilityRole="header" style={[font.headline,{color:c.text}]}>{option.tier==='budget'?'Budget':option.tier==='balanced'?'Balanced':'Premium'} · {option.label}</Text>
@@ -90,10 +90,11 @@ export function PlanCard({option,advice,currency,select,disabled}:{option:TripOp
     <Text style={[font.headline,{color:c.text}]}>Where to stay</Text><Text style={{color:c.text}}>{option.accommodation_guidance}</Text>
     {option.accommodation_ids?.map(id=>{const place=byId.get(id);return place?<View key={id} style={{gap:6}}><Text style={{color:c.text}}>{place.name} · availability not verified</Text><SourceLink url={place.maps_url??place.source_url} label={`Compare ${place.name}`}/></View>:null;})}
     <Text style={[font.headline,{color:c.text}]}>Getting around</Text><Text style={{color:c.text}}>{option.transport_guidance}</Text>
-    {option.days.map(day=><View key={day.date} style={{gap:10}}><Text style={[font.headline,{color:c.text}]}>{day.date} · {day.destination}</Text>{day.stops.map((stop,index)=>{
+    <Button label={`${expanded?'Hide':'View'} ${option.tier} itinerary`} kind="secondary" onPress={()=>setExpanded(value=>!value)}/>
+    {expanded?option.days.map(day=><View key={day.date} style={{gap:10}}><Text style={[font.headline,{color:c.text}]}>{day.date} · {day.destination}</Text>{day.stops.map((stop,index)=>{
       const place=byId.get(stop.evidence_id);
       return <View key={`${stop.evidence_id}-${index}`} style={{gap:6}}><Text style={{color:c.text}}>{stop.time} · {place?.name??'Place unavailable'} · {stop.minutes} min suggested</Text><Text style={{color:c.muted}}>{stop.note}</Text>{place?<SourceLink url={place.maps_url??place.source_url} label={`Map and source for ${place.name}`}/>:null}</View>;
-    })}</View>)}
+    })}</View>):null}
     {select?<Button label={`Choose ${option.tier} trip`} disabled={disabled} onPress={select}/>:null}
   </Card>;
 }

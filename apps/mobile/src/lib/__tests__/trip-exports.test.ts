@@ -16,3 +16,10 @@ test('album exports accept 1 and 15 photos, reject external image sources', () =
  expect(() => albumHtml(trip,[{data:'https://evil.test/photo',caption:''}])).toThrow();
  expect(() => albumHtml(trip,[])).toThrow();
 });
+
+test('unverified stop prices remain unknown in exports',()=>{
+ const planned=updateStop(trip,0,{id:'unknown',time:'10:00',minutes:300,kind:'sight',title:'Museum',note:'Confirm hours',costMinor:0,costUnknown:true,place:null,transport:[]});
+ const html=itineraryHtml(planned);
+ expect(html).toContain('Cost not verified');
+ expect(html).not.toContain('Est. ¥0');
+});
