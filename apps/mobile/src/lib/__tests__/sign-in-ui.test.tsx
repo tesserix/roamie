@@ -26,7 +26,7 @@ test('social icons keep provider names accessible and unavailable Facebook disab
 });
 
 afterEach(() => { jest.restoreAllMocks(); });
-test.each<[string, string, string]>([
+test.each<[typeof Platform.OS, string, string]>([
  ['ios','google','g'], ['ios','apple','a'], ['android','google','g'], ['android','facebook','f'],
 ])('%s %s selects the provider directly with PKCE and the registered callback',async(platform,provider,id)=>{
  jest.replaceProperty(Platform,'OS',platform);
