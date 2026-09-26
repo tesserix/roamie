@@ -2,34 +2,39 @@ import { Platform, useColorScheme, type ViewStyle } from 'react-native';
 
 import { useAccessibility } from '@/lib/accessibility';
 
+// Window-seat palette: sky, passport navy, azure, and one marigold sun for the hero action.
 const palette = {
   light: {
-    text: '#101828',
-    muted: '#667085',
-    faint: '#667085',
-    background: '#F6F5F2',
+    text: '#0B2545',
+    muted: '#4F6479',
+    faint: '#4F6479',
+    background: '#D8E8F6',
     surface: '#FFFFFF',
-    card: '#EFEEEA',
-    border: '#E4E2DC',
-    accent: '#0F766E',
-    accentSoft: '#E1F0EE',
+    card: '#C8DCEF',
+    border: '#B9D0E6',
+    accent: '#0A5FA8',
+    accentSoft: '#C4DDF5',
     onAccent: '#FFFFFF',
+    sun: '#F4B23E',
+    onSun: '#0B2545',
     warn: '#B54708',
     warnSoft: '#FEF0E1',
     danger: '#D92D20',
     dangerSoft: '#FDECEA',
   },
   dark: {
-    text: '#F2F4F7',
-    muted: '#98A2B3',
-    faint: '#98A2B3',
-    background: '#0C0E10',
-    surface: '#16191C',
-    card: '#1F2327',
-    border: '#2A2F34',
-    accent: '#2DD4BF',
-    accentSoft: '#12302D',
-    onAccent: '#042F2A',
+    text: '#EEF4FA',
+    muted: '#9DB0C4',
+    faint: '#9DB0C4',
+    background: '#08131F',
+    surface: '#0F1E2E',
+    card: '#172A3D',
+    border: '#243B52',
+    accent: '#6CB8FF',
+    accentSoft: '#12304D',
+    onAccent: '#04213A',
+    sun: '#FFC857',
+    onSun: '#08131F',
     warn: '#F79009',
     warnSoft: '#35230F',
     danger: '#F97066',
@@ -61,6 +66,6 @@ export const font = {
 
 // Soft elevation for white cards; Android has no coloured shadows so it gets elevation.
 export const lift: Pick<ViewStyle, 'shadowColor' | 'shadowOpacity' | 'shadowRadius' | 'shadowOffset' | 'elevation'> = Platform.select({
-  ios: { shadowColor: '#101828', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
+  ios: { shadowColor: '#0B2545', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
   default: { elevation: 1 },
 });
