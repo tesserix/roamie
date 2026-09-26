@@ -1,3 +1,4 @@
+import type { MemoryOptions } from './memory-contract';
 import { fetch } from 'expo/fetch';
 import { API_BASE, session } from './auth-client';
 import type { Destination, PlanRequest, PlanResponse } from './trip-contract';
@@ -22,7 +23,9 @@ async function request<T>(path: string, payload: unknown, read: (response: Respo
   } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
 }
 export const planTrip = (trip: PlanRequest, signal?: AbortSignal) => request<PlanResponse>('/v1/trips/plan', trip, res => res.json(), 60000, signal);
-export const renderMemory = (title: string, durationSeconds: 60 | 90, images: string[], captions: string[], signal?: AbortSignal) => request('/v1/memories/render', { title: title.slice(0, 80), durationSeconds, images, captions }, async res => {
+export type { MemoryOptions } from './memory-contract';
+export const memoryCapabilities = (signal?: AbortSignal) => request<{editorVersion:number;maxAudioBytes:number}>('/v1/memories/capabilities', {}, res => res.json(), 12000, signal);
+export const renderMemory = (title: string, durationSeconds: 60 | 90, images: string[], captions: string[], signal?: AbortSignal, options?: MemoryOptions) => request('/v1/memories/render', { title: title.slice(0, 80), durationSeconds, images, captions, options }, async res => {
   if (!res.headers.get('content-type')?.startsWith('video/mp4')) throw new Error('The video response was not valid.');
   const bytes = await res.bytes();
   if (!bytes.length || bytes.length > 30_000_000) throw new Error('The video could not be downloaded.');

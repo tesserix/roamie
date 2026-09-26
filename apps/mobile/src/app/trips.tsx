@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -20,8 +20,8 @@ import { format, toMinor } from '@/lib/money';
 import { useStore } from '@/lib/store';
 import { useTrips } from '@/lib/trip-store';
 import { createTrip, stayDates, modeName, newId, tripTotal, updateStop, type MemoryPhoto, type PlanRequest, type Trip, type TripStop } from '@/lib/trips';
-import { planTrip, renderMemory } from '@/lib/trip-api';
-import { choosePhotos, deletePhotos, exportTrip, photoData, saveToPhotos, saveVideo, shareFile, suggestPhotos, tripDirectory } from '@/lib/trip-media';
+import { planTrip, renderMemory, memoryCapabilities, type MemoryOptions } from '@/lib/trip-api';
+import { choosePhotos, chooseMusic, discardVideo, deletePhotos, exportTrip, photoData, saveToPhotos, saveVideo, shareFile, suggestPhotos, tripDirectory } from '@/lib/trip-media';
 
 function Field({ label, value, change, placeholder, numeric = false, multiline = false }: { label: string; value: string; change: (s: string) => void; placeholder?: string; numeric?: boolean; multiline?: boolean }) {
   const c = useColors();
@@ -104,10 +104,22 @@ function StopEditor({ trip, day, original, close, saved }: { trip: Trip; day: nu
     <Text style={[font.largeTitle, { color: c.text }]}>A moment in your day</Text><Field label="Place or activity" value={stop.title} change={field('title')} /><Field label="Time · HH:MM" value={stop.time} change={field('time')} /><Field label="Duration in minutes" value={duration} change={setDuration} numeric /><Field label={`Estimated cost · ${trip.currency}`} value={cost} change={setCost} numeric /><View style={{ flexDirection: 'row', gap: 8 }}>{['sight', 'lunch', 'dinner'].map(kind => <Chip key={kind} label={kind} selected={stop.kind === kind} onPress={() => setStop(s => ({ ...s, kind }))} />)}</View><Field label="Notes" value={stop.note} change={field('note')} multiline />{error ? <Text accessibilityRole="alert" style={{ color: c.danger }}>{error}</Text> : null}<Button label="Save stop" busy={busy} onPress={() => { void save(); }} /><Button label="Cancel" kind="secondary" onPress={close} />
   </ScrollView></KeyboardAvoidingView></Modal>;
 }
-function MemoryPlayer({ uri }: { uri: string }) { const player = useVideoPlayer(uri); return <VideoView player={player} style={{ height: 400, borderRadius: 16 }} nativeControls contentFit="contain" />; }
+function MemoryPlayer({ uri, disabled, discard }: { uri: string; disabled: boolean; discard: () => void }) {
+  const player = useVideoPlayer(uri);
+  return <><VideoView player={player} style={{ width: '100%', aspectRatio: 9 / 16, borderRadius: 16 }} nativeControls contentFit="contain" /><Button label="Discard video" kind="secondary" disabled={disabled} onPress={() => Alert.alert('Discard this preview?', 'Your photos and any video already saved or shared will stay.', [{ text: 'Keep video', style: 'cancel' }, { text: 'Discard', style: 'destructive', onPress: async () => { try { player.pause(); await player.replaceAsync(null); discard(); } catch { Alert.alert('Could not discard', 'Close the preview and try again.'); } } }])} /></>;
+}
 function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
   const store = useTrips(), c = useColors(), insets = useSafeAreaInsets();
+  const { width, fontScale } = useWindowDimensions();
   const [day, setDay] = useState(0), [tab, setTab] = useState<'calendar' | 'memories'>('calendar'), [editor, setEditor] = useState<TripStop | 'new' | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(''), [seconds, setSeconds] = useState<60 | 90>(60), [video, setVideo] = useState<string | null>(null), [pdf, setPdf] = useState<string | null>(null), [suggested, setSuggested] = useState<MemoryPhoto[] | null>(null);
+  const [options, setOptions] = useState<MemoryOptions>({theme:'postcard',soundtrack:'none',openingCaption:'',year:Number(trip.startDate.slice(0,4))});
+  const [musicName, setMusicName] = useState(''), [editorReady, setEditorReady] = useState(false), [editorError, setEditorError] = useState(''), [capabilityAttempt, setCapabilityAttempt] = useState(0);
+  useEffect(() => {
+    if (tab !== 'memories' || !trip.photos.length) return;
+    const task = new AbortController();
+    memoryCapabilities(task.signal).then(result => { if (!task.signal.aborted) { setEditorReady(result.editorVersion >= 1); if (result.editorVersion < 1) setEditorError('The video editor is not available yet. Please try again later.'); } }).catch(() => { if (!task.signal.aborted) setEditorError('Cannot reach the video editor. Check your connection and retry.'); });
+    return () => task.abort();
+  }, [tab, trip.photos.length, capabilityAttempt]);
   const preview = useRef<View>(null), controller = useRef<AbortController | null>(null), alive = useRef(true), pendingPhotos = useRef<MemoryPhoto[]>([]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; controller.current?.abort(); deletePhotos(store.accountId, trip.id, pendingPhotos.current); }; }, [store.accountId, trip.id]);
   async function work(label: string, run: (signal: AbortSignal) => Promise<void>) {
@@ -137,10 +149,10 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
   }); }
   function exportPdf() { void work('Making your keepsake…', async () => { const uri = await exportTrip(store.accountId, trip, tab === 'calendar' ? 'itinerary' : 'album'); if (alive.current) setPdf(uri); }); }
   function makeVideo() {
-    Alert.alert('Create your memory video?', 'Your selected photos will upload to Roamie for rendering, then be removed from the server. The result is a silent MP4 with gentle motion. Nothing is posted automatically.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Create video', onPress: () => { void work('Making your memory video…', async signal => {
+    Alert.alert('Create your memory video?', 'Your selected photos will upload to Roamie for rendering, then be removed from the server. Your music selection, if any, is also uploaded temporarily. The result is a private MP4 with gentle motion. Nothing is posted automatically.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Create video', onPress: () => { void work('Making your memory video…', async signal => {
       const photos = await photoData(store.accountId, trip); if (signal.aborted) return;
-      const bytes = await renderMemory(trip.title, seconds, photos.map(p => p.data), photos.map(p => p.caption), signal);
-      if (alive.current && !signal.aborted) setVideo(saveVideo(store.accountId, trip.id, bytes));
+      const bytes = await renderMemory(trip.title, seconds, photos.map(p => p.data), photos.map(p => p.caption), signal, options);
+      if (alive.current && !signal.aborted) { setVideo(saveVideo(store.accountId, trip.id, bytes)); }
     }); } }]);
   }
   async function shareCard() {
@@ -172,7 +184,7 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
         </Pressable>)}
       </View>
       {busy ? <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text accessibilityRole="alert" style={[font.headline, { color: c.text }]}>{busy}</Text><Text style={[font.caption, { color: c.muted }]}>Keep Roamie open while this finishes.</Text><Button label="Cancel task" kind="secondary" onPress={() => controller.current?.abort()} /></Card> : null}
-      {error ? <Text accessibilityRole="alert" style={{ color: c.danger }}>{error}</Text> : null}
+      {error ? <Card><Text accessibilityRole="alert" style={[font.body, { color: c.danger }]}>{error}</Text></Card> : null}
       {tab === 'calendar' ? <>
         <Card style={{ padding: 20, borderRadius: 24, gap: 18 }}>
           <View style={{ flexDirection: 'row', gap: 20 }}>
@@ -201,10 +213,47 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
         </Card>)}
         <Button label="Add a stop" kind="secondary" disabled={!!busy} onPress={() => setEditor('new')} /><Text style={[font.caption, { color: c.muted }]}>{trip.notice}</Text>
       </> : <>
-        <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text style={[font.title, { color: c.text }]}>Keep the good bits.</Text><Text style={[font.body, { color: c.muted }]}>Choose 1–15 photos, add a few words, and make something worth keeping.</Text><Button label="Choose photos" disabled={!!busy} onPress={() => pick(false)} /><Button label="Suggest from trip dates" kind="secondary" disabled={!!busy} onPress={() => pick(true)} /><Text style={[font.caption, { color: c.muted }]}>Suggestions use up to 300 accessible photos from your trip dates on this phone. Review them before saving.</Text></Card>
+        <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text style={[font.title, { color: c.text }]}>Trip memories</Text><Text style={[font.body, { color: c.muted }]}>Choose 1–15 photos, add a few words, and make something worth keeping.</Text><Button label="Choose photos" disabled={!!busy} onPress={() => pick(false)} /><Button label="Suggest from trip dates" kind="secondary" disabled={!!busy} onPress={() => pick(true)} /><Text style={[font.caption, { color: c.muted }]}>Suggestions use up to 300 accessible photos from your trip dates on this phone. Review them before saving.</Text></Card>
         {suggested && <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text style={[font.headline, { color: c.text }]}>Your selection · {suggested.length} photos</Text><Button label="Use these photos" disabled={!!busy} onPress={() => { void work('Saving photos…', () => acceptPhotos(suggested)); }} /><Button label="Discard selection" kind="secondary" onPress={() => { deletePhotos(store.accountId, trip.id, suggested); pendingPhotos.current = []; setSuggested(null); }} /></Card>}
-        {photos.map((photo, i) => <Card key={photo.id} style={{ padding: 20, borderRadius: 24, gap: 14 }}><Image source={photo.uri} contentFit="contain" style={{ height: 240, borderRadius: 12 }} accessibilityLabel={photo.caption || `Trip photo ${i + 1}`} />{!suggested && <><TextInput accessibilityLabel={`Caption for photo ${i + 1}`} placeholder="A moment to remember…" placeholderTextColor={c.faint} defaultValue={photo.caption} maxLength={100} onEndEditing={event => { const caption = event.nativeEvent.text; void work('Saving caption…', () => store.save({ ...trip, photos: trip.photos.map(p => p.id === photo.id ? { ...p, caption } : p) })); }} style={{ minHeight: 48, color: c.text, padding: 8 }} /><View style={{ flexDirection: 'row', gap: 8 }}><Button label="Move earlier" kind="secondary" disabled={i === 0 || !!busy} onPress={() => { const moved = [...trip.photos]; [moved[i - 1], moved[i]] = [moved[i], moved[i - 1]]; void work('Saving order…', () => store.save({ ...trip, photos: moved })); }} /><Button label="Remove photo" kind="secondary" disabled={!!busy} onPress={() => { void work('Removing photo…', () => acceptPhotos(trip.photos.filter(p => p.id !== photo.id))); }} /></View></>}</Card>)}
-        {trip.photos.length > 0 && !suggested && <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text style={[font.title, { color: c.text }]}>A little film of your trip</Text><View style={{ flexDirection: 'row', gap: 8 }}><Chip label="60 seconds" selected={seconds === 60} onPress={() => setSeconds(60)} /><Chip label="90 seconds" selected={seconds === 90} onPress={() => setSeconds(90)} /></View><Button label="Create memory video" disabled={!!busy} onPress={makeVideo} />{video && <><MemoryPlayer key={video} uri={video} /><Button label="Save video to Photos" disabled={!!busy} onPress={() => { void work('Saving video…', async () => { await saveToPhotos(video); Alert.alert('Saved', 'Your memory is in Photos.'); }); }} /><Button label="Share video" kind="secondary" disabled={!!busy} onPress={() => { void work('Opening sharing…', () => shareFile(video, 'video/mp4')); }} /></>}</Card>}
+        {trip.photos.length > 0 && !suggested && <Card>
+          <Text style={[font.title, { color: c.text }]}>Make a memory video</Text>
+          <Text style={[font.body, { color: c.muted }]}>Your favourite moments, a little motion, and a story to keep.</Text>
+          {!editorReady ? <><Text style={[font.body, {color:c.muted}]}>{editorError || 'Getting the editor ready…'}</Text>{!!editorError && <Button label="Retry video editor" kind="secondary" onPress={() => { setEditorError(''); setCapabilityAttempt(n => n + 1); }} />}</> : <>
+            <Text style={[font.headline, {color:c.text}]}>Choose a look</Text>
+            <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}>{(['postcard','cinema','journal'] as const).map(theme => <Chip key={theme} label={theme[0].toUpperCase()+theme.slice(1)} selected={options.theme===theme} onPress={() => { if (!busy) setOptions({...options,theme}); }} />)}</View>
+            <View style={{backgroundColor:options.theme==='cinema'?'#141a24':options.theme==='journal'?'#f4ecd7':'#f9f4ec',padding:24,borderRadius:16,gap:12}} accessible accessibilityLabel={`Opening preview: ${options.openingCaption.trim() || trip.title}, ${options.year}`}>
+              <View style={{width:40,height:3,backgroundColor:options.theme==='cinema'?'#f1ebdb':'#2a4e4c'}} />
+              <Text style={{fontSize:26,lineHeight:34,fontWeight:'700',color:options.theme==='cinema'?'#f1ebdb':'#2a4e4c',fontFamily:options.theme==='journal'?Platform.select({ios:'Georgia',android:'serif',default:'serif'}):undefined}}>{options.openingCaption.trim() || trip.title}</Text>
+              <Text style={{fontSize:12,letterSpacing:2,color:options.theme==='cinema'?'#f1ebdb':'#2a4e4c'}}>TRAVEL MEMORIES · {options.year}</Text>
+            </View>
+            <View style={{gap:8}}><Text style={[font.caption,{color:c.muted}]}>Opening caption · optional</Text><TextInput accessibilityLabel="Opening caption" editable={!busy} value={options.openingCaption} onChangeText={openingCaption => setOptions({...options,openingCaption})} placeholder={trip.title} placeholderTextColor={c.faint} maxLength={120} multiline style={[font.body,{minHeight:56,padding:14,borderWidth:1,borderColor:c.border,borderRadius:14,color:c.text}]} /><Text style={[font.caption,{color:c.muted}]}>Leave blank to use your trip name and year.</Text></View>
+            <Text style={[font.headline,{color:c.text}]}>Soundtrack</Text>
+            <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}>{(['none','wander','sunset'] as const).map(soundtrack => <Chip key={soundtrack} label={soundtrack==='none'?'No music':soundtrack[0].toUpperCase()+soundtrack.slice(1)} selected={options.soundtrack===soundtrack} onPress={() => { if (!busy) { setOptions({...options,soundtrack,audio:undefined}); setMusicName(''); } }} />)}</View>
+            <Text style={[font.caption,{color:c.muted}]}>Wander: light and playful. Sunset: soft and calm. Both are original, CC0 music.</Text>
+            <Button label={options.soundtrack==='upload'?'Change uploaded music':'Upload your music'} kind="secondary" disabled={!!busy} onPress={() => { void work('Choosing music…', async () => { const music = await chooseMusic(); if (music && alive.current) { setOptions(current => ({...current,soundtrack:'upload',audio:music.data})); setMusicName(music.name); } }); }} />
+            {!!musicName && <Text style={[font.caption,{color:c.text}]}>{musicName}</Text>}
+            <Text style={[font.caption,{color:c.muted}]}>MP3, WAV, M4A or AAC · up to 3 MB. Use music you have permission to share. Audio loops or trims to fit, with a soft fade.</Text>
+            <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}><Chip label="60 seconds" selected={seconds===60} onPress={() => { if (!busy) setSeconds(60); }} /><Chip label="90 seconds" selected={seconds===90} onPress={() => { if (!busy) setSeconds(90); }} /></View>
+            <Button label="Create memory video" disabled={!!busy || !!video} onPress={makeVideo} />
+          </>}
+          {video && <><Text style={[font.headline,{color:c.text}]}>Your preview</Text><Text style={[font.caption,{color:c.muted}]}>Save this version, or discard it to make another.</Text><MemoryPlayer key={video} uri={video} disabled={!!busy} discard={() => { discardVideo(store.accountId,trip.id); setVideo(null); }} /><Button label="Save video to Photos" disabled={!!busy} onPress={() => { void work('Saving video…', async () => { await saveToPhotos(video); Alert.alert('Saved', 'Your memory is in Photos.'); }); }} /><Button label="Share video" kind="secondary" disabled={!!busy} onPress={() => { void work('Opening sharing…', () => shareFile(video, 'video/mp4')); }} /></>}
+        </Card>}
+        {photos.length > 0 && <View style={{ gap: 14 }}>
+          <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Your photos · {photos.length}</Text>
+          <View style={{ gap: 12 }}>
+            {Array.from({length:Math.ceil(photos.length / (width >= 380 && fontScale <= 1.3 ? 2 : 1))}, (_,row) => { const columns = width >= 380 && fontScale <= 1.3 ? 2 : 1; return <View key={row} style={{flexDirection:'row',gap:12}}>{photos.slice(row * columns, (row + 1) * columns).map((photo,offset) => { const i = row * columns + offset; return <Card key={photo.id} style={{ flex:1, minWidth:0, padding: 12, borderRadius: 20, gap: 10 }}>
+              <Image source={photo.uri} contentFit="cover" style={{ width: '100%', aspectRatio: 1, borderRadius: 12 }} accessibilityLabel={photo.caption || `Trip photo ${i + 1}`} />
+              <Text style={[font.caption, { color: c.muted }]}>Photo {i + 1}</Text>
+              {!suggested && <>
+                <TextInput accessibilityLabel={`Caption for photo ${i + 1}`} placeholder="Add a caption…" placeholderTextColor={c.faint} defaultValue={photo.caption} maxLength={100} multiline onEndEditing={event => { const caption = event.nativeEvent.text; void work('Saving caption…', () => store.save({ ...trip, photos: trip.photos.map(p => p.id === photo.id ? { ...p, caption } : p) })); }} style={[font.caption, { minHeight: 48, color: c.text, padding: 10, borderWidth: 1, borderColor: c.border, borderRadius: 12 }]} />
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Move photo ${i + 1} earlier`} accessibilityState={{ disabled: i === 0 || !!busy }} disabled={i === 0 || !!busy} onPress={() => { const moved = [...trip.photos]; [moved[i - 1], moved[i]] = [moved[i], moved[i - 1]]; void work('Saving order…', () => store.save({ ...trip, photos: moved })); }} style={({ pressed }) => ({ flex: 1, minHeight: 48, borderRadius: 12, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center', opacity: i === 0 || busy ? 0.35 : pressed ? 0.7 : 1 })}><Icon name="arrow.left" size={18} color={c.accent} /></Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Remove photo ${i + 1}`} accessibilityState={{ disabled: !!busy }} disabled={!!busy} onPress={() => { void work('Removing photo…', () => acceptPhotos(trip.photos.filter(p => p.id !== photo.id))); }} style={({ pressed }) => ({ flex: 1, minHeight: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.35 : pressed ? 0.7 : 1 })}><Icon name="trash" size={18} color={c.muted} /></Pressable>
+                </View>
+              </>}
+            </Card>; })}{columns === 2 && photos.slice(row * columns, (row + 1) * columns).length === 1 && <View style={{flex:1}} />}</View>; })}
+          </View>
+        </View>}
       </>}
       {(tab === 'calendar' || trip.photos.length > 0) && !suggested && <><Text style={[font.title, { color: c.text }]}>Made to keep. Made to share.</Text><TripMemoryCard ref={preview} trip={trip} day={day} album={tab === 'memories'} /><Button label={tab === 'calendar' ? 'Create itinerary PDF' : 'Create album PDF'} disabled={!!busy} onPress={exportPdf} /><Button label="Share this image" kind="secondary" disabled={!!busy} onPress={() => { void work('Making your share card…', shareCard); }} />{pdf && <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text style={{ color: c.text }}>Your PDF is saved in Roamie.</Text><Button label="Preview PDF" kind="secondary" onPress={() => { void work('Opening preview…', () => Print.printAsync({ uri: pdf })); }} /><Button label="Save or share PDF" onPress={() => { void work('Opening sharing…', () => shareFile(pdf, 'application/pdf')); }} /></Card>}</>}
     </ScrollView>
