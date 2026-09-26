@@ -31,7 +31,7 @@ export async function loadTravelProfile(tripId: string, signal?: AbortSignal): P
 export const saveTravelProfile = (tripId:string, preferences:TravelPreferences, revision:string|null, signal?:AbortSignal):Promise<SavedTravelProfile> =>
   apiRequest(`/v1/trips/${encodeURIComponent(tripId)}/profile`, {expected_revision:revision,preferences}, res => res.json(), 12000, signal, 'PUT');
 export async function askTripManager(profile:SavedTravelProfile, specialist:Specialist, request:ManagerRequest, signal?:AbortSignal):Promise<Advice> {
-  const result = await apiRequest<Advice>('/v1/trip-manager', {profile:{trip_id:profile.trip_id,revision:profile.revision},specialist,request}, res => res.json(), 160000, signal);
+  const result = await apiRequest<Advice>('/v1/trip-manager', {profile:{trip_id:profile.trip_id,revision:profile.revision},specialist,request}, res => res.json(), 95000, signal);
   if (result.profile_revision !== profile.revision) throw new Error('Your preferences changed. Reload them and try again.');
   if (!result.manager_id?.startsWith('trip-manager-') || !Array.isArray(result.review_run_ids) || result.review_run_ids.length !== 2 || result.review_run_ids.some(id => !id) || result.review_run_ids[0] === result.review_run_ids[1]) throw new Error('The manager review could not be verified. Please try again.');
   if (!result.response || result.response.specialist !== specialist || !['ok','unavailable','no_matches'].includes(result.response.status) || !Array.isArray(result.response.recommendations) || !Array.isArray(result.response.limitations)) throw new Error('The manager response was not valid. Please try again.');

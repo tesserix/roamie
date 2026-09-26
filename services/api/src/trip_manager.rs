@@ -26,6 +26,7 @@ pub struct Manager {
     identity_key: String,
     http: reqwest::Client,
     slots: Semaphore,
+    customer_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -58,10 +59,12 @@ impl Manager {
             gateway_token: required("TRIP_MANAGER_GATEWAY_TOKEN")?,
             identity_key: required("TRIP_MANAGER_IDENTITY_KEY")?,
             http: reqwest::Client::builder()
-                .timeout(Duration::from_secs(155))
+                .timeout(Duration::from_secs(85))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()?,
             slots: Semaphore::new(8),
+            customer_enabled: std::env::var("TRIP_MANAGER_CUSTOMER_ENABLED").as_deref()
+                == Ok("true"),
         }))
     }
 
@@ -134,6 +137,17 @@ impl Manager {
             .is_ok()
     }
 
+    fn can_serve_customer(&self, headers: &HeaderMap) -> bool {
+        if self.customer_enabled {
+            return true;
+        }
+        let mut validation = HeaderMap::new();
+        if let Some(value) = headers.get("x-roamie-validation-authorization") {
+            validation.insert(header::AUTHORIZATION, value.clone());
+        }
+        self.authenticate(&validation)
+    }
+
     async fn recommend(&self, input: Request, subject: &str) -> Result<Value> {
         let _permit = self
             .slots
@@ -189,12 +203,16 @@ impl Manager {
 pub async fn recommend(
     State(state): State<Arc<AppState>>,
     Extension(customer): Extension<Customer>,
+    headers: HeaderMap,
     Json(mut input): Json<Request>,
 ) -> Result<impl axum::response::IntoResponse> {
     let manager = state
         .trip_manager
         .as_ref()
         .ok_or(Error::Unavailable("Trip manager"))?;
+    if !manager.can_serve_customer(&headers) {
+        return Err(Error::Unavailable("Trip manager rollout validation"));
+    }
     let pool = &state
         .database
         .as_ref()
@@ -240,6 +258,7 @@ mod tests {
             identity_key: "d".repeat(32),
             http: reqwest::Client::new(),
             slots: Semaphore::new(1),
+            customer_enabled: true,
         }
     }
     #[tokio::test]
@@ -268,6 +287,28 @@ mod tests {
             assert_eq!(response.status(), expected);
         }
     }
+    #[test]
+    fn validation_mode_requires_separate_operator_authorization() {
+        let mut client = manager();
+        client.customer_enabled = false;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            "Bearer customer-token".parse().unwrap(),
+        );
+        assert!(!client.can_serve_customer(&headers));
+        headers.insert(
+            "x-roamie-validation-authorization",
+            "Bearer bad".parse().unwrap(),
+        );
+        assert!(!client.can_serve_customer(&headers));
+        headers.insert(
+            "x-roamie-validation-authorization",
+            format!("Bearer {}", "a".repeat(32)).parse().unwrap(),
+        );
+        assert!(client.can_serve_customer(&headers));
+    }
+
     #[test]
     fn personal_identity_matches_the_manager_contract_and_is_user_trip_scoped() {
         let manager = manager();
