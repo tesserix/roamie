@@ -16,6 +16,7 @@ mod nearby;
 mod ocr;
 mod receipts;
 mod signs;
+mod statements;
 mod talk;
 #[cfg(test)]
 mod tests;
@@ -164,6 +165,7 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/translate/text", post(translate_text))
         .route("/signs/translate", post(sign_translate))
         .route("/receipts/extract", post(receipt_extract))
+        .route("/statements/extract", post(statement_extract))
         .route("/destinations/search", post(destinations::search))
         .route("/nearby", get(nearby_search))
         .route("/fx", get(fx_latest))
@@ -271,6 +273,16 @@ async fn receipt_extract(
         s.ai.as_ref()
             .ok_or(Error::Unavailable("Receipt scanning"))?;
     Ok(Json(receipts::extract(ai, &req).await?))
+}
+
+async fn statement_extract(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<statements::StatementRequest>,
+) -> Result<Json<statements::Statement>> {
+    let ai =
+        s.ai.as_ref()
+            .ok_or(Error::Unavailable("Statement import"))?;
+    Ok(Json(statements::extract(ai, &req).await?))
 }
 
 async fn nearby_search(

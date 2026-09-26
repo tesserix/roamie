@@ -34,7 +34,7 @@ pub struct Receipt {
     pub confidence: f32,
 }
 
-const CATEGORIES: [&str; 6] = [
+pub const CATEGORIES: [&str; 6] = [
     "food",
     "stay",
     "transport",

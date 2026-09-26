@@ -229,6 +229,91 @@ async fn receipt_must_be_an_image() {
 }
 
 #[tokio::test]
+async fn statement_keeps_only_trip_spending() {
+    let line = |date: &str, merchant: &str, amount: &str, currency: &str, kind: &str| json!({ "date": date, "merchant": merchant, "amount": amount, "currency": currency, "kind": kind, "category": "food" });
+    let (ai, _) = upstream(
+        StatusCode::OK,
+        model_reply(json!({ "transactions": [
+            line("2026-10-01", "Airport lounge", "40.00", "AUD", "purchase"),
+            line("2026-10-02", "PHO 24 HANOI card 4111111111111111", "185,000", "VND", "purchase"),
+            line("2026-10-03", "Foreign transaction fee", "3.20", "AUD", "fee"),
+            line("2026-10-04", "Hotel refund", "25.00", "AUD", "refund"),
+            line("2026-10-05", "Payment received, thank you", "900.00", "AUD", "payment"),
+            line("2026-10-08", "Sapa Express", "not printed", "AUD", "purchase"),
+            line("2026-10-09", "Home groceries", "80.00", "AUD", "purchase")
+        ] })),
+    )
+    .await;
+    let (status, body) = call(
+        state(&ai, "http://unused", None),
+        "POST",
+        "/v1/statements/extract",
+        Some(json!({ "data": "aGk=", "mimeType": "application/pdf", "from": "2026-10-02", "to": "2026-10-08" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let got: Vec<_> = body["transactions"]
+        .as_array()
+        .expect("transactions")
+        .iter()
+        .map(|t| {
+            (
+                t["date"].as_str().unwrap_or_default(),
+                t["merchant"].as_str().unwrap_or_default(),
+                t["amountMinor"].as_i64().unwrap_or_default(),
+                t["currency"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("2026-10-02", "PHO 24 HANOI card ••••1111", 185000, "VND"),
+            ("2026-10-03", "Foreign transaction fee", 320, "AUD"),
+            ("2026-10-04", "Hotel refund", -2500, "AUD"),
+        ],
+        "window, masking, fees and refunds; payments and unreadable totals skipped"
+    );
+    assert_eq!(body["outsideTrip"], 2);
+    assert_eq!(body["unreadable"], 1);
+}
+
+#[tokio::test]
+async fn statement_request_is_validated() {
+    for (case, req) in [
+        (
+            "word document",
+            json!({ "data": "aGk=", "mimeType": "application/msword", "from": "2026-10-02", "to": "2026-10-08" }),
+        ),
+        (
+            "empty file",
+            json!({ "data": "", "mimeType": "application/pdf", "from": "2026-10-02", "to": "2026-10-08" }),
+        ),
+        (
+            "reversed dates",
+            json!({ "data": "aGk=", "mimeType": "image/jpeg", "from": "2026-10-08", "to": "2026-10-02" }),
+        ),
+        (
+            "bad date",
+            json!({ "data": "aGk=", "mimeType": "image/jpeg", "from": "2026-02-30", "to": "2026-03-02" }),
+        ),
+        (
+            "over 90 days",
+            json!({ "data": "aGk=", "mimeType": "image/jpeg", "from": "2026-01-01", "to": "2026-06-01" }),
+        ),
+    ] {
+        let (status, _) = call(
+            state("http://unused", "http://unused", None),
+            "POST",
+            "/v1/statements/extract",
+            Some(req),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{case}");
+    }
+}
+
+#[tokio::test]
 async fn ai_routes_without_credentials_are_unavailable() {
     let mut s = state("http://unused", "http://unused", None);
     Arc::get_mut(&mut s).expect("sole owner").ai = None;
@@ -240,6 +325,10 @@ async fn ai_routes_without_credentials_are_unavailable() {
         (
             "/v1/receipts/extract",
             json!({ "data": "aGk=", "mimeType": "image/png" }),
+        ),
+        (
+            "/v1/statements/extract",
+            json!({ "data": "aGk=", "mimeType": "application/pdf", "from": "2026-10-02", "to": "2026-10-08" }),
         ),
     ] {
         let (status, got) = call(s.clone(), "POST", uri, Some(body)).await;
