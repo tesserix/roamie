@@ -10,6 +10,7 @@ import { File } from 'expo-file-system';
 import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
+  AppState,
   ActivityIndicator,
   FlatList,
   Keyboard,
@@ -23,6 +24,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { CommunicationCards } from '@/components/communication-cards';
+import { HandsFreeConversation } from '@/lib/hands-free';
 import { signalFeedback } from '@/lib/feedback';
 import { ProfileSettings } from '@/components/profile-settings';
 import { RecordButton, type RecordingPhase } from '@/components/record-button';
@@ -41,7 +43,7 @@ import { useQuietCountry } from '@/lib/location';
 import { useStore } from '@/lib/store';
 import { speak, stopSpeaking } from '@/lib/voice';
 
-type Phase = RecordingPhase;
+type Phase = RecordingPhase | 'speaking';
 type Turn = {
   id: string;
   fromMe: boolean;
@@ -62,6 +64,7 @@ const MODES: { value: Mode; label: string; icon: SFSymbol }[] = [
 const MIN_HOLD_MS = 400;
 const SPEECH_RECORDING = {
   ...RecordingPresets.HIGH_QUALITY,
+  isMeteringEnabled: true,
   numberOfChannels: 1,
   bitRate: 64000,
   web: { ...RecordingPresets.HIGH_QUALITY.web, bitsPerSecond: 64000 },
@@ -101,6 +104,29 @@ export default function Talk() {
   const [draft, setDraft] = useState('');
   const [showing, setShowing] = useState<Shown | null>(null);
   const [mode, setMode] = useState<Mode>('talk');
+  const [handsFree, setHandsFree] = useState(false);
+  const conversation = useRef<HandsFreeConversation | null>(null);
+  const sendRef = useRef(send);
+  useEffect(() => { sendRef.current = send; });
+  useEffect(() => {
+    const loop = new HandsFreeConversation(recorder, {
+      onActive: setHandsFree,
+      onPhase: setPhase,
+      onError: setError,
+      onTurn: async (uri, active) => {
+        const data = await new File(uri).base64();
+        if (active()) await sendRef.current({ audio: { data, mimeType: 'audio/mp4' } }, active);
+      },
+    });
+    conversation.current = loop;
+    const subscription = AppState.addEventListener('change', state => {
+      if (state !== 'active') loop.stop();
+    });
+    return () => { subscription.remove(); loop.stop(); conversation.current = null; };
+  }, [recorder]);
+  useEffect(() => {
+    if (!focused || mode !== 'talk' || typing || showing || picking) conversation.current?.stop();
+  }, [focused, mode, typing, showing, picking]);
 
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboard(true));
@@ -111,7 +137,7 @@ export default function Talk() {
     };
   }, []);
 
-  async function send(input: Pick<TurnRequest, 'audio' | 'text'>) {
+  async function send(input: Pick<TurnRequest, 'audio' | 'text'>, automatic?: () => boolean) {
     if (sending.current) return;
     sending.current = true;
     setPending({ text: input.text });
@@ -120,6 +146,8 @@ export default function Talk() {
     setNotice(null);
     try {
       const res = await talkTurn({ mine, partner: partner ?? mine, history: history.current, ...input });
+      if (automatic && !automatic()) return;
+      setPending(null);
       history.current = [...history.current, { original: res.transcript, translation: res.translation }].slice(-6);
       const fromMe = res.detected === mine;
       setTurns((t) => [
@@ -138,15 +166,22 @@ export default function Talk() {
       if (focusedRef.current) signalFeedback(accessibilityRef.current.vibration);
       if (res.detected !== mine && res.partner !== partner) setPartner(res.partner);
       if (!partner && fromMe) setNotice('Let the other person speak once so we can detect their language, or choose it above.');
-      if (focusedRef.current && !res.sameLanguage && !accessibilityRef.current.quiet && !accessibilityRef.current.screenReader) void speak(res.translation, res.target);
-      if (accessibilityRef.current.screenReader) AccessibilityInfo.announceForAccessibility('Translation ready.');
+      if (focusedRef.current && !res.sameLanguage && !accessibilityRef.current.quiet && (!accessibilityRef.current.screenReader || automatic)) {
+        const playback = speak(res.translation, res.target);
+        if (automatic) {
+          setPhase('speaking');
+          if (!await playback && automatic()) throw new Error('Playback stopped. Start hands-free again, or use quiet mode.');
+        }
+      }
+      if (accessibilityRef.current.screenReader && !automatic) AccessibilityInfo.announceForAccessibility('Translation ready.');
     } catch (e) {
+      if (automatic) { if (automatic()) throw e; return; }
       if (input.text) setDraft(current => current || input.text!);
       setError(e instanceof ApiError ? e.message : 'Something went wrong. Please try again.');
     } finally {
       sending.current = false;
       setPending(null);
-      setPhase('idle');
+      if (!automatic) setPhase('idle');
     }
   }
 
@@ -215,15 +250,16 @@ export default function Talk() {
     send({ text });
   }
 
+  const busy = phase !== 'idle' || pending !== null;
   const status =
     error ??
-    (phase === 'listening' ? 'Listening…' : phase === 'thinking' ? 'Translating…' : notice ? notice : typing ? null : accessibility.quiet ? 'Quiet mode · both sides stay on screen.' : null);
+    (pending && phase === 'idle' ? 'Finishing the previous request…' : phase === 'speaking' ? 'Speaking…' : phase === 'listening' ? (handsFree ? 'Listening · pause to translate' : 'Listening…') : phase === 'thinking' ? 'Translating…' : notice ? notice : typing ? null : accessibility.quiet ? 'Quiet mode · both sides stay on screen.' : null);
 
   useEffect(() => {
-    if (accessibility.screenReader && (error || phase !== 'idle')) {
+    if (accessibility.screenReader && !handsFree && (error || phase !== 'idle')) {
       AccessibilityInfo.announceForAccessibility(error ?? (phase === 'listening' ? 'Recording. Activate Finish and translate when you are done.' : phase === 'starting' ? 'Opening microphone.' : 'Translating.'));
     }
-  }, [accessibility.screenReader, error, phase]);
+  }, [accessibility.screenReader, error, phase, handsFree]);
 
   const header = (
     <>
@@ -236,12 +272,14 @@ export default function Talk() {
             icon="trash"
             label="Clear conversation"
             onPress={() => {
+              conversation.current?.stop();
+              stopSpeaking();
               setTurns([]);
               history.current = [];
             }}
           />
         ) : null}
-        <ProfileSettings />
+        <View pointerEvents={handsFree ? 'none' : 'auto'} accessibilityElementsHidden={handsFree} importantForAccessibility={handsFree ? 'no-hide-descendants' : 'auto'} style={{ opacity: handsFree ? 0.4 : 1 }}><ProfileSettings /></View>
       </View>
 
       <Segmented disabled={phase !== 'idle'} options={MODES} value={mode} onChange={next => { if (phase === 'idle') setMode(next); }} />
@@ -303,9 +341,9 @@ export default function Talk() {
           <View style={{ flex: 1, justifyContent: 'center' }}>
             <Message
               icon="bubble.left.and.bubble.right.fill"
-              title="Talk to anyone"
+              title={handsFree ? "Speak naturally" : "Talk to anyone"}
               body={
-                partner
+                handsFree ? "Take turns speaking. Pause briefly when you finish, then wait for the translation before replying." : partner
                   ? `Tap to speak. Tap again to translate. Replies switch automatically between ${languageName(mine)} and the other person’s language.`
                   : `Let the other person speak first. We’ll detect their language and translate into ${languageName(mine)}. Then reply in ${languageName(mine)}.`
               }
@@ -320,7 +358,7 @@ export default function Talk() {
           </View>
         </View> : null}
         renderItem={({ item }) => (
-          <Bubble turn={item} onShow={() => setShowing({ text: item.theirText, lang: item.theirLang, romanized: item.theirRoman })} />
+          <Bubble turn={item} onPlay={() => conversation.current?.stop()} onShow={() => { conversation.current?.stop(); setShowing({ text: item.theirText, lang: item.theirLang, romanized: item.theirRoman }); }} />
         )}
       />
 
@@ -333,7 +371,13 @@ export default function Talk() {
             {status}
           </Text>
         ) : null}
-        {typing ? (
+        {handsFree ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Stop hands-free conversation" onPress={() => conversation.current?.stop()}
+            style={({ pressed }) => ({ minHeight: 68, borderRadius: radius.lg, padding: space.md, backgroundColor: c.danger, alignItems: 'center', justifyContent: 'center', gap: 6, opacity: pressed ? 0.8 : 1 })}>
+            <Icon name="stop.fill" size={24} color={c.onAccent} />
+            <Text style={[font.headline, { color: c.onAccent }]}>Stop conversation</Text>
+          </Pressable>
+        ) : typing ? (
           <View style={styles.typeRow}>
             <TextInput
               autoFocus
@@ -363,10 +407,19 @@ export default function Talk() {
         ) : (
           <View style={styles.micRow}>
             <IconButton icon="keyboard" label="Type instead" tone="soft" onPress={() => setTyping(true)} />
-            <RecordButton phase={phase} onPress={() => { void (phase === 'listening' ? stopListening() : startListening()); }} />
+            <RecordButton phase={phase === 'speaking' || pending ? 'thinking' : phase} onPress={() => { void (phase === 'listening' ? stopListening() : startListening()); }} />
             <View style={{ width: 44 }} accessible={false} />
           </View>
         )}
+        {!handsFree && !typing && Platform.OS !== 'web' ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Start hands-free conversation"
+            accessibilityHint="Listens for pauses, translates, and speaks each reply. Stop at any time."
+            disabled={busy} accessibilityState={{ disabled: busy }}
+            onPress={() => { if (!sending.current && !recording.current) { setError(null); setNotice(null); void conversation.current?.start(); } }}
+            style={({ pressed }) => ({ minHeight: 48, borderRadius: radius.lg, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.5 : pressed ? 0.8 : 1 })}>
+            <Text style={[font.body, { color: c.accent, fontWeight: '600' }]}>Hands-free conversation</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       </>
@@ -384,7 +437,7 @@ export default function Talk() {
   );
 }
 
-function Bubble({ turn, onShow }: { turn: Turn; onShow: () => void }) {
+function Bubble({ turn, onShow, onPlay }: { turn: Turn; onShow: () => void; onPlay: () => void }) {
   const c = useColors();
   const mine = turn.fromMe;
   return (
@@ -413,7 +466,7 @@ function Bubble({ turn, onShow }: { turn: Turn; onShow: () => void }) {
             accessibilityRole="button"
             accessibilityLabel="Read translation aloud"
             hitSlop={10}
-            onPress={() => (mine ? speak(turn.theirText, turn.theirLang) : speak(turn.mineText, turn.mineLang))}
+            onPress={() => { onPlay(); void (mine ? speak(turn.theirText, turn.theirLang) : speak(turn.mineText, turn.mineLang)); }}
             style={styles.action}>
             <Icon name="speaker.wave.2.fill" size={14} color={c.accent} />
             <Text style={[font.caption, { color: c.accent, fontWeight: '600' }]}>Play</Text>
