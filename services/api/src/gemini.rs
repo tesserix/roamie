@@ -95,6 +95,8 @@ impl Gemini {
         let res = self
             .http
             .post(&self.url)
+            // Multi-day plans take longer than the shared 25s client budget; stays inside the 60s route timeout.
+            .timeout(std::time::Duration::from_secs(45))
             .bearer_auth(token.as_str())
             .json(&body)
             .send()
