@@ -3,7 +3,11 @@ use crate::{
     error::{Error, Result},
     AppState,
 };
-use axum::{extract::State, Extension, Json};
+use axum::{
+    extract::State,
+    http::{header, HeaderMap},
+    Extension, Json,
+};
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -19,6 +23,7 @@ pub struct Manager {
     api_key: String,
     signing_key: String,
     gateway_token: String,
+    identity_key: String,
     http: reqwest::Client,
     slots: Semaphore,
 }
@@ -51,6 +56,7 @@ impl Manager {
             api_key: required("TRIP_MANAGER_API_KEY")?,
             signing_key: required("TRIP_MANAGER_SIGNING_KEY")?,
             gateway_token: required("TRIP_MANAGER_GATEWAY_TOKEN")?,
+            identity_key: required("TRIP_MANAGER_IDENTITY_KEY")?,
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(55))
                 .redirect(reqwest::redirect::Policy::none())
@@ -92,6 +98,42 @@ impl Manager {
         Ok((bytes, hex::encode(mac.finalize().into_bytes()), revision))
     }
 
+    fn personal_identity(&self, subject: &str, trip_id: &str) -> Result<String> {
+        let material = serde_json::to_vec(&json!(["roamie", subject, trip_id]))
+            .map_err(|_| Error::Unavailable("Trip manager"))?;
+        let mut mac = Hmac::<Sha256>::new_from_slice(self.identity_key.as_bytes())
+            .map_err(|_| Error::Unavailable("Trip manager"))?;
+        mac.update(&material);
+        Ok(format!(
+            "trip-manager-{}",
+            hex::encode(mac.finalize().into_bytes())
+        ))
+    }
+
+    pub fn authenticate(&self, headers: &HeaderMap) -> bool {
+        let Some(supplied) = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+        else {
+            return false;
+        };
+        if supplied.len() > 1024 {
+            return false;
+        }
+        let Ok(mut expected) = Hmac::<Sha256>::new_from_slice(self.api_key.as_bytes()) else {
+            return false;
+        };
+        expected.update(self.api_key.as_bytes());
+        let Ok(mut verifier) = Hmac::<Sha256>::new_from_slice(self.api_key.as_bytes()) else {
+            return false;
+        };
+        verifier.update(supplied.as_bytes());
+        verifier
+            .verify_slice(&expected.finalize().into_bytes())
+            .is_ok()
+    }
+
     async fn recommend(&self, input: Request, subject: &str) -> Result<Value> {
         let _permit = self
             .slots
@@ -101,6 +143,12 @@ impl Manager {
             .duration_since(UNIX_EPOCH)
             .map_err(|_| Error::Unavailable("Trip manager"))?
             .as_secs();
+        let trip_id = input
+            .profile
+            .get("trip_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| Error::Invalid("Trip identity is required.".into()))?;
+        let manager_id = self.personal_identity(subject, trip_id)?;
         let (bytes, signature, revision) = self.snapshot(input, subject, now)?;
         let mut reply = self
             .http
@@ -129,7 +177,9 @@ impl Manager {
         }
         let value: Value =
             serde_json::from_slice(&bytes).map_err(|_| Error::Unavailable("Trip manager"))?;
-        if value.get("profile_revision").and_then(Value::as_str) != Some(&revision) {
+        if value.get("profile_revision").and_then(Value::as_str) != Some(&revision)
+            || value.get("manager_id").and_then(Value::as_str) != Some(&manager_id)
+        {
             return Err(Error::Unavailable("Trip manager"));
         }
         Ok(value)
@@ -139,13 +189,39 @@ impl Manager {
 pub async fn recommend(
     State(state): State<Arc<AppState>>,
     Extension(customer): Extension<Customer>,
-    Json(input): Json<Request>,
+    Json(mut input): Json<Request>,
 ) -> Result<impl axum::response::IntoResponse> {
     let manager = state
         .trip_manager
         .as_ref()
         .ok_or(Error::Unavailable("Trip manager"))?;
+    let pool = &state
+        .database
+        .as_ref()
+        .ok_or(Error::Unavailable("Profile storage"))?
+        .pool;
+    let trip_id = input
+        .profile
+        .get("trip_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| Error::Invalid("Trip identity is required.".into()))?
+        .to_owned();
+    let saved = crate::travel_profiles::load(pool, &customer.sub, &trip_id).await?;
+    if input.profile.contains_key("subject")
+        || input.profile.get("revision").and_then(Value::as_str)
+            != Some(&saved.revision.to_string())
+    {
+        return Err(Error::ProfileChanged);
+    }
+    input.profile = saved.snapshot()?;
     let result = manager.recommend(input, &customer.sub).await?;
+    if crate::travel_profiles::load(pool, &customer.sub, &trip_id)
+        .await?
+        .revision
+        != saved.revision
+    {
+        return Err(Error::ProfileChanged);
+    }
     Ok((
         [(axum::http::header::CACHE_CONTROL, "no-store")],
         Json(result),
@@ -161,9 +237,47 @@ mod tests {
             api_key: "a".repeat(32),
             signing_key: "b".repeat(32),
             gateway_token: "c".repeat(32),
+            identity_key: "d".repeat(32),
             http: reqwest::Client::new(),
             slots: Semaphore::new(1),
         }
+    }
+    #[tokio::test]
+    async fn profile_verifier_requires_the_manager_workload_key() {
+        use axum::{
+            body::Body,
+            http::{Request, StatusCode},
+        };
+        use tower::ServiceExt;
+        let mut state = crate::tests::state("http://unused", "http://unused", None);
+        Arc::get_mut(&mut state).unwrap().trip_manager = Some(manager());
+        for (key, expected) in [
+            ("bad".into(), StatusCode::UNAUTHORIZED),
+            ("a".repeat(32), StatusCode::SERVICE_UNAVAILABLE),
+        ] {
+            let response = crate::router(state.clone())
+                .oneshot(
+                    Request::post("/internal/v1/travel/profile/verify")
+                        .header("content-type", "application/json")
+                        .header("authorization", format!("Bearer {key}"))
+                        .body(Body::from(r#"{"subject":"user","trip_id":"trip"}"#))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+        }
+    }
+    #[test]
+    fn personal_identity_matches_the_manager_contract_and_is_user_trip_scoped() {
+        let manager = manager();
+        let id = manager.personal_identity("verified", "東京").unwrap();
+        assert_eq!(
+            id,
+            "trip-manager-eec1e0a022fe5a46c471ddeb38811901e1bda2af56938a7908b3fb6b0850d7e6"
+        );
+        assert_ne!(id, manager.personal_identity("other", "東京").unwrap());
+        assert_ne!(id, manager.personal_identity("verified", "other").unwrap());
     }
     #[test]
     fn snapshot_binds_authenticated_subject_token_and_exact_bytes() {
@@ -211,7 +325,7 @@ mod tests {
                     .expect("signature");
                 let snapshot: Value = serde_json::from_slice(&bytes).expect("snapshot");
                 assert_eq!(snapshot["profile"]["subject"], "verified");
-                Json(json!({"profile_revision":"r2","response":{"status":"no_matches"}}))
+                Json(json!({"manager_id":manager().personal_identity("verified","trip").expect("identity"),"profile_revision":"r2","response":{"status":"no_matches"}}))
             }),
         );
         let server = tokio::spawn(async move {

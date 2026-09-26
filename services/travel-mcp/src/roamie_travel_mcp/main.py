@@ -7,9 +7,9 @@ import httpx
 from tesserix_mcp_runtime import CallContext, Cancellation, SecretRedactor, SecretValue
 from tesserix_mcp_runtime.adapters.gateway_identity import (
     GatewayIdentityConfig,
-    GatewayJWTContextProvider,
 )
 from tesserix_mcp_runtime.adapters.streamable_http import (
+    HTTPCallContextProvider,
     HTTPRequestAuthenticationError,
     HTTPRequestMetadata,
     StreamableHTTPConfig,
@@ -17,12 +17,13 @@ from tesserix_mcp_runtime.adapters.streamable_http import (
     StreamableHTTPTransport,
 )
 
+from roamie_travel_mcp.identity import ZitadelContext
 from roamie_travel_mcp.nearby import NearbyProvider
 from roamie_travel_mcp.server import SafeTelemetry, build_application
 
 
 class GatewayContext:
-    def __init__(self, *, key: str, verifier: GatewayJWTContextProvider) -> None:
+    def __init__(self, *, key: str, verifier: HTTPCallContextProvider) -> None:
         if len(key) < 32:
             raise ValueError("MCP upstream key must contain at least 32 characters")
         self._key = key
@@ -42,14 +43,16 @@ class GatewayContext:
 
 async def serve() -> None:
     upstream_key = os.environ["ROAMIE_MCP_KEY"]
-    verifier = GatewayJWTContextProvider(
+    verifier = ZitadelContext(
         GatewayIdentityConfig(
             issuer=os.environ["ROAMIE_MCP_ISSUER"],
             audience=os.environ["ROAMIE_MCP_AUDIENCE"],
             jwks_url=os.environ["ROAMIE_MCP_JWKS_URL"],
             jwks_allowed_hosts=tuple(os.environ["ROAMIE_MCP_JWKS_HOSTS"].split(",")),
             trusted_proxy_cidrs=tuple(os.environ["ROAMIE_MCP_GATEWAY_CIDRS"].split(",")),
-        )
+        ),
+        manager_subject=os.environ["ROAMIE_MCP_MANAGER_SUBJECT"],
+        organization=os.environ["ROAMIE_MCP_ORGANIZATION"],
     )
     transport = StreamableHTTPTransport(
         config=StreamableHTTPConfig(

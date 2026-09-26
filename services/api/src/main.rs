@@ -19,6 +19,7 @@ mod talk;
 mod tests;
 mod translate;
 mod travel_mcp;
+mod travel_profiles;
 mod trip_manager;
 
 use std::sync::Arc;
@@ -141,6 +142,12 @@ async fn main() -> anyhow::Result<()> {
 fn router(state: Arc<AppState>) -> Router {
     let v1 = Router::new()
         .route(
+            "/trips/{trip}/profile",
+            get(travel_profiles::get)
+                .put(travel_profiles::put)
+                .layer(RequestBodyLimitLayer::new(32768)),
+        )
+        .route(
             "/trip-manager",
             post(trip_manager::recommend).layer(RequestBodyLimitLayer::new(32768)),
         )
@@ -159,6 +166,10 @@ fn router(state: Arc<AppState>) -> Router {
         ));
     Router::new()
         .route("/internal/v1/travel/nearby", get(travel_mcp::nearby))
+        .route(
+            "/internal/v1/travel/profile/verify",
+            post(travel_profiles::verify).layer(RequestBodyLimitLayer::new(32768)),
+        )
         .route("/healthz", get(|| async { "ok" }))
         .route("/readyz", get(readiness))
         .route("/v1/auth/config", get(auth::configuration))

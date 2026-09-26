@@ -1,9 +1,9 @@
 # Roamie product MCP
 
-Implements `travel_search` using the existing Roamie nearby API for food, activities and trip evidence. Other categories return unavailable. Workload API authentication must be verified before activation. Profile/memory tools and the backend signing bridge are not implemented.
+Implements `travel_search` using the existing Roamie nearby API for food, activities and trip evidence. Other categories return unavailable. Workload API authentication must be verified before activation. Memory generation is not implemented. The backend owns signed profile snapshots and current-profile verification.
 
 Uses the pinned published Tesserix MCP Runtime 0.1.0rc6 and native Streamable HTTP.
-Gateway JWT, MCP key, Roamie tenant and read scope are checked by the runtime.
+The runtime HTTP boundary verifies its gateway key and trusted peer. The Zitadel adapter verifies signature, issuer, project audience, token lifetime, exact manager subject and organization role before mapping to the Roamie tenant and travel-read scope.
 Each package owns its dependencies, lockfile, Dockerfile and compiled manifests.
 Gateway export is disabled until registry and authentication integration is tested.
 Secrets belong in environment/ExternalSecret references; none are checked in.
