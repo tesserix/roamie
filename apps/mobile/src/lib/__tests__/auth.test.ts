@@ -5,13 +5,13 @@ import { fetchCustomer, loadAuthConfig, providersFor, session, type AuthConfig }
 jest.mock('expo-secure-store', () => ({ getItemAsync: jest.fn(), setItemAsync: jest.fn(), deleteItemAsync: jest.fn() }));
 jest.mock('expo-auth-session', () => ({ refreshAsync: jest.fn(), revokeAsync: jest.fn(), TokenTypeHint: { RefreshToken: 'refresh_token' } }));
 
-const config: AuthConfig = { issuer: 'https://auth.tesserix.app', organizationId: 'org', projectId: 'project', clientIds: { ios: 'ios-client', android: 'android-client' }, providers: { google: 'google-id', facebook: 'facebook-id', apple: 'apple-id' } };
+const config: AuthConfig = { issuer: 'https://auth.tesserix.app', organizationId: 'org', projectId: 'project', clientIds: { ios: 'ios-client', android: 'android-client' }, providers: { google: 'google-id', apple: 'apple-id' } };
 const user = { sub: 'a', email: 'a@example.com', name: 'A' };
 beforeEach(async () => { jest.clearAllMocks(); await session.clear(); });
 
 test('offers only social providers appropriate for the platform', () => {
-  expect(providersFor('ios')).toEqual(['google', 'facebook', 'apple']);
-  expect(providersFor('android')).toEqual(['google', 'facebook']);
+  expect(providersFor('ios')).toEqual(['google', 'apple']);
+  expect(providersFor('android')).toEqual(['google']);
   expect(providersFor('web')).toEqual([]);
 });
 

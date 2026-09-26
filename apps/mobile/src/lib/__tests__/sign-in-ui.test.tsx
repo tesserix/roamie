@@ -12,22 +12,25 @@ jest.mock('expo-auth-session',()=>({fetchDiscoveryAsync:jest.fn(async()=>({})),A
 jest.mock('expo-router',()=>({useIsFocused:()=>false}));
 jest.mock('react-native-safe-area-context',()=>({useSafeAreaInsets:()=>({top:0,bottom:0,left:0,right:0})}));
 jest.mock('@expo/vector-icons/FontAwesome',()=>({__esModule:true,default:()=>null}));
-test('social icons keep provider names accessible and unavailable Facebook disabled',async()=>{
+test.each<typeof Platform.OS>(['ios', 'android'])('%s shows only supported social providers',async(platform)=>{
+ jest.replaceProperty(Platform,'OS',platform);
  await session.clear();
- global.fetch=jest.fn<typeof fetch>().mockResolvedValue({ok:true,json:async()=>({issuer:'https://auth.tesserix.app',organizationId:'org',projectId:'project',clientIds:{ios:'ios',android:'android'},providers:{google:'g',apple:'a'}})} as Response);
+ global.fetch=jest.fn<typeof fetch>().mockResolvedValue({ok:true,json:async()=>({issuer:'https://auth.tesserix.app',organizationId:'org',projectId:'project',clientIds:{ios:'ios',android:'android'},providers:{google:'g',apple:'a',facebook:'f'}})} as Response);
  await render(<AuthProvider><SignIn/></AuthProvider>);
  const google=await screen.findByRole('button',{name:'Continue with Google'});
  expect(google.props.accessibilityState.disabled).not.toBe(true);
- expect(screen.getByRole('button',{name:'Continue with Facebook'}).props.accessibilityState.disabled).toBe(true);
+ expect(screen.queryByRole('button',{name:'Continue with Facebook'})).toBeNull();
+ expect(screen.queryByText(/Facebook/)).toBeNull();
  expect(screen.getByText('Google')).toBeTruthy();
- expect(screen.getByText('Apple')).toBeTruthy();
+ if (platform === 'ios') expect(screen.getByRole('button',{name:'Continue with Apple'})).toBeTruthy();
+ else expect(screen.queryByRole('button',{name:'Continue with Apple'})).toBeNull();
  await fireEvent.press(screen.getByRole('button',{name:'Emergency help'}));
  expect(await screen.findByRole('button', {name: 'Back to sign-in'})).toBeTruthy();
 });
 
 afterEach(() => { jest.restoreAllMocks(); });
 test.each<[typeof Platform.OS, string, string]>([
- ['ios','google','g'], ['ios','apple','a'], ['android','google','g'], ['android','facebook','f'],
+ ['ios','google','g'], ['ios','apple','a'], ['android','google','g'],
 ])('%s %s selects the provider directly with PKCE and the registered callback',async(platform,provider,id)=>{
  jest.replaceProperty(Platform,'OS',platform);
  await session.clear();

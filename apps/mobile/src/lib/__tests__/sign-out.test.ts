@@ -12,7 +12,7 @@ jest.mock('expo-notifications', () => ({ cancelAllScheduledNotificationsAsync: j
 beforeEach(async () => { jest.clearAllMocks(); await session.clear(); });
 
 test('notification failure cannot prevent clearing the customer and stored credentials', async () => {
-  const config: AuthConfig = { issuer: 'https://auth.tesserix.app', organizationId: 'org', projectId: 'project', clientIds: { ios: 'ios', android: 'android' }, providers: { google: 'g', facebook: 'f', apple: 'a' } };
+  const config: AuthConfig = { issuer: 'https://auth.tesserix.app', organizationId: 'org', projectId: 'project', clientIds: { ios: 'ios', android: 'android' }, providers: { google: 'g', apple: 'a' } };
   await session.accept({ accessToken: 'access', refreshToken: 'refresh', expiresIn: 600 }, { sub: 'a', email: 'a@example.com', name: 'A' }, config, 'ios');
   jest.mocked(Notifications.cancelAllScheduledNotificationsAsync).mockRejectedValue(new Error('unavailable'));
   const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
