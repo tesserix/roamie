@@ -14,13 +14,14 @@ import { InterestList, combineInterests } from '@/components/interest-list';
 import { FOOD_PREFERENCES, TRIP_STYLES, type Destination } from '@/lib/trip-contract';
 import { SearchPicker } from '@/components/search-picker';
 import { CURRENCIES } from '@/data/currencies';
+import { TripManager, PlanCard } from '@/components/trip-manager';
 import { TripMemoryCard } from '@/components/trip-memory-card';
 import { font, useColors } from '@/constants/theme';
 import { format, toMinor } from '@/lib/money';
 import { useStore } from '@/lib/store';
 import { useTrips } from '@/lib/trip-store';
 import { createTrip, stayDates, modeName, newId, tripTotal, updateStop, type MemoryPhoto, type PlanRequest, type Trip, type TripStop } from '@/lib/trips';
-import { planTrip, renderMemory, memoryCapabilities, type MemoryOptions } from '@/lib/trip-api';
+import { renderMemory, memoryCapabilities, type MemoryOptions } from '@/lib/trip-api';
 import { choosePhotos, chooseMusic, discardVideo, deletePhotos, exportTrip, photoData, saveToPhotos, saveVideo, shareFile, suggestPhotos, tripDirectory } from '@/lib/trip-media';
 
 function Field({ label, value, change, placeholder, numeric = false, multiline = false }: { label: string; value: string; change: (s: string) => void; placeholder?: string; numeric?: boolean; multiline?: boolean }) {
@@ -109,6 +110,8 @@ function MemoryPlayer({ uri, disabled, discard }: { uri: string; disabled: boole
   return <><VideoView player={player} style={{ width: '100%', aspectRatio: 9 / 16, borderRadius: 16 }} nativeControls contentFit="contain" /><Button label="Discard video" kind="secondary" disabled={disabled} onPress={() => Alert.alert('Discard this preview?', 'Your photos and any video already saved or shared will stay.', [{ text: 'Keep video', style: 'cancel' }, { text: 'Discard', style: 'destructive', onPress: async () => { try { player.pause(); await player.replaceAsync(null); discard(); } catch { Alert.alert('Could not discard', 'Close the preview and try again.'); } } }])} /></>;
 }
 function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
+  const [showManager,setShowManager] = useState(false);
+  const {profile} = useStore();
   const store = useTrips(), c = useColors(), insets = useSafeAreaInsets();
   const { width, fontScale } = useWindowDimensions();
   const [day, setDay] = useState(0), [tab, setTab] = useState<'calendar' | 'memories'>('calendar'), [editor, setEditor] = useState<TripStop | 'new' | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(''), [seconds, setSeconds] = useState<60 | 90>(60), [video, setVideo] = useState<string | null>(null), [pdf, setPdf] = useState<string | null>(null), [suggested, setSuggested] = useState<MemoryPhoto[] | null>(null);
@@ -129,15 +132,6 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
     const task = new AbortController(); controller.current = task; setBusy(label); setError('');
     try { await run(task.signal); } catch (e) { if (alive.current) setError(task.signal.aborted ? 'Cancelled. Your saved trip is unchanged.' : e instanceof Error ? e.message : 'Please try again.'); }
     finally { controller.current = null; if (alive.current) setBusy(''); }
-  }
-  function generate() {
-    const run = () => { void work('Designing your days…', async signal => {
-      const { title, destination, startDate, endDate, currency, budgetMinor, diet, interests, travellers, preferences, stays } = trip;
-      const result = await planTrip({ title, destination, startDate, endDate, currency, budgetMinor, diet, interests, travellers, preferences, stays }, signal);
-      if (!alive.current || signal.aborted) return;
-      await store.save({ ...trip, days: result.days, notice: result.notice });
-    }); };
-    if (trip.days.some(d => d.stops.length)) Alert.alert('Replace this itinerary?', 'Roamie will create a new draft. Your photos stay with this trip.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Create draft', onPress: run }]); else run();
   }
   async function acceptPhotos(photos: MemoryPhoto[]) {
     try { await store.save({ ...trip, photos }); pendingPhotos.current = []; setSuggested(null); setVideo(null); deletePhotos(store.accountId, trip.id, trip.photos.filter(p => !photos.some(n => n.id === p.id))); }
@@ -191,6 +185,8 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><Icon name="mappin.and.ellipse" size={18} color={c.accent} /><Text style={[font.body, { color: c.muted, flex: 1 }]}>{route}</Text></View>
         <Text style={[font.caption, { color: c.muted }]}>{dateLabel(trip.startDate, true)} – {dateLabel(trip.endDate, true)}</Text>
       </View>
+      <Button label={showManager?'Close trip manager':'Plan with my trip manager'} kind="secondary" onPress={()=>setShowManager(value=>!value)} />
+      {showManager?<TripManager trip={trip} language={profile?.language??'en'} choose={async managerPlan=>{await store.save({...trip,managerPlan});setShowManager(false);}}/>:null}
       <View style={{ flexDirection: 'row', gap: 4, backgroundColor: c.surface, borderRadius: 18, padding: 4 }}>
         {([{ key: 'calendar', label: 'Your days' }, { key: 'memories', label: 'Memories' }] as const).map(option => <Pressable key={option.key} accessibilityRole="tab" accessibilityLabel={option.label} accessibilityState={{ selected: tab === option.key }} onPress={() => setTab(option.key)} style={({ pressed }) => ({ flex: 1, minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', padding: 10, backgroundColor: tab === option.key ? c.accent : 'transparent', opacity: pressed ? 0.7 : 1 })}>
           <Text style={[font.body, { color: tab === option.key ? c.onAccent : c.muted, fontWeight: '600', textAlign: 'center' }]}>{option.label}</Text>
@@ -199,6 +195,7 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
       {busy && !(videoStage && tab === 'memories') ? <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text accessibilityRole="alert" style={[font.headline, { color: c.text }]}>{busy}</Text><Text style={[font.caption, { color: c.muted }]}>Keep Roamie open while this finishes.</Text><Button label="Cancel task" kind="secondary" onPress={() => controller.current?.abort()} /></Card> : null}
       {error ? <Card><Text accessibilityRole="alert" style={[font.body, { color: c.danger }]}>{error}</Text></Card> : null}
       {tab === 'calendar' ? <>
+        {trip.managerPlan?<><Text style={[font.caption,{color:c.muted}]}>Saved reviewed plan · Ask your trip manager to refresh details before booking.</Text><PlanCard option={trip.managerPlan.option} advice={trip.managerPlan.advice} currency={trip.managerPlan.currency}/></>:null}
         <Card style={{ padding: 20, borderRadius: 24, gap: 18 }}>
           <View style={{ flexDirection: 'row', gap: 20 }}>
             <View style={{ flex: 1, gap: 4 }}><Text style={[font.caption, { color: c.muted }]}>Duration</Text><Text style={[font.headline, { color: c.text }]}>{trip.days.length} {trip.days.length === 1 ? 'day' : 'days'}</Text></View>
@@ -209,7 +206,7 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
             <Text style={[font.caption, { color: c.muted }]}>{trip.days.some(d => d.stops.length) ? `Activities & meals: ${format(tripTotal(trip), trip.currency)} estimated` : 'No activities added yet.'}</Text>
             <Text style={[font.caption, { color: c.muted }]}>Activity estimates exclude transport and accommodation.</Text>
           </View>
-          <Button label="Suggest my itinerary" disabled={!!busy} onPress={generate} />
+          <Button label="Compare three trip options" disabled={!!busy} onPress={()=>setShowManager(true)} />
         </Card>
         <View style={{ gap: 16 }}>
           <Text accessibilityRole="header" style={[font.title, { color: c.text }]}>Explore each day</Text>

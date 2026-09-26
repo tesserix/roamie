@@ -157,10 +157,6 @@ fn router(state: Arc<AppState>) -> Router {
                 .put(travel_profiles::put)
                 .layer(RequestBodyLimitLayer::new(32768)),
         )
-        .route(
-            "/trip-manager",
-            post(trip_manager::recommend).layer(RequestBodyLimitLayer::new(32768)),
-        )
         .route("/talk/turn", post(talk_turn))
         .route("/translate/text", post(translate_text))
         .route("/signs/translate", post(sign_translate))
@@ -176,6 +172,12 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/memories/capabilities", post(memories::capabilities))
         .layer(timeout(60))
         .layer(RequestBodyLimitLayer::new(12 * 1024 * 1024))
+        .route(
+            "/trip-manager",
+            post(trip_manager::recommend)
+                .layer::<_, std::convert::Infallible>(RequestBodyLimitLayer::new(32768))
+                .layer(timeout(90)),
+        )
         // Rendering outlasts the standard budget but must finish inside Cloudflare's 100s origin limit.
         .route(
             "/memories/render",
@@ -192,6 +194,7 @@ fn router(state: Arc<AppState>) -> Router {
         ));
     Router::new()
         .route("/internal/v1/travel/nearby", get(travel_mcp::nearby))
+        .route("/internal/v1/travel/planning", get(travel_mcp::planning))
         .route(
             "/internal/v1/travel/profile/verify",
             post(travel_profiles::verify).layer(RequestBodyLimitLayer::new(32768)),

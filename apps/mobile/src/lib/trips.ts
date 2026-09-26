@@ -1,8 +1,9 @@
+import type { ChosenPlan } from './trip-manager';
 import type { Destination, PlanRequest, TripDay, TripStop, TravelMode } from './trip-contract';
 import { FOOD_PREFERENCES, TRIP_STYLES } from './trip-contract';
 export type { PlanRequest, TripDay, TripStop, TravelMode } from './trip-contract';
 export type MemoryPhoto = { id: string; uri: string; width: number; height: number; caption: string; creationTime: number };
-export type Trip = PlanRequest & { id: string; destinationDetails?: Destination; days: TripDay[]; photos: MemoryPhoto[]; notice: string; updatedAt: string };
+export type Trip = PlanRequest & { id: string; managerPlan?: ChosenPlan; destinationDetails?: Destination; days: TripDay[]; photos: MemoryPhoto[]; notice: string; updatedAt: string };
 export const tripStorageKey = (account: string) => `roamie.trips.v1.${encodeURIComponent(account)}`;
 export const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 

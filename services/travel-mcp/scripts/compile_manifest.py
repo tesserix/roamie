@@ -17,7 +17,7 @@ compiled = compile_manifests(manifest, runtime_version=version("tesserix-mcp-run
 Path("server.json").write_bytes(compiled.server_json)
 registry = json.loads(compiled.registry_manifest)
 registry["metadata"]["name"] = "roamie-travel-mcp"
-registry["metadata"]["tag"] = "1.0.1"
+registry["metadata"]["tag"] = "1.1.0"
 registry["spec"]["name"] = "roamie-travel-mcp"
 registry["spec"]["credentialRef"] = {
     "secretName": "product-mcp-upstream-keys",
