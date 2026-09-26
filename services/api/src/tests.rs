@@ -47,9 +47,11 @@ fn model_reply(answer: Value) -> Value {
     json!({ "candidates": [{ "content": { "parts": [{ "text": answer.to_string() }] } }] })
 }
 
-fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc<AppState> {
+pub(crate) fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc<AppState> {
     let http = reqwest::Client::new();
     Arc::new(AppState {
+        auth: None,
+        development_auth_disabled: true,
         database: None,
         ai: Some(gemini::Gemini::with_auth(
             http.clone(),
@@ -624,4 +626,14 @@ async fn database_outage_changes_readiness_but_not_liveness() {
         StatusCode::SERVICE_UNAVAILABLE
     );
     assert_eq!(call(app, "GET", "/healthz", None).await.0, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn production_api_requires_identity_before_parsing_input() {
+    let mut app = state("http://unused", "http://unused", None);
+    Arc::get_mut(&mut app)
+        .expect("unique state")
+        .development_auth_disabled = false;
+    let (status, _) = call(app, "POST", "/v1/translate/text", Some(json!({}))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 }

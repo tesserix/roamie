@@ -5,6 +5,10 @@ use serde_json::json;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("account conflict")]
+    Conflict,
+    #[error("storage unavailable")]
+    Storage(#[from] sqlx::Error),
     #[error("invalid request: {0}")]
     Invalid(String),
     #[error("no speech in utterance")]
@@ -26,6 +30,16 @@ pub type Result<T> = std::result::Result<T, Error>;
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, code, message) = match &self {
+            Error::Conflict => (
+                StatusCode::CONFLICT,
+                "account_conflict",
+                "Use the account already registered with this email.".into(),
+            ),
+            Error::Storage(_) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "storage_unavailable",
+                "Account storage is temporarily unavailable.".into(),
+            ),
             Error::Invalid(m) => (StatusCode::BAD_REQUEST, "invalid", m.clone()),
             Error::NoSpeech => (
                 StatusCode::UNPROCESSABLE_ENTITY,
