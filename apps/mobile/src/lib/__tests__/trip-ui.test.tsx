@@ -8,7 +8,7 @@ import * as media from '../trip-media';
 import * as tripApi from '../trip-api';
 import { StoreProvider } from '../store';
 import { TripsProvider } from '../trip-store';
-import { tripStorageKey } from '../trips';
+import { tripStorageKey, createTrip, updateStop } from '../trips';
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}) }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 jest.mock('react-native-view-shot', () => ({ captureRef: jest.fn() }));
@@ -124,3 +124,20 @@ test('traveller creates a trip, adds a timed meal and reopens the saved calendar
  expect(JSON.parse(writes[writes.length - 1][1])[0].days[4].date).toBe(`${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-19`);
  expect(JSON.parse(writes[writes.length - 1][1])[0].days[0].stops[0].title).toBe('Lunch by the river');
 }, 20000);
+
+
+test('editing a proposed visit preserves unknown cost until an amount is entered', async () => {
+ process.env.EXPO_PUBLIC_AUTH_ENABLED = 'false';
+ const trip=updateStop(createTrip({title:'Proposed Hanoi',destination:'Hanoi',startDate:'2026-10-01',endDate:'2026-10-01',currency:'AUD',budgetMinor:60000,travellers:1,diet:'none',interests:'Museums'}),0,{id:'museum',title:'Museum',time:'10:00',minutes:60,kind:'sight',note:'Confirm hours',costMinor:0,costUnknown:true,place:null,transport:[]});
+ jest.mocked(AsyncStorage.getItem).mockImplementation(async key=>key===tripStorageKey('cost-check')?JSON.stringify([trip]):null);
+ await render(<StoreProvider accountId="cost-check"><TripsProvider accountId="cost-check"><Trips /></TripsProvider></StoreProvider>);
+ await fireEvent.press(await screen.findByRole('button',{name:'Open Proposed Hanoi'}));
+ await fireEvent.press(screen.getByRole('button',{name:'Edit'}));
+ await fireEvent.changeText(screen.getByLabelText('Notes'),'Visit after breakfast');
+ await fireEvent.press(screen.getByRole('button',{name:'Save stop'}));
+ expect(await screen.findAllByText('Cost not verified')).toHaveLength(2);
+ await fireEvent.press(screen.getByRole('button',{name:'Edit'}));
+ await fireEvent.changeText(screen.getByLabelText('Estimated cost · AUD'),'12');
+ await fireEvent.press(screen.getByRole('button',{name:'Save stop'}));
+ expect(screen.queryByText('Cost not verified')).toBeNull();
+});
