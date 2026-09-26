@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   ci:
+    needs: dependency-policy
     uses: tesserix/tesserix-workflows/.github/workflows/ci.yml@62f7f663a98d5ef92567850dd03c8c2513c9068e # v2.3.0
     with:
       rust_enabled: true
@@ -79,3 +80,13 @@ jobs:
         with:
           node-version: 22.19.0
       - run: node --test scripts/ci/mobile-release.test.mjs
+
+
+  dependency-policy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Install Rust
+        run: rustup toolchain install 1.97 --profile minimal && rustup default 1.97
+      - name: Reject reachable RSA advisory dependency
+        run: bash scripts/ci/check-rsa-dependency.sh

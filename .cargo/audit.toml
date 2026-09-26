@@ -1,0 +1,4 @@
+[advisories]
+# SQLx 0.8 records its disabled MySQL driver's rsa dependency in Cargo.lock.
+# CI rejects rsa in the resolved build graph and expires this exception.
+ignore = ["RUSTSEC-2023-0071"]

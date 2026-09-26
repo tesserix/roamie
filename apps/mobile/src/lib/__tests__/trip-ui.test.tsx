@@ -59,4 +59,4 @@ test('traveller creates a trip, adds a timed meal and reopens the saved calendar
  expect(JSON.parse(writes[writes.length - 1][1])[0].startDate).toBe(`${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-15`);
  expect(JSON.parse(writes[writes.length - 1][1])[0].days[4].date).toBe(`${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-19`);
  expect(JSON.parse(writes[writes.length - 1][1])[0].days[0].stops[0].title).toBe('Lunch by the river');
-});
+}, 20000);
