@@ -39,7 +39,7 @@ jobs:
           .venv/bin/python - <<'PYTHON'
           import runpy
           from pathlib import Path
-          paths = [Path("server.json"), Path("mcpserver.json")]
+          paths = [Path("server.json"), Path("mcpserver.json"), Path("tool.json")]
           before = [path.read_bytes() for path in paths]
           runpy.run_path("scripts/compile_manifest.py", run_name="__main__")
           if before != [path.read_bytes() for path in paths]:

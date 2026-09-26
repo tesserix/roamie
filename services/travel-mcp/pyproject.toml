@@ -11,7 +11,15 @@ dependencies = [
 requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
 [dependency-groups]
-dev = ["tesserix-mcp-manifest @ https://github.com/tesserix/tesserix-mcp-runtime/releases/download/v0.1.0-rc.6/tesserix_mcp_manifest-0.1.0rc6-py3-none-any.whl", "pytest>=9,<10", "pytest-asyncio>=1,<2", "ruff>=0.14,<1", "mypy>=1.18,<3", "types-jsonschema>=4,<5"]
+dev = [
+    "tesserix-mcp-manifest @ https://github.com/tesserix/tesserix-mcp-runtime/releases/download/v0.1.0-rc.6/tesserix_mcp_manifest-0.1.0rc6-py3-none-any.whl",
+    "pytest>=9,<10",
+    "pytest-asyncio>=1,<2",
+    "ruff>=0.14,<1",
+    "mypy>=1.18,<3",
+    "types-jsonschema>=4,<5",
+    "pyyaml>=6,<7",
+]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 [tool.ruff]
