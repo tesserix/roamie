@@ -29,7 +29,7 @@ type State = {
 type Store = State & {
   ready: boolean;
   saveProfile: (p: Profile) => void;
-  addExpense: (e: Omit<Expense, 'id' | 'at'>) => void;
+  addExpense: (e: Omit<Expense, 'id' | 'at'> & { at?: string }) => void;
   removeExpense: (id: string) => void;
   setPartner: (lang: string) => void;
   clearAll: () => Promise<void>;
@@ -59,10 +59,10 @@ export function StoreProvider({ children, accountId }: { children: ReactNode; ac
 
   const saveProfile = useCallback((profile: Profile) => setState((s) => ({ ...s, profile })), []);
   const addExpense = useCallback(
-    (e: Omit<Expense, 'id' | 'at'>) =>
+    (e: Omit<Expense, 'id' | 'at'> & { at?: string }) =>
       setState((s) => ({
         ...s,
-        expenses: [{ ...e, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: new Date().toISOString() }, ...s.expenses],
+        expenses: [{ ...e, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: e.at ?? new Date().toISOString() }, ...s.expenses],
       })),
     [],
   );

@@ -1,3 +1,5 @@
+import { getDocumentAsync } from 'expo-document-picker';
+import { File, Paths } from 'expo-file-system';
 import type { SFSymbol } from 'expo-symbols';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
@@ -18,11 +20,15 @@ import {
 
 import { Badge, Button, Icon, IconButton, Message, Screen, SectionLabel, TAB_CLEARANCE } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
-import { ApiError, fxRates, readReceipt } from '@/lib/api';
+import { StatementReview } from '@/components/statement-review';
+import { ApiError, fxRates, readReceipt, readStatement } from '@/lib/api';
 import { session } from '@/lib/auth-client';
 import { signOut } from '@/lib/sign-out';
 import { crossed, decimals, format, toHome, toMinor } from '@/lib/money';
+import { reviewStatement, type StatementRow } from '@/lib/statement';
 import { type Expense, useStore } from '@/lib/store';
+import { useTrips } from '@/lib/trip-store';
+import type { Trip } from '@/lib/trips';
 
 const CATEGORIES: { value: string; label: string; icon: SFSymbol }[] = [
   { value: 'food', label: 'Food', icon: 'fork.knife' },
@@ -44,6 +50,11 @@ Notifications.setNotificationHandler({
 });
 
 type Draft = { amount: string; currency: string; category: string; note: string };
+type Review = { rows: StatementRow[]; range: string };
+
+// Base64 inflates by a third, so 8 MB keeps the upload under the API's 12 MB body limit.
+const MAX_STATEMENT_BYTES = 8_000_000;
+const day = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
 export default function Wallet() {
   const { profile, expenses, addExpense, removeExpense, clearAll } = useStore();
@@ -53,7 +64,10 @@ export default function Wallet() {
   const lastCurrency = expenses[0]?.currency ?? home;
   const [draft, setDraft] = useState<Draft | null>(null);
   const [rates, setRates] = useState<Record<string, number> | null>(null);
+  const { trips } = useTrips();
   const [scanning, setScanning] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [review, setReview] = useState<Review | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -120,6 +134,49 @@ export default function Wallet() {
     }
   }
 
+  function importStatement() {
+    if (!trips.length) {
+      Alert.alert('Add a trip first', 'Roamie uses your trip dates to pick out holiday spending from the statement.');
+      return;
+    }
+    const recent = [...trips].sort((a, b) => b.startDate.localeCompare(a.startDate));
+    Alert.alert('Which trip is this statement for?', undefined, [
+      ...recent.slice(0, 5).map((trip) => ({ text: `${trip.title} · ${day(trip.startDate)}`, onPress: () => { void readTripStatement(trip); } })),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  }
+
+  async function readTripStatement(trip: Trip) {
+    const picked = await getDocumentAsync({ type: ['application/pdf', 'image/*'], copyToCacheDirectory: true, multiple: false });
+    if (picked.canceled) return;
+    const asset = picked.assets[0];
+    const file = new File(asset.uri);
+    setImporting(true);
+    try {
+      if (!file.exists || file.size <= 0 || file.size > MAX_STATEMENT_BYTES) throw new ApiError('Choose a PDF or photo up to 8 MB. Download only the months of your trip.');
+      const mimeType = asset.mimeType ?? (asset.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+      const statement = await readStatement(await file.base64(), mimeType, trip.startDate, trip.endDate);
+      setReview({ rows: reviewStatement(statement.transactions, expenses, home, rates), range: `${day(trip.startDate)} – ${day(trip.endDate)}` });
+    } catch (e) {
+      Alert.alert("Couldn't read that statement", e instanceof ApiError ? e.message : 'Try a clearer PDF or photo.');
+    } finally {
+      if (file.uri.startsWith(Paths.cache.uri.replace(/\/+$/, '') + '/') && file.exists) file.delete();
+      setImporting(false);
+    }
+  }
+
+  async function addStatement(rows: StatementRow[]) {
+    setReview(null);
+    let total = spent;
+    for (const row of rows) {
+      if (row.homeMinor === null) continue;
+      addExpense({ amountMinor: row.amountMinor, currency: row.currency, homeMinor: row.homeMinor, category: row.category, note: row.merchant, at: `${row.date}T12:00:00.000Z` });
+      total += row.homeMinor;
+    }
+    const hit = crossed(spent, total, budget);
+    if (hit) await nudge(hit, total, budget, home);
+  }
+
   function menu() {
     Alert.alert('Your account', session.current()?.email, [
       { text: 'Cancel', style: 'cancel' },
@@ -138,6 +195,7 @@ export default function Wallet() {
         <Button label="Add expense" icon="plus" onPress={() => open()} style={{ flex: 1 }} />
         <Button label="Scan" icon="doc.text.viewfinder" kind="secondary" busy={scanning} onPress={scan} style={{ flex: 0.7 }} />
       </View>
+      <Button label="Import card statement" icon="creditcard" kind="secondary" busy={importing} onPress={importStatement} />
       {expenses.length ? <SectionLabel>Recent</SectionLabel> : null}
     </View>
   );
@@ -167,6 +225,9 @@ export default function Wallet() {
           />
         )}
       />
+      <Modal visible={!!review} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setReview(null)}>
+        {review ? <StatementReview rows={review.rows} home={home} range={review.range} onAdd={(rows) => { void addStatement(rows); }} onClose={() => setReview(null)} /> : null}
+      </Modal>
       <AddSheet draft={draft} error={error} onChange={setDraft} onSave={save} onClose={() => setDraft(null)} />
     </Screen>
   );
