@@ -897,3 +897,43 @@ async fn model_calls_outlast_the_shared_client_timeout() {
         .expect("a slow itinerary draft still arrives");
     assert_eq!(reply, json!({ "ok": true }));
 }
+
+#[tokio::test]
+async fn planning_evidence_requires_mcp_identity_and_preserves_place_sources() {
+    let (base, hits) = upstream(StatusCode::OK, json!({"places":[{"id":"place1","displayName":{"text":"Museum"},"location":{"latitude":21.03,"longitude":105.85},"googleMapsUri":"https://maps.google.com/place1"}]})).await;
+    let mut s = state("http://unused", "http://unused", Some(&base));
+    Arc::get_mut(&mut s).expect("owner").travel_mcp_key = Some("k".repeat(32));
+    for (token, expected) in [
+        ("wrong".to_owned(), StatusCode::UNAUTHORIZED),
+        ("k".repeat(32), StatusCode::OK),
+    ] {
+        let response = router(s.clone())
+            .oneshot(
+                Request::builder()
+                    .uri("/internal/v1/travel/planning?destination=Hanoi")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), expected);
+        if expected == StatusCode::OK {
+            let body: Value = serde_json::from_slice(
+                &response
+                    .into_body()
+                    .collect()
+                    .await
+                    .expect("body")
+                    .to_bytes(),
+            )
+            .expect("json");
+            assert_eq!(
+                body["places"][0]["mapsUri"],
+                "https://maps.google.com/place1"
+            );
+            assert!(body["places"][0].get("cost_minor").is_none());
+        }
+    }
+    assert_eq!(hits.load(Ordering::SeqCst), 3);
+}

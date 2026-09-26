@@ -190,6 +190,7 @@ fn router(state: Arc<AppState>) -> Router {
         ));
     Router::new()
         .route("/internal/v1/travel/nearby", get(travel_mcp::nearby))
+        .route("/internal/v1/travel/planning", get(travel_mcp::planning))
         .route(
             "/internal/v1/travel/profile/verify",
             post(travel_profiles::verify).layer(RequestBodyLimitLayer::new(32768)),

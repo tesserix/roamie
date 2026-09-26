@@ -58,7 +58,7 @@ impl Manager {
             gateway_token: required("TRIP_MANAGER_GATEWAY_TOKEN")?,
             identity_key: required("TRIP_MANAGER_IDENTITY_KEY")?,
             http: reqwest::Client::builder()
-                .timeout(Duration::from_secs(55))
+                .timeout(Duration::from_secs(155))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()?,
             slots: Semaphore::new(8),

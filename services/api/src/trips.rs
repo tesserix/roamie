@@ -349,73 +349,81 @@ fn schema() -> Value {
     let stop = json!({"type":"OBJECT","properties":{"time":text,"minutes":integer,"kind":{"type":"STRING","enum":["sight","lunch","dinner"]},"placeId":text,"note":text,"costMinor":integer,"transport":{"type":"ARRAY","items":transport}},"required":["time","minutes","kind","placeId","note","costMinor","transport"]});
     json!({"type":"OBJECT","properties":{"days":{"type":"ARRAY","items":{"type":"OBJECT","properties":{"date":text,"stops":{"type":"ARRAY","items":stop}},"required":["date","stops"]}}},"required":["days"]})
 }
+pub(crate) async fn search_places(
+    state: &AppState,
+    query: &str,
+) -> Result<HashMap<String, TripPlace>> {
+    let config = state
+        .places
+        .as_ref()
+        .ok_or(Error::Unavailable("Trip evidence"))?;
+    let mut out = HashMap::new();
+    let response=state.http.post(format!("{}/places:searchText",config.base)).timeout(std::time::Duration::from_secs(10)).header("X-Goog-Api-Key",&config.key).header("X-Goog-FieldMask","places.id,places.displayName,places.formattedAddress,places.location,places.googleMapsUri").json(&json!({"textQuery":query,"pageSize":10})).send().await?;
+    if !response.status().is_success() {
+        return Err(Error::Upstream("trip places unavailable".into()));
+    }
+    let data: Value = response.json().await?;
+    for raw in data["places"].as_array().into_iter().flatten().take(10) {
+        let (Some(id), Some(name), Some(lat), Some(lng)) = (
+            raw["id"].as_str(),
+            raw["displayName"]["text"].as_str(),
+            raw["location"]["latitude"].as_f64(),
+            raw["location"]["longitude"].as_f64(),
+        ) else {
+            continue;
+        };
+        if id.len() > 200
+            || name.len() > 300
+            || !(-90.0..=90.0).contains(&lat)
+            || !(-180.0..=180.0).contains(&lng)
+        {
+            continue;
+        }
+        let maps = reqwest::Url::parse(raw["googleMapsUri"].as_str().unwrap_or(""))
+            .ok()
+            .filter(|u| {
+                u.scheme() == "https"
+                    && matches!(
+                        u.host_str(),
+                        Some("maps.google.com" | "www.google.com" | "maps.app.goo.gl")
+                    )
+            })
+            .map(|u| u.to_string())
+            .unwrap_or_default();
+        out.insert(
+            id.into(),
+            TripPlace {
+                id: id.into(),
+                name: name.into(),
+                address: raw["formattedAddress"]
+                    .as_str()
+                    .unwrap_or("")
+                    .chars()
+                    .take(400)
+                    .collect(),
+                maps_uri: maps,
+                lat,
+                lng,
+            },
+        );
+    }
+    Ok(out)
+}
+
 async fn candidates(
     state: &AppState,
     destination: &str,
     diet: &str,
 ) -> Result<HashMap<String, TripPlace>> {
-    let config = state
-        .places
-        .as_ref()
-        .ok_or(Error::Unavailable("Trip suggestions"))?;
     let mut out = HashMap::new();
     for query in [
-        format!("tourist attractions in {}", destination),
+        format!("tourist attractions in {destination}"),
         format!(
-            "{} restaurants in {}",
-            if diet == "none" { "local" } else { diet },
-            destination
+            "{} restaurants in {destination}",
+            if diet == "none" { "local" } else { diet }
         ),
     ] {
-        let response=state.http.post(format!("{}/places:searchText",config.base)).timeout(std::time::Duration::from_secs(10)).header("X-Goog-Api-Key",&config.key).header("X-Goog-FieldMask","places.id,places.displayName,places.formattedAddress,places.location,places.googleMapsUri").json(&json!({"textQuery":query,"pageSize":10})).send().await?;
-        if !response.status().is_success() {
-            return Err(Error::Upstream("trip places unavailable".into()));
-        }
-        let data: Value = response.json().await?;
-        for raw in data["places"].as_array().into_iter().flatten().take(10) {
-            let (Some(id), Some(name), Some(lat), Some(lng)) = (
-                raw["id"].as_str(),
-                raw["displayName"]["text"].as_str(),
-                raw["location"]["latitude"].as_f64(),
-                raw["location"]["longitude"].as_f64(),
-            ) else {
-                continue;
-            };
-            if id.len() > 200
-                || name.len() > 300
-                || !(-90.0..=90.0).contains(&lat)
-                || !(-180.0..=180.0).contains(&lng)
-            {
-                continue;
-            }
-            let maps = reqwest::Url::parse(raw["googleMapsUri"].as_str().unwrap_or(""))
-                .ok()
-                .filter(|u| {
-                    u.scheme() == "https"
-                        && matches!(
-                            u.host_str(),
-                            Some("maps.google.com" | "www.google.com" | "maps.app.goo.gl")
-                        )
-                })
-                .map(|u| u.to_string())
-                .unwrap_or_default();
-            out.insert(
-                id.into(),
-                TripPlace {
-                    id: id.into(),
-                    name: name.into(),
-                    address: raw["formattedAddress"]
-                        .as_str()
-                        .unwrap_or("")
-                        .chars()
-                        .take(400)
-                        .collect(),
-                    maps_uri: maps,
-                    lat,
-                    lng,
-                },
-            );
-        }
+        out.extend(search_places(state, &query).await?);
     }
     if out.len() < 3 {
         return Err(Error::Unavailable(

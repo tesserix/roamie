@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "description": "Read sourced Roamie nearby travel evidence with verified caller authorization.",
+  "description": "Read sourced nearby and destination travel evidence with verified caller authorization.",
   "name": "io.github.tesserix/roamie-travel-mcp",
   "remotes": [
     {
