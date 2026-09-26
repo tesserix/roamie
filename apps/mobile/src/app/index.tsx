@@ -418,12 +418,10 @@ function Bubble({ turn, onShow }: { turn: Turn; onShow: () => void }) {
             <Icon name="speaker.wave.2.fill" size={14} color={c.accent} />
             <Text style={[font.caption, { color: c.accent, fontWeight: '600' }]}>Play</Text>
           </Pressable>
-          {mine ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Show them" hitSlop={10} onPress={onShow} style={styles.action}>
-              <Icon name="arrow.up.left.and.arrow.down.right" size={14} color={c.accent} />
-              <Text style={[font.caption, { color: c.accent, fontWeight: '600' }]}>Show them</Text>
-            </Pressable>
-          ) : null}
+          <Pressable accessibilityRole="button" accessibilityLabel="Show them" hitSlop={10} onPress={onShow} style={styles.action}>
+            <Icon name="arrow.up.left.and.arrow.down.right" size={14} color={c.accent} />
+            <Text style={[font.caption, { color: c.accent, fontWeight: '600' }]}>Show them</Text>
+          </Pressable>
         </View>
       )}
     </View>

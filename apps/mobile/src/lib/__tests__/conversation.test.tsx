@@ -44,12 +44,20 @@ test('Hindi is detected first and an English reply uses the remembered Hindi tar
   await fireEvent.press(screen.getByRole('button', { name: 'Translate' }));
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
   expect(await screen.findByRole('button', { name: 'Their language: Hindi. Change' })).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Show them' }));
+  expect(screen.getAllByText('नमस्ते')).toHaveLength(2);
+  await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
   await fireEvent.changeText(screen.getByLabelText('Type something to translate'), 'Thank you');
   await fireEvent.press(screen.getByRole('button', { name: 'Translate' }));
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   expect(JSON.parse(fetch.mock.calls[0][1]?.body as string)).toMatchObject({ mine: 'en', partner: 'en' });
   expect(JSON.parse(fetch.mock.calls[1][1]?.body as string)).toMatchObject({ mine: 'en', partner: 'hi' });
   await waitFor(() => expect(Speech.speak).toHaveBeenCalledWith('धन्यवाद', expect.objectContaining({ language: 'hi' })));
+  const actions = screen.getAllByRole('button', { name: 'Show them' });
+  expect(actions).toHaveLength(2);
+  await fireEvent.press(actions[1]);
+  expect(screen.getAllByText('धन्यवाद')).toHaveLength(2);
+  await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
 });
 
 test('speaking the preferred language first does not invent a partner language', async () => {

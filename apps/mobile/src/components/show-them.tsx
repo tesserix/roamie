@@ -16,8 +16,8 @@ export function ShowThem({ shown, onClose }: { shown: Shown | null; onClose: () 
   const { reducedMotion } = useAccessibility();
   return (
     <Modal onShow={() => setFlipped(false)} visible={!!shown} animationType={reducedMotion ? 'none' : 'fade'} onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top, paddingBottom: insets.bottom + space.md }}>
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.text, flipped && { transform: [{ rotate: '180deg' }] }]} accessibilityViewIsModal>
+      <View accessibilityViewIsModal style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top, paddingBottom: insets.bottom + space.md }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.text, flipped && { transform: [{ rotate: '180deg' }] }]}>
           <Text style={{ color: c.text, fontSize: 38, lineHeight: 50, fontWeight: '600', textAlign: 'center' }} accessibilityLanguage={shown?.lang} selectable>
             {shown?.text}
           </Text>
