@@ -5,6 +5,7 @@ mod auth;
 #[cfg(test)]
 mod auth_tests;
 mod database;
+mod destinations;
 mod error;
 mod fx;
 mod gemini;
@@ -155,6 +156,7 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/translate/text", post(translate_text))
         .route("/signs/translate", post(sign_translate))
         .route("/receipts/extract", post(receipt_extract))
+        .route("/destinations/search", post(destinations::search))
         .route("/nearby", get(nearby_search))
         .route("/fx", get(fx_latest))
         .route("/auth/me", get(accounts::me))

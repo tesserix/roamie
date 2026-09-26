@@ -1,0 +1,100 @@
+use crate::{
+    error::{Error, Result},
+    AppState,
+};
+use axum::{extract::State, Json};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::sync::Arc;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Search {
+    query: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Destination {
+    pub place_id: String,
+    pub name: String,
+    pub label: String,
+    pub country_code: String,
+    pub country: String,
+}
+
+pub async fn search(
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<Search>,
+) -> Result<Json<Vec<Destination>>> {
+    let query = input.query.trim();
+    if query.chars().count() < 2 || query.len() > 160 || query.chars().any(char::is_control) {
+        return Err(Error::Invalid(
+            "Enter a destination of 2–160 characters.".into(),
+        ));
+    }
+    let config = state
+        .places
+        .as_ref()
+        .ok_or(Error::Unavailable("Destination search"))?;
+    let response = state
+        .http
+        .post(format!("{}/places:searchText", config.base))
+        .timeout(std::time::Duration::from_secs(10))
+        .header("X-Goog-Api-Key", &config.key)
+        .header(
+            "X-Goog-FieldMask",
+            "places.id,places.displayName,places.formattedAddress,places.addressComponents",
+        )
+        .json(&json!({"textQuery":query,"pageSize":5,"languageCode":"en"}))
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        return Err(Error::Upstream("destination search unavailable".into()));
+    }
+    let data: Value = response.json().await?;
+    let mut destinations = Vec::new();
+    for place in data["places"].as_array().into_iter().flatten().take(5) {
+        let country = place["addressComponents"].as_array().and_then(|parts| {
+            parts.iter().find(|part| {
+                part["types"]
+                    .as_array()
+                    .is_some_and(|types| types.iter().any(|kind| kind == "country"))
+            })
+        });
+        let Some(country) = country else { continue };
+        let (Some(id), Some(name), Some(label), Some(code), Some(country_name)) = (
+            place["id"].as_str(),
+            place["displayName"]["text"].as_str(),
+            place["formattedAddress"].as_str(),
+            country["shortText"].as_str(),
+            country["longText"].as_str(),
+        ) else {
+            continue;
+        };
+        if id.is_empty()
+            || id.len() > 200
+            || name.is_empty()
+            || name.len() > 160
+            || label.is_empty()
+            || label.len() > 160
+            || code.len() != 2
+            || !code.bytes().all(|b| b.is_ascii_uppercase())
+            || country_name.is_empty()
+            || country_name.len() > 100
+        {
+            continue;
+        }
+        if destinations.iter().any(|d: &Destination| d.place_id == id) {
+            continue;
+        }
+        destinations.push(Destination {
+            place_id: id.into(),
+            name: name.into(),
+            label: label.into(),
+            country_code: code.into(),
+            country: country_name.into(),
+        });
+    }
+    Ok(Json(destinations))
+}

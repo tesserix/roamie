@@ -299,6 +299,71 @@ async fn places_failure_is_bad_gateway() {
     assert_eq!(status, StatusCode::BAD_GATEWAY);
 }
 
+fn city(id: &str, name: &str, address: &str, code: &str, country: &str) -> Value {
+    json!({
+        "id": id, "displayName": { "text": name }, "formattedAddress": address,
+        "addressComponents": [
+            { "longText": name, "shortText": name, "types": ["locality", "political"] },
+            { "longText": country, "shortText": code, "types": ["country", "political"] }
+        ]
+    })
+}
+
+#[tokio::test]
+async fn destination_search_returns_cities_from_any_country() {
+    let (places, _) = upstream(
+        StatusCode::OK,
+        json!({ "places": [
+            city("hn", "Hanoi", "Hanoi, Vietnam", "VN", "Vietnam"),
+            city("hn", "Hanoi", "Hanoi, Vietnam", "VN", "Vietnam"),
+            city("pa", "Paris", "Paris, France", "FR", "France"),
+            { "id": "sea", "displayName": { "text": "Open sea" }, "formattedAddress": "Ocean" }
+        ] }),
+    )
+    .await;
+    let (status, body) = call(
+        state("http://unused", "http://unused", Some(&places)),
+        "POST",
+        "/v1/destinations/search",
+        Some(json!({ "query": "Hanoi" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body,
+        json!([
+            { "placeId": "hn", "name": "Hanoi", "label": "Hanoi, Vietnam", "countryCode": "VN", "country": "Vietnam" },
+            { "placeId": "pa", "name": "Paris", "label": "Paris, France", "countryCode": "FR", "country": "France" }
+        ])
+    );
+}
+
+#[tokio::test]
+async fn destination_search_rejects_short_queries_before_places() {
+    let (places, hits) = upstream(StatusCode::OK, json!({ "places": [] })).await;
+    let (status, _) = call(
+        state("http://unused", "http://unused", Some(&places)),
+        "POST",
+        "/v1/destinations/search",
+        Some(json!({ "query": " H " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn destination_search_without_places_key_is_unavailable() {
+    let (status, _) = call(
+        state("http://unused", "http://unused", None),
+        "POST",
+        "/v1/destinations/search",
+        Some(json!({ "query": "Hanoi" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
 #[tokio::test]
 async fn fx_rates_are_cached_per_base() {
     let (fx_url, hits) = upstream(
