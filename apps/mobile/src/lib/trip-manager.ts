@@ -1,4 +1,4 @@
-import { apiRequest, ApiError } from './trip-api';
+import { apiRequest, ApiError, searchDestinations } from './trip-api';
 import { tripDates, newId, updateStop, type Trip } from './trips';
 import type { TripOption } from './planning-contract';
 export type { TripOption } from './planning-contract';
@@ -11,7 +11,22 @@ export type TravelPreferences = {
   start_date: string | null; end_date: string | null; photo_consent: boolean; selected_photo_ids: string[];
 };
 export type SavedTravelProfile = { trip_id: string; revision: string; preferences: TravelPreferences };
-export type ManagerRequest = { prompt: string; plan_options?:boolean; stays?:{destination:string;days:number}[]; travellers?:number; origin?: {latitude:number;longitude:number}; destination?:string; exchange_amount_minor?:number; exchange_destination_currency?:string };
+export type ManagerRequest = { prompt: string; plan_options?:boolean; stays?:{destination:string;days:number;country?:string;origin?:{latitude:number;longitude:number}}[]; travellers?:number; origin?: {latitude:number;longitude:number}; destination?:string; destination_country?:string; exchange_amount_minor?:number; exchange_destination_currency?:string };
+export async function buildManagerRequest(trip: Trip, prompt: string, specialist: Specialist, signal: AbortSignal): Promise<ManagerRequest> {
+  const request: ManagerRequest = { prompt, destination: trip.destination, travellers: trip.travellers, plan_options: specialist === 'trip-planner' };
+  const selected = trip.stays?.length ? trip.stays : trip.destinationDetails ? [{ destination: trip.destinationDetails, days: trip.days.length }] : [];
+  if (!selected.length) return request;
+  request.stays = await Promise.all(selected.map(async stay => {
+    const places = await searchDestinations(stay.destination.label, signal);
+    const place = places.find(item => item.placeId === stay.destination.placeId);
+    if (!place || place.latitude == null || place.longitude == null) throw new Error('Choose this destination again from search so we can check its weather and entry guidance.');
+    return { destination: stay.destination.label, days: stay.days, country: place.countryCode, origin: { latitude: place.latitude, longitude: place.longitude } };
+  }));
+  request.origin = request.stays[0].origin;
+  request.destination_country = request.stays[0].country;
+  return request;
+}
+
 export type Advice = {
   manager_id: string; profile_revision: string; review_run_ids: [string,string];
   response: { trip_options?: TripOption[]; status: 'ok' | 'unavailable' | 'no_matches'; specialist: Specialist; limitations: string[];
