@@ -3,7 +3,7 @@ import { ActivityIndicator, Linking, Text, TextInput, View } from 'react-native'
 import { Button, Card, Chip } from './ui';
 import { font, useColors } from '@/constants/theme';
 import { format } from '@/lib/money';
-import { askTripManager, initialPreferences, loadTravelProfile, saveTravelProfile, SPECIALISTS, planTotal, type Advice, type SavedTravelProfile, type Specialist, type TripOption, type TravelPreferences, type ChosenPlan } from '@/lib/trip-manager';
+import { askTripManager, buildManagerRequest, initialPreferences, loadTravelProfile, saveTravelProfile, SPECIALISTS, planTotal, type Advice, type SavedTravelProfile, type Specialist, type TripOption, type TravelPreferences, type ChosenPlan } from '@/lib/trip-manager';
 import type { Trip } from '@/lib/trips';
 
 export function TripManager({trip, language, choose}: {trip:Trip;language:string;choose:(plan:ChosenPlan)=>Promise<void>}) {
@@ -35,7 +35,8 @@ export function TripManager({trip, language, choose}: {trip:Trip;language:string
       const saved=await saveTravelProfile(trip.id,{...preferences, allergies:preferences.allergies.filter(Boolean),diets:preferences.diets.filter(Boolean),accessibility_requirements:preferences.accessibility_requirements.filter(Boolean),preferences:preferences.preferences.filter(Boolean)},profile?.revision??null,task.signal);
       if(task.signal.aborted)return;
       setProfile(saved); setBusy(specialist==='trip-planner'?'Creating and reviewing three trip options…':'Your manager is reviewing your request…');
-      const result=await askTripManager(saved,specialist,{prompt,destination:trip.destination,travellers:trip.travellers,stays:trip.stays?.map(stay=>({destination:stay.destination.label,days:stay.days})),plan_options:specialist==='trip-planner'},task.signal);
+      const request=await buildManagerRequest(trip,prompt,specialist,task.signal);
+      const result=await askTripManager(saved,specialist,request,task.signal);
       if(!task.signal.aborted)setAdvice(result);
     } catch(e) {if(!task.signal.aborted)setError(e instanceof Error?e.message:'Could not complete your request.');}
     finally {if(controller.current===task){controller.current=null;setBusy('');}}

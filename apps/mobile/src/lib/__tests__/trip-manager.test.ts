@@ -1,7 +1,7 @@
 import { beforeEach, expect, jest, test } from '@jest/globals';
 import { fetch } from 'expo/fetch';
 import { session } from '../auth-client';
-import { loadTravelProfile, saveTravelProfile, askTripManager, initialPreferences, applyReviewedPlan } from '../trip-manager';
+import { buildManagerRequest, loadTravelProfile, saveTravelProfile, askTripManager, initialPreferences, applyReviewedPlan } from '../trip-manager';
 import { createTrip } from '../trips';
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
 jest.mock('../auth-client', () => ({ API_BASE: 'https://roamie-api.tesserix.app', session: {current: jest.fn(() => ({sub:'alice'})), accessToken: jest.fn(async () => 'test-token'), clear: jest.fn(async () => {})} }));
@@ -56,4 +56,18 @@ test('choosing a reviewed option populates daily plans without inventing prices 
  expect(selected.days[0].destination).toBe('Hanoi');
  expect(selected.notice).toContain('not reviewed');
  expect(oneDay.days[0].stops).toHaveLength(0);
+});
+
+test('resolves each stay before sending weather and entry planning details', async () => {
+ const first={placeId:'mel',label:'Melbourne, Australia',name:'Melbourne',country:'Australia',countryCode:'AU'};
+ const second={placeId:'tok',label:'Tokyo, Japan',name:'Tokyo',country:'Japan',countryCode:'JP'};
+ respond([{...first,latitude:-37.8,longitude:145}]);
+ respond([{...second,latitude:35.7,longitude:139.7}]);
+ const request=await buildManagerRequest({...trip,stays:[{destination:first,days:1},{destination:second,days:1}]},'Plan','trip-planner',new AbortController().signal);
+ expect(request.stays).toEqual([
+  {destination:first.label,days:1,country:'AU',origin:{latitude:-37.8,longitude:145}},
+  {destination:second.label,days:1,country:'JP',origin:{latitude:35.7,longitude:139.7}},
+ ]);
+ expect(request.destination_country).toBe('AU');
+ expect(request.origin).toEqual({latitude:-37.8,longitude:145});
 });
