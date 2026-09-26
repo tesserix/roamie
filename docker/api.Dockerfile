@@ -8,6 +8,13 @@ COPY services ./services
 RUN cargo build --locked --release -p roamie-api --bin roamie-api
 
 FROM ${TESSERIX_RUNTIME}
+# Memory videos are rendered with ffmpeg and captioned with DejaVu Sans.
+USER root
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y ffmpeg fonts-dejavu-core \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
+USER 10001:10001
 COPY --from=build --chown=10001:10001 /src/target/release/roamie-api /app/roamie-api
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/roamie-api"]

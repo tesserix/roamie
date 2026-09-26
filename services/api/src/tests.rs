@@ -66,6 +66,7 @@ pub(crate) fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc
             base: base.into(),
         }),
         ocr: None,
+        memories: crate::memories::Renderer::new(),
         http,
     })
 }
@@ -362,6 +363,80 @@ async fn destination_search_without_places_key_is_unavailable() {
     )
     .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+fn trip_places() -> Value {
+    let place = |id: &str, name: &str| {
+        json!({
+            "id": id, "displayName": { "text": name }, "formattedAddress": "Hanoi",
+            "location": { "latitude": 21.03, "longitude": 105.85 },
+            "googleMapsUri": format!("https://maps.google.com/?cid={id}")
+        })
+    };
+    json!({ "places": [place("p1", "Temple of Literature"), place("p2", "Pho Bat Dan"), place("p3", "Cha Ca La Vong")] })
+}
+
+fn draft_stop(time: &str, kind: &str, place: &str) -> Value {
+    let transport: Vec<Value> = ["taxi", "bicycle", "rentalCar", "publicTransport", "walk"]
+        .iter()
+        .map(|mode| json!({ "mode": mode, "minutes": 10, "costMinor": 0, "note": "Estimate" }))
+        .collect();
+    json!({ "time": time, "minutes": 60, "kind": kind, "placeId": place, "note": "", "costMinor": 1000, "transport": transport })
+}
+
+fn plan_request() -> Value {
+    json!({
+        "title": "Vietnam", "destination": "Hanoi, Vietnam", "startDate": "2026-11-02", "endDate": "2026-11-02",
+        "currency": "VND", "budgetMinor": 0, "diet": "none", "interests": "Shopping, Street food", "travellers": 1
+    })
+}
+
+#[tokio::test]
+async fn trip_plan_uses_only_verified_places() {
+    let (places, _) = upstream(StatusCode::OK, trip_places()).await;
+    let draft = json!({ "days": [{ "date": "2026-11-02", "stops": [
+        draft_stop("09:00", "sight", "p1"), draft_stop("12:00", "lunch", "p2"), draft_stop("19:00", "dinner", "p3")
+    ] }] });
+    let (gemini, _) = upstream(StatusCode::OK, model_reply(draft)).await;
+    let (status, body) = call(
+        state(&gemini, "http://unused", Some(&places)),
+        "POST",
+        "/v1/trips/plan",
+        Some(plan_request()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["days"][0]["stops"][0]["title"], "Temple of Literature");
+    assert_eq!(body["days"][0]["stops"][2]["place"]["id"], "p3");
+}
+
+#[tokio::test]
+async fn trip_plan_rejects_a_draft_with_invented_places() {
+    let (places, _) = upstream(StatusCode::OK, trip_places()).await;
+    let draft = json!({ "days": [{ "date": "2026-11-02", "stops": [
+        draft_stop("09:00", "sight", "invented"), draft_stop("12:00", "lunch", "p2"), draft_stop("19:00", "dinner", "p3")
+    ] }] });
+    let (gemini, _) = upstream(StatusCode::OK, model_reply(draft)).await;
+    let (status, _) = call(
+        state(&gemini, "http://unused", Some(&places)),
+        "POST",
+        "/v1/trips/plan",
+        Some(plan_request()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn memory_render_rejects_requests_without_photos() {
+    let (status, body) = call(
+        state("http://unused", "http://unused", None),
+        "POST",
+        "/v1/memories/render",
+        Some(json!({ "title": "Hanoi", "durationSeconds": 60, "images": [], "captions": [] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 }
 
 #[tokio::test]
