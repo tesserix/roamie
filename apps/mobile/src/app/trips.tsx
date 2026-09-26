@@ -251,7 +251,7 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
                   <Pressable accessibilityRole="button" accessibilityLabel={`Remove photo ${i + 1}`} accessibilityState={{ disabled: !!busy }} disabled={!!busy} onPress={() => { void work('Removing photo…', () => acceptPhotos(trip.photos.filter(p => p.id !== photo.id))); }} style={({ pressed }) => ({ flex: 1, minHeight: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.35 : pressed ? 0.7 : 1 })}><Icon name="trash" size={18} color={c.muted} /></Pressable>
                 </View>
               </>}
-            </Card>; })}{columns === 2 && photos.slice(row * columns, (row + 1) * columns).length === 1 && <View style={{flex:1}} />}</View>; })}
+            </Card>; })}{columns === 2 && photos.slice(row * columns, (row + 1) * columns).length === 1 && <View style={{flex:1,padding:12}} />}</View>; })}
           </View>
         </View>}
       </>}
