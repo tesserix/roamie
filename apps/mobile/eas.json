@@ -1,0 +1,46 @@
+{
+  "cli": {
+    "version": ">= 22.2.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "environment": "development",
+      "node": "22.19.0",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://roamie-api.tesserix.app",
+        "EXPO_PUBLIC_AUTH_ENABLED": "true"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "environment": "preview",
+      "node": "22.19.0",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://roamie-api.tesserix.app",
+        "EXPO_PUBLIC_AUTH_ENABLED": "true"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "environment": "production",
+      "node": "22.19.0",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://roamie-api.tesserix.app",
+        "EXPO_PUBLIC_AUTH_ENABLED": "true"
+      },
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  }
+}

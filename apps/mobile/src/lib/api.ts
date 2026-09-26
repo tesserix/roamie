@@ -1,4 +1,4 @@
-const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080';
+import { authFetch, session } from './auth-client';
 const OFFLINE = "Can't reach Roamie. Check your connection and try again.";
 
 export class ApiError extends Error {}
@@ -6,14 +6,19 @@ export class ApiError extends Error {}
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, {
+    const token = await session.accessToken();
+    res = await authFetch(path, {
       ...init,
-      headers: { 'content-type': 'application/json', ...init?.headers },
+      headers: { 'content-type': 'application/json', ...init?.headers, Authorization: `Bearer ${token}` },
     });
   } catch {
     throw new ApiError(OFFLINE);
   }
   const body = await res.json().catch(() => null);
+  if (res.status === 401) {
+    await session.clear();
+    throw new ApiError('Sign in again to continue.');
+  }
   if (!res.ok) throw new ApiError(body?.message ?? OFFLINE);
   return body as T;
 }
@@ -24,6 +29,7 @@ export type TurnResponse = {
   candidates: string[];
   transcript: string;
   translation: string;
+  romanized: string;
   target: string;
   partner: string;
   sameLanguage: boolean;
@@ -39,6 +45,30 @@ export type TurnRequest = {
 
 export const talkTurn = (req: TurnRequest) =>
   call<TurnResponse>('/v1/talk/turn', { method: 'POST', body: JSON.stringify(req) });
+
+export type TextTranslation = {
+  detected: string;
+  translation: string;
+  romanized: string;
+  sourceRomanized: string;
+  alternatives: string[];
+};
+
+export const translateText = (text: string, to: string, from?: string) =>
+  call<TextTranslation>('/v1/translate/text', { method: 'POST', body: JSON.stringify({ text, to, from }) });
+
+export type SignLine = {
+  original: string;
+  translation: string;
+  romanized: string;
+  box: { x: number; y: number; w: number; h: number };
+};
+
+export const translateSign = (data: string, mimeType: string, to: string) =>
+  call<{ detected: string; gist: string; lines: SignLine[] }>('/v1/signs/translate', {
+    method: 'POST',
+    body: JSON.stringify({ data, mimeType, to }),
+  });
 
 export type Receipt = {
   merchant: string;

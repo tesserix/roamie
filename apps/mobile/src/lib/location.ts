@@ -1,50 +1,55 @@
-import { getLocales } from 'expo-localization';
 import * as Location from 'expo-location';
 import { useIsFocused } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 
 export type Here = {
   status: 'loading' | 'ready' | 'denied' | 'error';
   coords: { lat: number; lng: number } | null;
   country: string | null;
+  checkedAt: number | null;
   refresh: () => void;
 };
 
-const deviceRegion = () => getLocales()[0]?.regionCode ?? null;
-
-// Asks for location the first time the screen is shown, not when the tab bar mounts it.
 export function useHere(): Here {
-  const [state, setState] = useState<Omit<Here, 'refresh'>>({ status: 'loading', coords: null, country: null });
+  const [state, setState] = useState<Omit<Here, 'refresh'>>({
+    status: 'loading', coords: null, country: null, checkedAt: null,
+  });
   const [tick, setTick] = useState(0);
   const focused = useIsFocused();
-  const [seen, setSeen] = useState(false);
-  if (focused && !seen) setSeen(true);
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
-    if (!seen) return;
-    let live = true;
-    (async () => {
-      setState((s) => ({ ...s, status: 'loading' }));
-      const perm = await Location.requestForegroundPermissionsAsync();
-      if (!perm.granted) {
-        if (live) setState({ status: 'denied', coords: null, country: deviceRegion() });
-        return;
-      }
-      try {
-        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        const place = await Location.reverseGeocodeAsync({ latitude: coords.lat, longitude: coords.lng }).catch(() => []);
-        if (live) setState({ status: 'ready', coords, country: place[0]?.isoCountryCode ?? deviceRegion() });
-      } catch {
-        if (live) setState({ status: 'error', coords: null, country: deviceRegion() });
-      }
-    })();
-    return () => {
-      live = false;
-    };
-  }, [seen, tick]);
+    if (!focused) return;
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') refresh();
+    });
+    return () => subscription.remove();
+  }, [focused, refresh]);
 
-  const refresh = useCallback(() => setTick((t) => t + 1), []);
+  useEffect(() => {
+    if (!focused) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const locate = async () => {
+      setState({ status: 'loading', coords: null, country: null, checkedAt: null });
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (!perm.granted) return { status: 'denied' as const, coords: null, country: null, checkedAt: null };
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      const place = await Location.reverseGeocodeAsync(pos.coords).catch(() => []);
+      return { status: 'ready' as const, coords, country: place[0]?.isoCountryCode?.toUpperCase() ?? null, checkedAt: Date.now() };
+    };
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Location timed out')), 15000);
+    });
+    Promise.race([locate(), timeout])
+      .then((next) => { if (live) setState(next); })
+      .catch(() => { if (live) setState({ status: 'error', coords: null, country: null, checkedAt: null }); })
+      .finally(() => clearTimeout(timer));
+    return () => { live = false; clearTimeout(timer); };
+  }, [focused, tick]);
+
   return { ...state, refresh };
 }
 

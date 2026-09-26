@@ -1,0 +1,44 @@
+import { afterEach, expect, it, jest } from '@jest/globals';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { fetch } from 'expo/fetch';
+import { DestinationLookup } from '../../components/destination-lookup';
+jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
+jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}) }));
+const previous = process.env.EXPO_PUBLIC_AUTH_ENABLED;
+afterEach(() => { process.env.EXPO_PUBLIC_AUTH_ENABLED = previous; jest.useRealTimers(); jest.clearAllMocks(); });
+const response = (name: string) => ({ ok:true, status:200, json:async()=>[{placeId:name,name,label:name,countryCode:'JP',country:'Japan'}] }) as Awaited<ReturnType<typeof fetch>>;
+it('ignores a slow result after the traveller enters a different destination', async () => {
+  process.env.EXPO_PUBLIC_AUTH_ENABLED = 'false';
+  jest.useFakeTimers();
+  let first!: (value: Awaited<ReturnType<typeof fetch>>) => void;
+  jest.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { first = resolve; })).mockResolvedValueOnce(response('Osaka'));
+  const selected = jest.fn();
+  await render(<DestinationLookup selected={null} onSelect={selected}/>);
+  await fireEvent.changeText(screen.getByLabelText('Destination'),'Tokyo');
+  await act(async () => { jest.advanceTimersByTime(350); });
+  await fireEvent.changeText(screen.getByLabelText('Destination'),'Osaka');
+  await act(async () => { jest.advanceTimersByTime(350); });
+  await act(async () => { first(response('Tokyo')); });
+  expect(screen.queryByRole('button',{name:'Tokyo'})).toBeNull();
+  await fireEvent.press(screen.getByRole('button',{name:'Osaka'}));
+  expect(selected).toHaveBeenLastCalledWith({placeId:'Osaka',name:'Osaka',label:'Osaka',countryCode:'JP',country:'Japan'});
+});
+it('shows a retry action when destination lookup fails', async () => {
+  process.env.EXPO_PUBLIC_AUTH_ENABLED = 'false';
+  jest.useFakeTimers();
+  jest.mocked(fetch).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(response('Kyoto'));
+  await render(<DestinationLookup selected={null} onSelect={jest.fn()}/>);
+  await fireEvent.changeText(screen.getByLabelText('Destination'),'Kyoto');
+  await act(async () => { jest.advanceTimersByTime(350); });
+  await fireEvent.press(screen.getByRole('button',{name:'Retry destination search'}));
+  await act(async () => { jest.advanceTimersByTime(350); });
+  expect(screen.getByRole('button',{name:'Kyoto'})).toBeTruthy();
+});
+it('shows a compact selected place and lets the traveller change it', async () => {
+ const change = jest.fn();
+ await render(<DestinationLookup selected={{placeId:'tokyo',name:'Tokyo',label:'Tokyo, Japan',countryCode:'JP',country:'Japan'}} onSelect={change} />);
+ expect(screen.getByText('Tokyo')).toBeTruthy();
+ expect(screen.queryByText('Selected · Japan')).toBeNull();
+ await fireEvent.press(screen.getByRole('button', { name: 'Change Destination: Tokyo, Japan' }));
+ expect(change).toHaveBeenCalledWith(null);
+});

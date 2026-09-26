@@ -35,24 +35,27 @@ type Store = State & {
   clearAll: () => Promise<void>;
 };
 
-const KEY = 'roamie.v1';
+export const accountStorageKey = (accountId: string) => `roamie.v2.auth.tesserix.app.${encodeURIComponent(accountId)}`;
 const EMPTY: State = { profile: null, expenses: [], partner: null };
 const Ctx = createContext<Store | null>(null);
 
-export function StoreProvider({ children }: { children: ReactNode }) {
+export function StoreProvider({ children, accountId }: { children: ReactNode; accountId: string }) {
+  const key = accountStorageKey(accountId);
   const [state, setState] = useState<State>(EMPTY);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(KEY)
-      .then((raw) => raw && setState({ ...EMPTY, ...JSON.parse(raw) }))
+    let mounted = true;
+    AsyncStorage.getItem(key)
+      .then((raw) => raw && mounted && setState({ ...EMPTY, ...JSON.parse(raw) }))
       .catch(() => {})
-      .finally(() => setReady(true));
-  }, []);
+      .finally(() => { if (mounted) setReady(true); });
+    return () => { mounted = false; };
+  }, [key]);
 
   useEffect(() => {
-    if (ready) AsyncStorage.setItem(KEY, JSON.stringify(state)).catch(() => {});
-  }, [ready, state]);
+    if (ready) AsyncStorage.setItem(key, JSON.stringify(state)).catch(() => {});
+  }, [ready, state, key]);
 
   const saveProfile = useCallback((profile: Profile) => setState((s) => ({ ...s, profile })), []);
   const addExpense = useCallback(
@@ -69,9 +72,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
   const setPartner = useCallback((partner: string) => setState((s) => ({ ...s, partner })), []);
   const clearAll = useCallback(async () => {
-    await AsyncStorage.removeItem(KEY);
+    await AsyncStorage.removeItem(key);
     setState(EMPTY);
-  }, []);
+  }, [key]);
 
   const value = useMemo(
     () => ({ ...state, ready, saveProfile, addExpense, removeExpense, setPartner, clearAll }),

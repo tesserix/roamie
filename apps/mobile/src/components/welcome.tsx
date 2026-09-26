@@ -3,11 +3,15 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Chip } from '@/components/ui';
+import { ProfileSettings } from './profile-settings';
+import { Badge, Button, Card, Chip, Icon } from '@/components/ui';
 import { LanguagePicker } from '@/components/language-picker';
-import { radius, space, touch, useColors } from '@/constants/theme';
+import type { SFSymbol } from 'expo-symbols';
+
+import { font, radius, space, touch, useColors } from '@/constants/theme';
 import { LANGUAGES, languageName } from '@/lib/languages';
 import { toMinor } from '@/lib/money';
+import { signOut } from '@/lib/sign-out';
 import { type Diet, useStore } from '@/lib/store';
 
 const DIETS: { value: Diet; label: string }[] = [
@@ -31,6 +35,7 @@ export default function Welcome() {
   const [currency, setCurrency] = useState(locale?.currencyCode ?? 'USD');
   const [budget, setBudget] = useState('');
   const [diet, setDiet] = useState<Diet>('none');
+  const [extras, setExtras] = useState(false);
   const [picking, setPicking] = useState(false);
 
   const budgetMinor = budget ? toMinor(budget, currency) : 0;
@@ -39,25 +44,28 @@ export default function Welcome() {
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: c.background }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView
-        contentContainerStyle={{ padding: space.lg, paddingTop: insets.top + space.xl, gap: space.xl }}
+        contentContainerStyle={{ padding: space.lg, paddingTop: insets.top + space.lg, paddingBottom: insets.bottom + space.lg, gap: space.md }}
         keyboardShouldPersistTaps="handled">
-        <View style={{ gap: space.sm }}>
-          <Text style={{ color: c.text, fontSize: 36, fontWeight: '800' }}>{"Hi, I'm Roamie."}</Text>
-          <Text style={{ color: c.muted, fontSize: 17 }}>{"Three quick things and you're set. You can skip all of them."}</Text>
+        <View style={{ gap: space.md }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><Badge icon="globe.europe.africa.fill" tint={c.onAccent} bg={c.accent} size={56} /><ProfileSettings /></View>
+          <Text style={[font.largeTitle, { color: c.text }]}>{"A little less planning.\nA lot more exploring."}</Text>
+          <Text style={[font.body, { color: c.muted, fontSize: 17 }]}>{"Choose your language. We’ll help with the rest along the way."}</Text>
         </View>
 
-        <Section title="1. Your language">
+        <Section icon="character.bubble.fill" title="Your language">
           <Pressable
             accessibilityRole="button"
             accessibilityHint="Choose the language you want everything translated into"
             onPress={() => setPicking(true)}
-            style={({ pressed }) => [styles.field, { backgroundColor: c.card, borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}>
+            style={({ pressed }) => [styles.field, { backgroundColor: c.background, borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}>
             <Text style={{ color: c.text, fontSize: 17 }}>{languageName(language)}</Text>
-            <Text style={{ color: c.accent, fontSize: 15, fontWeight: '600' }}>Change</Text>
+            <Icon name="chevron.right" size={15} color={c.muted} />
           </Pressable>
         </Section>
 
-        <Section title="2. Trip budget" hint="Optional. We'll nudge you at 50%, 80% and 100%.">
+        <Button label={extras ? 'Hide optional preferences' : 'Add budget and food preferences'} kind="secondary" onPress={() => setExtras(value => !value)} />
+        {extras && <View style={{ gap: space.md }}>
+        <Section icon="wallet.pass.fill" title="Trip budget" hint="Optional. We'll nudge you at 50%, 80% and 100%.">
           <View style={{ flexDirection: 'row', gap: space.sm }}>
             <TextInput
               accessibilityLabel="Currency code"
@@ -65,21 +73,21 @@ export default function Welcome() {
               onChangeText={(t) => setCurrency(t.toUpperCase().slice(0, 3))}
               autoCapitalize="characters"
               autoCorrect={false}
-              style={[styles.field, styles.input, { width: 88, color: c.text, backgroundColor: c.card, borderColor: validCurrency ? c.border : c.danger }]}
+              style={[styles.field, styles.input, { width: 88, color: c.text, backgroundColor: c.background, borderColor: validCurrency ? c.border : c.danger }]}
             />
             <TextInput
               accessibilityLabel="Budget amount"
               value={budget}
               onChangeText={setBudget}
               placeholder="e.g. 1500"
-              placeholderTextColor={c.muted}
+              placeholderTextColor={c.faint}
               keyboardType="decimal-pad"
-              style={[styles.field, styles.input, { flex: 1, color: c.text, backgroundColor: c.card, borderColor: budgetMinor === null ? c.danger : c.border }]}
+              style={[styles.field, styles.input, { flex: 1, color: c.text, backgroundColor: c.background, borderColor: budgetMinor === null ? c.danger : c.border }]}
             />
           </View>
         </Section>
 
-        <Section title="3. What do you eat?">
+        <Section icon="fork.knife" title="What do you eat?">
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
             {DIETS.map((d) => (
               <Chip key={d.value} label={d.label} selected={diet === d.value} onPress={() => setDiet(d.value)} />
@@ -87,14 +95,19 @@ export default function Welcome() {
           </View>
         </Section>
 
+        </View>}
+
         <Button
           label="Start exploring"
+          icon="arrow.right"
           disabled={!validCurrency || budgetMinor === null}
           onPress={() => saveProfile({ language, homeCurrency: currency, budgetMinor: budgetMinor ?? 0, diet })}
         />
-        <Text style={{ color: c.muted, fontSize: 13, textAlign: 'center' }}>
-          No account needed. Everything stays on this phone.
-        </Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 }}>
+          <Icon name="lock.fill" size={13} color={c.muted} />
+          <Text style={[font.caption, { color: c.muted }]}>Your trip details stay on this phone.</Text>
+        </View>
+        <Button label="Change account" kind="secondary" onPress={() => { void signOut(); }} />
       </ScrollView>
       <LanguagePicker
         visible={picking}
@@ -107,14 +120,19 @@ export default function Welcome() {
   );
 }
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function Section({ icon, title, hint, children }: { icon: SFSymbol; title: string; hint?: string; children: React.ReactNode }) {
   const c = useColors();
   return (
-    <View style={{ gap: space.sm }}>
-      <Text style={{ color: c.text, fontSize: 20, fontWeight: '700' }}>{title}</Text>
-      {hint ? <Text style={{ color: c.muted, fontSize: 14 }}>{hint}</Text> : null}
+    <Card style={{ gap: space.md }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <Badge icon={icon} tint={c.accent} bg={c.accentSoft} size={36} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={[font.headline, { color: c.text }]}>{title}</Text>
+          {hint ? <Text style={[font.caption, { color: c.muted }]}>{hint}</Text> : null}
+        </View>
+      </View>
       {children}
-    </View>
+    </Card>
   );
 }
 

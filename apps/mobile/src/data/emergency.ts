@@ -51,6 +51,3 @@ export const EMERGENCY: Record<string, Numbers> = {
   VN: { name: 'Vietnam', police: '113', ambulance: '115', fire: '114' },
   ZA: { name: 'South Africa', police: '10111', ambulance: '10177', fire: '10177' },
 };
-
-// 112 reaches emergency services from almost any GSM mobile phone worldwide.
-export const FALLBACK = '112';
