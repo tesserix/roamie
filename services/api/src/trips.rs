@@ -145,9 +145,11 @@ struct DraftStop {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DraftDay {
+    #[allow(dead_code, reason = "asked for so the model keeps days in order")]
     date: String,
     stops: Vec<DraftStop>,
 }
+type PlacesByDestination = HashMap<String, HashMap<String, TripPlace>>;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Draft {
@@ -257,78 +259,86 @@ fn clock(s: &str) -> Option<u32> {
 fn grounded(
     draft: Draft,
     dates: &[String],
-    places: &HashMap<String, HashMap<String, TripPlace>>,
+    places: &PlacesByDestination,
     destinations: &[String],
 ) -> Result<PlanResponse> {
-    let bad = || Error::Upstream("invalid itinerary draft".into());
     if draft.days.len() != dates.len() {
-        return Err(bad());
+        return Err(Error::Upstream(format!(
+            "itinerary draft has {} days, expected {}",
+            draft.days.len(),
+            dates.len()
+        )));
     }
     let mut days = Vec::new();
     for (index, day) in draft.days.into_iter().enumerate() {
-        if day.date != dates[index] || !(3..=6).contains(&day.stops.len()) {
-            return Err(bad());
-        }
+        let known = places.get(&destinations[index]);
+        let mut drafted: Vec<(u32, DraftStop)> = day
+            .stops
+            .into_iter()
+            .filter_map(|stop| {
+                let reason = match clock(&stop.time) {
+                    None => "bad time",
+                    Some(_) if !(15..=240).contains(&stop.minutes) => "bad duration",
+                    Some(start) if start + stop.minutes > 1440 => "past midnight",
+                    Some(_) if !(0..=1_000_000_000).contains(&stop.cost_minor) => "bad cost",
+                    Some(_) if !["sight", "lunch", "dinner"].contains(&stop.kind.as_str()) => {
+                        "bad kind"
+                    }
+                    Some(_) if !known.is_some_and(|set| set.contains_key(&stop.place_id)) => {
+                        "unknown place"
+                    }
+                    Some(start) => return Some((start, stop)),
+                };
+                tracing::warn!(day = index, reason, "dropped itinerary stop");
+                None
+            })
+            .collect();
+        drafted.sort_by_key(|(start, _)| *start);
         let mut end = 0;
         let mut stops = Vec::new();
-        for (i, stop) in day.stops.into_iter().enumerate() {
-            let start = clock(&stop.time).ok_or_else(bad)?;
-            if start < end
-                || !(15..=240).contains(&stop.minutes)
-                || start + stop.minutes > 1440
-                || stop.note.len() > 500
-                || !(0..=1_000_000_000).contains(&stop.cost_minor)
-                || !["sight", "lunch", "dinner"].contains(&stop.kind.as_str())
-                || stop.transport.len() != 5
-            {
-                return Err(bad());
+        for (start, stop) in drafted {
+            if start < end {
+                tracing::warn!(day = index, reason = "overlap", "dropped itinerary stop");
+                continue;
             }
-            let modes = [
-                TravelMode::Taxi,
-                TravelMode::Bicycle,
-                TravelMode::RentalCar,
-                TravelMode::PublicTransport,
-                TravelMode::Walk,
-            ];
-            for mode in modes {
-                if stop.transport.iter().filter(|t| t.mode == mode).count() != 1 {
-                    return Err(bad());
+            end = start + stop.minutes;
+            let place = known
+                .and_then(|set| set.get(&stop.place_id))
+                .ok_or_else(|| Error::Upstream("itinerary place vanished".into()))?
+                .clone();
+            let mut transport: Vec<Transport> = Vec::new();
+            // Intercity transfers routinely take most of a day, so allow up to 24h.
+            for mut t in stop.transport {
+                if t.minutes <= 1440
+                    && (0..=1_000_000_000).contains(&t.cost_minor)
+                    && !transport.iter().any(|kept| kept.mode == t.mode)
+                {
+                    t.note = t.note.chars().take(300).collect();
+                    transport.push(t);
                 }
             }
-            if stop.transport.iter().any(|t| {
-                t.minutes > 240
-                    || t.cost_minor < 0
-                    || t.cost_minor > 1_000_000_000
-                    || t.note.len() > 300
-            }) {
-                return Err(bad());
-            }
-            let place = places
-                .get(&destinations[index])
-                .and_then(|set| set.get(&stop.place_id))
-                .ok_or_else(bad)?
-                .clone();
-            end = start + stop.minutes;
             stops.push(TripStop {
-                id: format!("{index}-{i}"),
+                id: format!("{index}-{}", stops.len()),
                 time: stop.time,
                 minutes: stop.minutes,
                 kind: stop.kind,
                 title: place.name.clone(),
-                note: stop.note,
+                note: stop.note.chars().take(500).collect(),
                 cost_minor: stop.cost_minor,
                 place: Some(place),
-                transport: stop.transport,
+                transport,
             });
         }
-        if !stops.iter().any(|s| s.kind == "lunch") || !stops.iter().any(|s| s.kind == "dinner") {
-            return Err(bad());
-        }
         days.push(TripDay {
-            date: day.date,
+            date: dates[index].clone(),
             destination: Some(destinations[index].clone()),
             stops,
         });
+    }
+    if days.iter().all(|day| day.stops.is_empty()) {
+        return Err(Error::Upstream(
+            "itinerary draft had no usable stops".into(),
+        ));
     }
     Ok(PlanResponse { days, notice:"Places sourced from Google Maps. Times, admission, meals and transport costs are AI estimates for your group, not live fares or bookings. Confirm opening hours, routes, rental terms and dietary/allergy needs with providers.".into() })
 }
@@ -500,6 +510,78 @@ mod tests {
             ),
         )
         .expect("write contract");
+    }
+    fn draft_fixture() -> (Vec<String>, PlacesByDestination, Vec<String>) {
+        let place = |id: &str| TripPlace {
+            id: id.into(),
+            name: format!("Place {id}"),
+            address: String::new(),
+            maps_uri: String::new(),
+            lat: 21.0,
+            lng: 105.8,
+        };
+        let places = HashMap::from([(
+            "Sa Pa".to_string(),
+            ["a", "b", "c"].map(|id| (id.to_string(), place(id))).into(),
+        )]);
+        (vec!["2026-10-02".into()], places, vec!["Sa Pa".into()])
+    }
+    fn stop(time: &str, minutes: u32, kind: &str, place: &str, transport: Value) -> Value {
+        json!({"time":time,"minutes":minutes,"kind":kind,"placeId":place,"note":"n","costMinor":1000,"transport":transport})
+    }
+    #[test]
+    fn grounding_keeps_valid_stops_when_the_model_slips() {
+        let (dates, places, destinations) = draft_fixture();
+        let transfer = json!([
+            {"mode":"taxi","minutes":330,"costMinor":250000,"note":"Hanoi to Sa Pa"},
+            {"mode":"publicTransport","minutes":360,"costMinor":40000,"note":"Sleeper bus"},
+            {"mode":"publicTransport","minutes":1,"costMinor":1,"note":"duplicate"}
+        ]);
+        let draft: Draft = serde_json::from_value(json!({"days":[{"date":"02/10/2026","stops":[
+            stop("18:30", 90, "dinner", "c", json!([])),
+            stop("14:00", 120, "sight", "a", transfer),
+            stop("15:00", 60, "lunch", "b", json!([])),
+            stop("16:30", 60, "sight", "invented", json!([])),
+            stop("25:00", 60, "sight", "b", json!([]))
+        ]}]}))
+        .expect("draft");
+        let plan = grounded(draft, &dates, &places, &destinations).expect("usable plan");
+        let day = &plan.days[0];
+        assert_eq!(
+            day.date, "2026-10-02",
+            "date comes from the request calendar"
+        );
+        let kept: Vec<_> = day
+            .stops
+            .iter()
+            .map(|s| (s.time.as_str(), s.title.as_str()))
+            .collect();
+        assert_eq!(
+            kept,
+            [("14:00", "Place a"), ("18:30", "Place c")],
+            "overlap, invented place and bad clock dropped"
+        );
+        let modes: Vec<_> = day.stops[0]
+            .transport
+            .iter()
+            .map(|t| (t.mode.clone(), t.minutes))
+            .collect();
+        assert_eq!(
+            modes,
+            [(TravelMode::Taxi, 330), (TravelMode::PublicTransport, 360)],
+            "long transfer kept, duplicate mode dropped"
+        );
+    }
+    #[test]
+    fn grounding_rejects_a_draft_with_nothing_usable() {
+        let (dates, places, destinations) = draft_fixture();
+        let empty: Draft = serde_json::from_value(json!({"days":[{"date":"2026-10-02","stops":[stop("09:00", 60, "sight", "invented", json!([]))]}]})).expect("draft");
+        assert!(grounded(empty, &dates, &places, &destinations).is_err());
+        let short: Draft = serde_json::from_value(json!({"days":[]})).expect("draft");
+        assert!(
+            grounded(short, &dates, &places, &destinations).is_err(),
+            "day count must match"
+        );
     }
     #[test]
     fn calendar_is_valid_and_bounded() {

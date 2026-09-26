@@ -411,20 +411,31 @@ async fn trip_plan_uses_only_verified_places() {
 }
 
 #[tokio::test]
-async fn trip_plan_rejects_a_draft_with_invented_places() {
+async fn trip_plan_drops_invented_places() {
     let (places, _) = upstream(StatusCode::OK, trip_places()).await;
     let draft = json!({ "days": [{ "date": "2026-11-02", "stops": [
         draft_stop("09:00", "sight", "invented"), draft_stop("12:00", "lunch", "p2"), draft_stop("19:00", "dinner", "p3")
     ] }] });
     let (gemini, _) = upstream(StatusCode::OK, model_reply(draft)).await;
-    let (status, _) = call(
+    let (status, body) = call(
         state(&gemini, "http://unused", Some(&places)),
         "POST",
         "/v1/trips/plan",
         Some(plan_request()),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let ids: Vec<_> = body["days"][0]["stops"]
+        .as_array()
+        .expect("stops")
+        .iter()
+        .map(|s| s["place"]["id"].as_str().expect("place id"))
+        .collect();
+    assert_eq!(
+        ids,
+        ["p2", "p3"],
+        "only verified places reach the traveller"
+    );
 }
 
 #[tokio::test]
