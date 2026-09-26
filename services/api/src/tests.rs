@@ -340,6 +340,23 @@ async fn destination_search_returns_cities_from_any_country() {
 }
 
 #[tokio::test]
+async fn destination_search_includes_verified_coordinates() {
+    let mut place = city("hn", "Hanoi", "Hanoi, Vietnam", "VN", "Vietnam");
+    place["location"] = json!({"latitude":21.03,"longitude":105.85});
+    let (places, _) = upstream(StatusCode::OK, json!({"places":[place]})).await;
+    let (status, body) = call(
+        state("http://unused", "http://unused", Some(&places)),
+        "POST",
+        "/v1/destinations/search",
+        Some(json!({"query":"Hanoi"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body[0]["latitude"], 21.03);
+    assert_eq!(body[0]["longitude"], 105.85);
+}
+
+#[tokio::test]
 async fn destination_search_rejects_short_queries_before_places() {
     let (places, hits) = upstream(StatusCode::OK, json!({ "places": [] })).await;
     let (status, _) = call(

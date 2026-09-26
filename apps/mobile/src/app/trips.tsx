@@ -14,6 +14,7 @@ import { InterestList, combineInterests } from '@/components/interest-list';
 import { FOOD_PREFERENCES, TRIP_STYLES, type Destination } from '@/lib/trip-contract';
 import { SearchPicker } from '@/components/search-picker';
 import { CURRENCIES } from '@/data/currencies';
+import { TripReadiness } from '@/components/trip-readiness';
 import { TripMemoryCard } from '@/components/trip-memory-card';
 import { font, useColors } from '@/constants/theme';
 import { format, toMinor } from '@/lib/money';
@@ -199,6 +200,7 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
       {busy && !(videoStage && tab === 'memories') ? <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text accessibilityRole="alert" style={[font.headline, { color: c.text }]}>{busy}</Text><Text style={[font.caption, { color: c.muted }]}>Keep Roamie open while this finishes.</Text><Button label="Cancel task" kind="secondary" onPress={() => controller.current?.abort()} /></Card> : null}
       {error ? <Card><Text accessibilityRole="alert" style={[font.body, { color: c.danger }]}>{error}</Text></Card> : null}
       {tab === 'calendar' ? <>
+        <TripReadiness key={trip.updatedAt} trip={trip} />
         <Card style={{ padding: 20, borderRadius: 24, gap: 18 }}>
           <View style={{ flexDirection: 'row', gap: 20 }}>
             <View style={{ flex: 1, gap: 4 }}><Text style={[font.caption, { color: c.muted }]}>Duration</Text><Text style={[font.headline, { color: c.text }]}>{trip.days.length} {trip.days.length === 1 ? 'day' : 'days'}</Text></View>
