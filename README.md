@@ -14,6 +14,12 @@ things travellers juggle across five different apps today:
 AI companion agents that plan and assist throughout the trip come in **MVP 2**, built on
 the same Vertex AI foundation that MVP 1 sets up.
 
+**Release priorities:** V1 focuses on Talk, Nearby, SOS and a manual budget with local
+alerts. Read-only bank linking and receipt scanning follow in MVP 2. Payments,
+bookings, transfers and bill splitting remain lower-priority, uncommitted future work.
+See the [historical delivery backlog](docs/archive/2026-09-25/delivery-plan.md) for epics, dependencies
+and release gates.
+
 ## Principles
 
 1. **Zero-setup by default.** One language setting, one budget, one diet profile. No
@@ -23,8 +29,10 @@ the same Vertex AI foundation that MVP 1 sets up.
    deterministic, sourced data. Never from a model.
 3. **Read-only money.** Roamie can see transactions. It can never move money, and it
    never stores card numbers or bank credentials.
-4. **Free, no sign-in.** No accounts, no subscriptions, no in-app payments. Install it
-   and it works. Your data stays on your phone.
+4. **Free, simple social sign-in.** Google on iOS and Android, plus Apple
+   on iOS. No password signup, subscriptions or in-app payments. Local wallet data is
+   separated by account; connected trip preferences and shared
+   trip records are stored by the API. SOS remains available without sign-in.
 5. **Works when it matters.** SOS and the phrase book work offline. Everything else fails
    politely.
 
@@ -39,4 +47,7 @@ the same Vertex AI foundation that MVP 1 sets up.
 
 ## Status
 
-Planning. The backlog is tracked on the org project board. See [docs/backlog.md](docs/backlog.md).
+Implemented features include translation, trip planning, wallet capture, nearby search
+and SOS. Release readiness requires device and connected-service validation. The
+historical issue plan is preserved separately from current implementation; project-board
+status is not verified. See [docs/backlog.md](docs/backlog.md).

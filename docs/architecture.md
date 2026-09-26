@@ -1,6 +1,23 @@
 # Roamie: architecture (MVP 0–2)
 
-## Shape
+## Implementation boundary
+
+The diagrams and detailed flows below describe the original target architecture,
+including planned streaming speech, bank ingestion, notifications and emergency-data
+updates. They are not a claim that those integrations are running.
+
+The current app uses social customer authentication, a Rust API and PostgreSQL.
+Accounts, shared trip records, audit history and personal travel preferences have
+server-side storage. The mobile wallet and conversation state remain local and
+account-scoped. Trip-manager requests use the saved profile revision, not a trusted
+client snapshot. See [customer identity](adr/0006-customer-identity-and-audit.md),
+[database runtime](adr/0005-cnpg-runtime.md) and [manager identity](trip-manager-identity.md).
+
+The [historical delivery plan](archive/2026-09-25/delivery-plan.md) records the original
+release priorities. Bank linking and financial automation are independently gated;
+payments, transfers and booking execution remain deferred.
+
+## Target shape
 
 ```
 Expo app (iOS/Android)
@@ -23,13 +40,14 @@ MVP 2: roamie-agents (Python, ADK base image) ──MCP──▶ roamie-api tool
 - **One Rust service** (axum, tokio, sqlx) for MVP 0–1, chosen for low latency on the Talk
   path and a small memory footprint. Modules own their tables. A module is split into a
   separate service only when it has a different scaling or failure profile.
-- **No user accounts.** Each install generates an anonymous install ID, kept in the
-  Keychain. Because the API is public and every Gemini call costs money, requests carry an
-  Apple App Attest or Play Integrity assertion, and the API rate-limits per install
-  and per IP. The server stores no profile or trip data. The only server-side record is
-  the read-only card-link consent, which is keyed to the install ID.
+- **Social customer identity.** Native Zitadel clients use authorization code + PKCE.
+  The API verifies access tokens and UserInfo; refresh tokens remain in SecureStore.
+  Google is offered on both platforms and Apple on iOS. App Attest/Play Integrity and
+  customer abuse limits are separate backlog work. Any future bank consent must be
+  bound to the verified customer.
 - **Delivery** follows the house path of CI → GHCR → GAR → Kargo → ArgoCD. Schemas live
-  in `tesserix-k8s`, never in this repo.
+  in this repository under `services/api/migrations`; infrastructure is managed through
+  the owning GitOps repository. Migration and production rollout are separate actions.
 
 ## Vertex AI gateway
 

@@ -1,5 +1,16 @@
 # Roamie: product brief
 
+## Delivery priority and implementation status
+
+The [historical delivery plan](archive/2026-09-25/delivery-plan.md) records the 25 September priorities.
+Trip planning, receipts, statement import and Apple Pay capture now have implementations;
+that does not establish release readiness or change the independently gated rollout.
+V1 prioritises one-to-one translation, preference-aware nearby places, offline SOS,
+and a simple manual budget with local alerts. Read-only bank connections and receipt
+scanning move to MVP 2 alongside the later companion agents. Payments, bookings,
+transfers and bill splitting are P3, uncommitted future discovery. Descriptions below
+of the complete product do not make those later features V1 requirements.
+
 ## Who it is for
 
 International leisure travellers, solo or in pairs, spending 3–21 days in a country whose
@@ -7,22 +18,27 @@ language they do not speak. They use a phone and are often offline or on roaming
 v1 their day-to-day problems are talking to people, keeping track of money, finding food
 they can eat, and knowing what to do in an emergency.
 
-## Free and account-free
+## Free with social sign-in
 
-Roamie is free for every traveller. It has **no sign-in, no accounts, no subscriptions,
-no ads and no in-app payments**. It works the moment it's installed.
+Roamie remains free, with no subscriptions, ads or in-app payments. Customers use
+Google on both mobile platforms, or Apple on iOS. There is no Roamie
+username/password signup. Zitadel owns customer identity in the TESSERIX organization.
 
-- Profile, trip, budget, expenses, emergency contacts and conversations are stored
-  **on the device**. The server keeps no per-person data, except the read-only card
-  link's consent token (see Wallet), which is keyed to an anonymous install ID.
-- "Delete my data" is one button. It clears the device and revokes any card link.
+- Local wallet data and conversations remain on the device, separated by account.
+  Connected trip preferences, verified accounts, shared trip records and audit history
+  are stored by the API. Signing out is not a server-data deletion operation.
+- SOS is accessible without an account. Connected features require authentication.
+- Read-only bank linking is MVP 2; any future consent must belong to the customer,
+  with explicit revocation. Local deletion currently deletes only the local trip.
+- Verified email uniqueness and safe provider linking are release requirements.
+  See [customer identity and audit](adr/0006-customer-identity-and-audit.md).
 
 ## The app in one screen
 
-Four tabs, nothing hidden:
+The current app has five tabs:
 
 ```
-[ Talk ]  [ Wallet ]  [ Nearby ]  [ SOS ]
+[ Talk ]  [ Trips ]  [ Wallet ]  [ Nearby ]  [ SOS ]
 ```
 
 The first-run setup takes three questions (under 60 seconds), and every answer can be skipped:
@@ -37,7 +53,8 @@ The first-run setup takes three questions (under 60 seconds), and every answer c
 Roamie is used by tired people on a street corner, so simplicity is a requirement. These
 rules are part of the Definition of Done for every UI story.
 
-- **Four tabs, no more.** No hamburger menu, no settings maze. Settings are one screen.
+- **Keep navigation direct.** Trip planning and the manager live in Trips; avoid a
+  settings maze.
 - **The main task in any tab takes at most two taps.** Talk: tap the mic. SOS: tap the
   number. Wallet: tap + to add.
 - **One primary action per screen.** Everything else is visually secondary.
@@ -104,11 +121,11 @@ three or more languages are out of scope.
 - **Trip budget** in home currency, optionally split into categories: food, stay,
   transport, activities, shopping, and other.
 - Spending comes from three sources:
-  1. **Read-only account link** via a licensed open-banking or account-aggregator
+  1. **Read-only account link (MVP 2)** via a licensed open-banking or account-aggregator
      provider, such as Basiq (Australia CDR), Plaid (US), TrueLayer (UK/EU) or Setu
      (India AA). Roamie receives transactions **read-only**. It **never** sees or stores
      a card number, CVV, or bank password, and it can never initiate a payment.
-  2. **Receipt snap**: photograph a receipt and Gemini extracts the merchant, amount,
+  2. **Receipt snap (MVP 2)**: photograph a receipt and Gemini extracts the merchant, amount,
      currency and category. The user confirms before it is saved.
   3. **Manual entry** in two taps.
 - Every amount is converted to home currency using that day's FX rate, and the original
@@ -156,9 +173,10 @@ show "confirm with staff", with the allergy card one tap away.
 
 | Phase | Goal | Contents |
 |---|---|---|
-| **MVP 0: Foundations** | Can ship safely | Architecture decisions, Expo app shell, Rust API, anonymous install identity and abuse protection, Vertex AI gateway, CI, privacy baseline |
-| **MVP 1: Travel Mate v1** | The three pillars, end to end | Talk (1:1 auto-detect), Wallet (budget, read-only link in one region, receipts, alerts), Preferences and Nearby, SOS |
-| **MVP 2: AI Companion** | Roamie becomes an assistant | Agent runtime on ADK and Vertex AI with tools over the MVP 1 data: trip-aware Q&A, daily brief, budget coach, "find me dinner" agent, and group translation |
+| **MVP 0: Foundations** | Can ship safely | Architecture decisions, Expo app shell, Rust API, social customer identity and abuse protection, Vertex AI gateway, CI, privacy baseline |
+| **MVP 1: Travel Mate v1** | The core travel experience, end to end | Talk (1:1 auto-detect), manual budget and local alerts, Preferences and Nearby, verified offline SOS, privacy controls and release validation |
+| **MVP 2: AI Companion & connected spending** | Optional assistance and automation | Vertex/ADK companion, trip-aware Q&A, daily brief, budget coach and dinner finder; independently gated group translation, read-only bank linking and receipt scanning |
+| **Later: P3, uncommitted** | Assess demand after core validation | Payments, bookings, transfers and bill splitting; separate approval of future scope before implementation |
 
 ### Explicitly out of v1
 

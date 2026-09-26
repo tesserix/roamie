@@ -1,0 +1,673 @@
+{
+  "snapshot_date": "2026-09-25",
+  "status": "historical; not reverified against live GitHub",
+  "repository": "tesserix/roamie",
+  "board_status": "blocked: gh token lacks project scope",
+  "epics": {
+    "Platform & Foundations": 32,
+    "Privacy & Security": 33,
+    "Vertex AI Gateway": 34,
+    "Talk": 35,
+    "Wallet & Budget": 36,
+    "Profile & Nearby": 37,
+    "SOS & Safety": 38,
+    "Design & UX": 39,
+    "Release & Reliability": 40,
+    "AI Companion": 41,
+    "Payments & Commerce (Deferred)": 42
+  },
+  "stories": [
+    {
+      "number": 1,
+      "title": "[Planning] ADR: Roamie service topology (Rust backend), stack and repo layout",
+      "phase": 0,
+      "epic": "Platform & Foundations",
+      "deps": []
+    },
+    {
+      "number": 2,
+      "title": "[Spike] Talk pipeline: STT v2 + Gemini vs Gemini Live native audio",
+      "phase": 0,
+      "epic": "Talk",
+      "deps": [
+        1
+      ]
+    },
+    {
+      "number": 3,
+      "title": "[Spike] Read-only spend data: aggregator coverage by region",
+      "phase": 2,
+      "epic": "Wallet & Budget",
+      "deps": [
+        1
+      ]
+    },
+    {
+      "number": 4,
+      "title": "[Platform] Expo app shell with four-tab navigation and first-run setup",
+      "phase": 0,
+      "epic": "Platform & Foundations",
+      "deps": [
+        1
+      ]
+    },
+    {
+      "number": 5,
+      "title": "[Platform] roamie-api Rust (axum) scaffold, health, config and observability",
+      "phase": 0,
+      "epic": "Platform & Foundations",
+      "deps": [
+        1
+      ]
+    },
+    {
+      "number": 6,
+      "title": "[Platform] Anonymous install identity and API abuse protection (no sign-in)",
+      "phase": 0,
+      "epic": "Platform & Foundations",
+      "deps": [
+        5,
+        8
+      ]
+    },
+    {
+      "number": 7,
+      "title": "[AI] Vertex AI gateway module with quotas, pinned models and fallbacks",
+      "phase": 0,
+      "epic": "Vertex AI Gateway",
+      "deps": [
+        5,
+        2,
+        8
+      ]
+    },
+    {
+      "number": 8,
+      "title": "[Planning] Privacy baseline: data map, retention and consent",
+      "phase": 0,
+      "epic": "Privacy & Security",
+      "deps": [
+        1
+      ]
+    },
+    {
+      "number": 9,
+      "title": "[Platform] CI, Kargo and ArgoCD delivery path for roamie-api",
+      "phase": 0,
+      "epic": "Release & Reliability",
+      "deps": [
+        4,
+        5
+      ]
+    },
+    {
+      "number": 10,
+      "title": "[Talk] Streaming speech pipeline with automatic language detection",
+      "phase": 1,
+      "epic": "Talk",
+      "deps": [
+        2,
+        7,
+        43,
+        45
+      ]
+    },
+    {
+      "number": 11,
+      "title": "[Talk] Conversation direction: mine vs last partner language",
+      "phase": 1,
+      "epic": "Talk",
+      "deps": [
+        43
+      ]
+    },
+    {
+      "number": 12,
+      "title": "[Talk] Gemini contextual translation and text-to-speech",
+      "phase": 1,
+      "epic": "Talk",
+      "deps": [
+        7,
+        11,
+        46
+      ]
+    },
+    {
+      "number": 13,
+      "title": "[Talk] Face-to-face split screen with one mic button",
+      "phase": 1,
+      "epic": "Talk",
+      "deps": [
+        4,
+        10,
+        11,
+        12
+      ]
+    },
+    {
+      "number": 14,
+      "title": "[Talk] Offline phrase pack and allergy card",
+      "phase": 1,
+      "epic": "Talk",
+      "deps": [
+        20,
+        46
+      ]
+    },
+    {
+      "number": 15,
+      "title": "[Wallet] Trip budget with categories and home currency",
+      "phase": 1,
+      "epic": "Wallet & Budget",
+      "deps": [
+        47,
+        44
+      ]
+    },
+    {
+      "number": 16,
+      "title": "[Wallet] Read-only account link via aggregator adapter",
+      "phase": 2,
+      "epic": "Wallet & Budget",
+      "deps": [
+        3,
+        6,
+        44,
+        45
+      ]
+    },
+    {
+      "number": 17,
+      "title": "[Wallet] Receipt snap with Gemini extraction",
+      "phase": 2,
+      "epic": "Wallet & Budget",
+      "deps": [
+        7,
+        18
+      ]
+    },
+    {
+      "number": 18,
+      "title": "[Wallet] Manual expense entry and FX conversion at transaction date",
+      "phase": 1,
+      "epic": "Wallet & Budget",
+      "deps": [
+        15,
+        49
+      ]
+    },
+    {
+      "number": 19,
+      "title": "[Wallet] Budget alerts and daily pace nudges",
+      "phase": 1,
+      "epic": "Wallet & Budget",
+      "deps": [
+        15,
+        50
+      ]
+    },
+    {
+      "number": 20,
+      "title": "[Nearby] Preference profile: diet, allergies, budget level, interests",
+      "phase": 1,
+      "epic": "Profile & Nearby",
+      "deps": [
+        4,
+        6,
+        44
+      ]
+    },
+    {
+      "number": 21,
+      "title": "[Nearby] Real-time nearby places ranked by profile and remaining budget",
+      "phase": 1,
+      "epic": "Profile & Nearby",
+      "deps": [
+        7,
+        20,
+        15,
+        47
+      ]
+    },
+    {
+      "number": 22,
+      "title": "[Nearby] 'Why it matches' line and Maps handoff",
+      "phase": 1,
+      "epic": "Profile & Nearby",
+      "deps": [
+        21
+      ]
+    },
+    {
+      "number": 23,
+      "title": "[SOS] Verified emergency numbers dataset with sources",
+      "phase": 1,
+      "epic": "SOS & Safety",
+      "deps": [
+        46
+      ]
+    },
+    {
+      "number": 24,
+      "title": "[SOS] Offline SOS screen for the current country with one-tap dial",
+      "phase": 1,
+      "epic": "SOS & Safety",
+      "deps": [
+        4,
+        23
+      ]
+    },
+    {
+      "number": 25,
+      "title": "[SOS] Embassy lookup, share-location and 'Help me say it'",
+      "phase": 1,
+      "epic": "SOS & Safety",
+      "deps": [
+        23,
+        24,
+        20
+      ]
+    },
+    {
+      "number": 26,
+      "title": "[Planning] ADR: companion agent runtime on ADK and Vertex AI",
+      "phase": 2,
+      "epic": "AI Companion",
+      "deps": [
+        1,
+        8
+      ]
+    },
+    {
+      "number": 27,
+      "title": "[Companion] MCP tool surface over profile, wallet, nearby and SOS",
+      "phase": 2,
+      "epic": "AI Companion",
+      "deps": [
+        45,
+        43,
+        15,
+        21,
+        23
+      ]
+    },
+    {
+      "number": 28,
+      "title": "[Companion] Trip-aware companion chat",
+      "phase": 2,
+      "epic": "AI Companion",
+      "deps": [
+        64,
+        65
+      ]
+    },
+    {
+      "number": 29,
+      "title": "[Companion] Daily brief and proactive budget coach",
+      "phase": 2,
+      "epic": "AI Companion",
+      "deps": [
+        69,
+        67
+      ]
+    },
+    {
+      "number": 30,
+      "title": "[Talk] Group conversation: three or more languages",
+      "phase": 2,
+      "epic": "Talk",
+      "deps": [
+        54,
+        53,
+        46
+      ]
+    },
+    {
+      "number": 31,
+      "title": "[Design] Simple-by-default design system and first-time traveller usability test",
+      "phase": 1,
+      "epic": "Design & UX",
+      "deps": [
+        4,
+        13,
+        18,
+        22,
+        24
+      ]
+    },
+    {
+      "number": 43,
+      "title": "[Platform] Versioned API contracts and mobile integration tests",
+      "phase": 0,
+      "epic": "Platform & Foundations",
+      "deps": [
+        1,
+        5
+      ]
+    },
+    {
+      "number": 44,
+      "title": "[Platform] Durable on-device trip storage and migration boundaries",
+      "phase": 0,
+      "epic": "Platform & Foundations",
+      "deps": [
+        1,
+        8
+      ]
+    },
+    {
+      "number": 45,
+      "title": "[Security] Bind anonymous API requests to verified installations",
+      "phase": 0,
+      "epic": "Privacy & Security",
+      "deps": [
+        6,
+        43,
+        44
+      ]
+    },
+    {
+      "number": 46,
+      "title": "[Planning] Agree launch countries, languages, bank coverage and service budgets",
+      "phase": 0,
+      "epic": "Vertex AI Gateway",
+      "deps": [
+        2
+      ]
+    },
+    {
+      "number": 47,
+      "title": "[Profile] Create, switch, edit and finish a trip without repeating setup",
+      "phase": 1,
+      "epic": "Profile & Nearby",
+      "deps": [
+        4,
+        6,
+        44,
+        43
+      ]
+    },
+    {
+      "number": 48,
+      "title": "[Mobile] Recover local drafts and network-dependent operations after interruption",
+      "phase": 1,
+      "epic": "Design & UX",
+      "deps": [
+        47,
+        20,
+        18
+      ]
+    },
+    {
+      "number": 49,
+      "title": "[Wallet] Reject malformed money and preserve exact currency precision",
+      "phase": 1,
+      "epic": "Wallet & Budget",
+      "deps": [
+        15,
+        43
+      ]
+    },
+    {
+      "number": 50,
+      "title": "[Wallet] Correct, refund and exclude manual expenses without corrupting totals",
+      "phase": 1,
+      "epic": "Wallet & Budget",
+      "deps": [
+        15,
+        18,
+        44,
+        49
+      ]
+    },
+    {
+      "number": 51,
+      "title": "[Wallet] Recover bank sync, verify callbacks and show honest freshness",
+      "phase": 2,
+      "epic": "Wallet & Budget",
+      "deps": [
+        3,
+        16,
+        50,
+        59
+      ]
+    },
+    {
+      "number": 52,
+      "title": "[Wallet] Durable local budget alerts and notification preferences",
+      "phase": 1,
+      "epic": "Wallet & Budget",
+      "deps": [
+        19,
+        50,
+        44
+      ]
+    },
+    {
+      "number": 53,
+      "title": "[Talk] Confidence-gated partner language and new-conversation reset",
+      "phase": 1,
+      "epic": "Talk",
+      "deps": [
+        10,
+        11,
+        46
+      ]
+    },
+    {
+      "number": 54,
+      "title": "[Talk] Audio lifecycle, echo prevention and network interruption recovery",
+      "phase": 1,
+      "epic": "Talk",
+      "deps": [
+        10,
+        12,
+        13,
+        53
+      ]
+    },
+    {
+      "number": 55,
+      "title": "[Talk] Typed conversation and accessible full-screen translation fallback",
+      "phase": 1,
+      "epic": "Talk",
+      "deps": [
+        11,
+        12,
+        13
+      ]
+    },
+    {
+      "number": 56,
+      "title": "[Nearby] Dietary evidence, stale places and transparent no-match recovery",
+      "phase": 1,
+      "epic": "Profile & Nearby",
+      "deps": [
+        20,
+        21,
+        22,
+        47
+      ]
+    },
+    {
+      "number": 57,
+      "title": "[SOS] Confirm current country and handle denied location or border changes",
+      "phase": 1,
+      "epic": "SOS & Safety",
+      "deps": [
+        23,
+        24,
+        47
+      ]
+    },
+    {
+      "number": 58,
+      "title": "[SOS] Validate dataset updates and preserve reviewed offline safety content",
+      "phase": 1,
+      "epic": "SOS & Safety",
+      "deps": [
+        14,
+        23,
+        24,
+        25
+      ]
+    },
+    {
+      "number": 59,
+      "title": "[Privacy] On-device export, delete-my-data and consent controls",
+      "phase": 1,
+      "epic": "Privacy & Security",
+      "deps": [
+        8,
+        6,
+        44
+      ]
+    },
+    {
+      "number": 60,
+      "title": "[Wallet] Secure receipt capture, extraction and confirmed-save lifecycle",
+      "phase": 2,
+      "epic": "Wallet & Budget",
+      "deps": [
+        17,
+        49,
+        8
+      ]
+    },
+    {
+      "number": 61,
+      "title": "[Quality] End-to-end traveller journeys on iOS and Android",
+      "phase": 1,
+      "epic": "Release & Reliability",
+      "deps": [
+        13,
+        54,
+        55,
+        48,
+        52,
+        56,
+        57,
+        58,
+        59,
+        31
+      ]
+    },
+    {
+      "number": 62,
+      "title": "[Reliability] Privacy-safe telemetry, service budgets and recovery drills",
+      "phase": 1,
+      "epic": "Release & Reliability",
+      "deps": [
+        5,
+        7,
+        9,
+        46,
+        52
+      ]
+    },
+    {
+      "number": 63,
+      "title": "[Release] V1 beta, store readiness and go-live acceptance gate",
+      "phase": 1,
+      "epic": "Release & Reliability",
+      "deps": [
+        61,
+        62,
+        46,
+        59
+      ]
+    },
+    {
+      "number": 64,
+      "title": "[Companion] Implement Vertex ADK runtime with cancellation and bounded tools",
+      "phase": 2,
+      "epic": "AI Companion",
+      "deps": [
+        26,
+        27,
+        7,
+        63
+      ]
+    },
+    {
+      "number": 65,
+      "title": "[Companion] Safety, grounding and regression gates for every agent release",
+      "phase": 2,
+      "epic": "AI Companion",
+      "deps": [
+        64,
+        27
+      ]
+    },
+    {
+      "number": 66,
+      "title": "[Companion] Find-me-dinner agent grounded in diet, nearby places and budget",
+      "phase": 2,
+      "epic": "AI Companion",
+      "deps": [
+        64,
+        65,
+        56,
+        28
+      ]
+    },
+    {
+      "number": 67,
+      "title": "[Companion] Budget coach using deterministic balances and spend projections",
+      "phase": 2,
+      "epic": "AI Companion",
+      "deps": [
+        64,
+        65,
+        50,
+        28
+      ]
+    },
+    {
+      "number": 68,
+      "title": "[Companion] Opt-in on-device memory and explicit per-request context sharing",
+      "phase": 2,
+      "epic": "AI Companion",
+      "deps": [
+        8,
+        59,
+        64
+      ]
+    },
+    {
+      "number": 69,
+      "title": "[Companion] Verified daily-brief data and timezone-safe scheduling",
+      "phase": 2,
+      "epic": "AI Companion",
+      "deps": [
+        64,
+        65,
+        52
+      ]
+    },
+    {
+      "number": 70,
+      "title": "[Release] MVP 2 companion beta and independent group-Talk gate",
+      "phase": 2,
+      "epic": "AI Companion",
+      "deps": [
+        28,
+        29,
+        66,
+        67,
+        68,
+        65
+      ]
+    },
+    {
+      "number": 71,
+      "title": "[Later] Assess payments, bookings and bill splitting only after core travel validation",
+      "phase": 3,
+      "epic": "Payments & Commerce (Deferred)",
+      "deps": [
+        63,
+        70
+      ]
+    }
+  ]
+}

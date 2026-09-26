@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Text, TextInput, View } from 'react-native';
 import { Button, Card, Chip } from './ui';
 import { font, useColors } from '@/constants/theme';
-import { format } from '@/lib/money';
+import { decimals, format, toMinor } from '@/lib/money';
 import { askTripManager, buildManagerRequest, initialPreferences, loadTravelProfile, saveTravelProfile, SPECIALISTS, planTotal, type Advice, type SavedTravelProfile, type Specialist, type TripOption, type TravelPreferences, type ChosenPlan } from '@/lib/trip-manager';
 import type { Trip } from '@/lib/trips';
 
@@ -12,6 +12,8 @@ export function TripManager({trip, language, choose}: {trip:Trip;language:string
   const [preferences,setPreferences] = useState<TravelPreferences>(()=>initialPreferences(trip,language));
   const [prompt,setPrompt] = useState(`Plan ${trip.destination} for ${trip.travellers} travellers. ${trip.interests}`);
   const [specialist,setSpecialist] = useState<Specialist>('trip-planner');
+  const [exchangeAmount,setExchangeAmount] = useState('');
+  const [exchangeCurrency,setExchangeCurrency] = useState('');
   const [advice,setAdvice] = useState<Advice|null>(null);
   const [ready,setReady] = useState(false), [busy,setBusy] = useState(''), [error,setError] = useState(''), [attempt,setAttempt] = useState(0);
   const controller=useRef<AbortController|null>(null);
@@ -32,16 +34,29 @@ export function TripManager({trip, language, choose}: {trip:Trip;language:string
     const task=new AbortController(); controller.current=task; setBusy('Saving your preferences…'); setError(''); setAdvice(null);
     try {
       if(!prompt.trim())throw new Error('Tell your trip manager what you would like.');
+      let exchange: {exchange_amount_minor:number;exchange_destination_currency:string}|undefined;
+      if(specialist==='currency-exchange') {
+        const amount=toMinor(exchangeAmount,preferences.currency);
+        if(!/^\d+(?:\.\d+)?$/.test(exchangeAmount.trim()) || amount===null || !Number.isSafeInteger(amount) || amount<=0 || amount>10**12 || (exchangeAmount.trim().split('.')[1]?.length??0)>decimals(preferences.currency)) {
+          throw new Error('Enter a valid amount to exchange without rounding.');
+        }
+        const currency=exchangeCurrency.trim().toUpperCase();
+        if(!/^[A-Z]{3}$/.test(currency) || currency===preferences.currency) {
+          throw new Error('Enter a different three-letter currency code, such as USD.');
+        }
+        exchange={exchange_amount_minor:amount,exchange_destination_currency:currency};
+      }
       const saved=await saveTravelProfile(trip.id,{...preferences, allergies:preferences.allergies.filter(Boolean),diets:preferences.diets.filter(Boolean),accessibility_requirements:preferences.accessibility_requirements.filter(Boolean),preferences:preferences.preferences.filter(Boolean)},profile?.revision??null,task.signal);
       if(task.signal.aborted)return;
       setProfile(saved); setBusy(specialist==='trip-planner'?'Creating and reviewing three trip options…':'Your manager is reviewing your request…');
       const request=await buildManagerRequest(trip,prompt,specialist,task.signal);
+      Object.assign(request,exchange);
       const result=await askTripManager(saved,specialist,request,task.signal);
       if(!task.signal.aborted)setAdvice(result);
     } catch(e) {if(!task.signal.aborted)setError(e instanceof Error?e.message:'Could not complete your request.');}
     finally {if(controller.current===task){controller.current=null;setBusy('');}}
   }
-  const field=(label:string,value:string,onChangeText:(value:string)=>void,multiline=false)=><View style={{gap:6}}><Text style={[font.caption,{color:c.muted}]}>{label}</Text><TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} editable={ready&&!busy} multiline={multiline} maxLength={multiline?2000:400} style={{minHeight:48,padding:12,borderWidth:1,borderColor:c.border,borderRadius:12,color:c.text,backgroundColor:c.surface}} /></View>;
+  const field=(label:string,value:string,onChangeText:(value:string)=>void,multiline=false,keyboardType:'default'|'decimal-pad'='default')=><View style={{gap:6}}><Text style={[font.caption,{color:c.muted}]}>{label}</Text><TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} editable={ready&&!busy} multiline={multiline} keyboardType={keyboardType} maxLength={multiline?2000:400} style={{minHeight:48,padding:12,borderWidth:1,borderColor:c.border,borderRadius:12,color:c.text,backgroundColor:c.surface}} /></View>;
   return <View style={{gap:18}}>
     <Text accessibilityRole="header" style={[font.title,{color:c.text}]}>Your trip manager</Text>
     <Text style={[font.body,{color:c.muted}]}>Compare budget, balanced and premium trips. Your manager checks each option against your saved preferences before you choose.</Text>
@@ -53,6 +68,10 @@ export function TripManager({trip, language, choose}: {trip:Trip;language:string
       {field('Travel preferences',preferences.preferences.join(', '),v=>change('preferences',v),true)}
       <Text style={[font.caption,{color:c.muted}]}>{trip.startDate} – {trip.endDate} · {trip.travellers} travellers · {preferences.budget_minor===null?'No spending ceiling set':`Maximum ${format(preferences.budget_minor,preferences.currency)} for the party`}</Text>
       <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}>{Object.entries(SPECIALISTS).map(([key,label])=><Chip key={key} label={label} selected={specialist===key} onPress={()=>{if(!busy){setSpecialist(key as Specialist);setAdvice(null);}}}/>)}</View>
+      {specialist==='currency-exchange'?<>
+        {field(`Amount to exchange in ${preferences.currency}`,exchangeAmount,value=>{setExchangeAmount(value);setAdvice(null);},false,'decimal-pad')}
+        {field('Currency to receive',exchangeCurrency,value=>{setExchangeCurrency(value);setAdvice(null);})}
+      </>:null}
       {field('Tell your trip manager',prompt,value=>{setPrompt(value);setAdvice(null);},true)}
       <Button label={specialist==='trip-planner'?'Compare three trip options':'Ask my trip manager'} disabled={!!busy} onPress={()=>void ask()}/>
     </>:null}
