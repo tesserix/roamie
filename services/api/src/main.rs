@@ -18,6 +18,8 @@ mod talk;
 #[cfg(test)]
 mod tests;
 mod translate;
+mod travel_mcp;
+mod trip_manager;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,6 +36,8 @@ use tower_http::trace::TraceLayer;
 use error::{Error, Result};
 
 struct AppState {
+    trip_manager: Option<trip_manager::Manager>,
+    travel_mcp_key: Option<String>,
     auth: Option<auth::Verifier>,
     development_auth_disabled: bool,
     database: Option<database::Database>,
@@ -108,6 +112,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .ok();
     let state = Arc::new(AppState {
+        trip_manager: trip_manager::Manager::from_env()?,
+        travel_mcp_key: std::env::var("TRAVEL_MCP_API_KEY").ok(),
         auth,
         development_auth_disabled,
         database,
@@ -134,6 +140,10 @@ async fn main() -> anyhow::Result<()> {
 
 fn router(state: Arc<AppState>) -> Router {
     let v1 = Router::new()
+        .route(
+            "/trip-manager",
+            post(trip_manager::recommend).layer(RequestBodyLimitLayer::new(32768)),
+        )
         .route("/talk/turn", post(talk_turn))
         .route("/translate/text", post(translate_text))
         .route("/signs/translate", post(sign_translate))
@@ -148,6 +158,7 @@ fn router(state: Arc<AppState>) -> Router {
             auth::require_customer,
         ));
     Router::new()
+        .route("/internal/v1/travel/nearby", get(travel_mcp::nearby))
         .route("/healthz", get(|| async { "ok" }))
         .route("/readyz", get(readiness))
         .route("/v1/auth/config", get(auth::configuration))

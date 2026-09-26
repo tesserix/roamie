@@ -1,0 +1,107 @@
+{
+  "apiVersion": "registry.agentic.dev/v1alpha1",
+  "kind": "MCPServer",
+  "metadata": {
+    "annotations": {
+      "discovery.agentic.dev/summary": "Read real nearby places for traveller recommendations.",
+      "discovery.agentic.dev/when-to-use": "find nearby restaurants or attractions"
+    },
+    "labels": {
+      "mcp.tesserix.app/class": "platform",
+      "mcp.tesserix.app/gateway-export": "false",
+      "transport": "streamable-http"
+    },
+    "name": "roamie-travel-mcp",
+    "namespace": "roamie",
+    "orgId": "tesserix",
+    "tag": "0.1.0rc6",
+    "tenantId": "roamie",
+    "visibility": "internal"
+  },
+  "spec": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "credentialRef": {
+      "header": "X-MCP-Key",
+      "key": "ROAMIE_TRAVEL_MCP_KEY",
+      "secretName": "product-mcp-upstream-keys"
+    },
+    "description": "Read sourced Roamie nearby travel evidence with verified caller authorization.",
+    "name": "roamie-travel-mcp",
+    "remotes": [
+      {
+        "type": "streamable-http",
+        "url": "https://roamie-travel-mcp.roamie.svc.cluster.local/mcp"
+      }
+    ],
+    "repository": {
+      "source": "github",
+      "url": "https://github.com/tesserix/roamie"
+    },
+    "serviceSelector": {
+      "namespaces": {
+        "matchLabels": {
+          "kubernetes.io/metadata.name": "roamie"
+        }
+      },
+      "services": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "roamie-travel-mcp"
+        }
+      }
+    },
+    "title": "Roamie Travel MCP",
+    "version": "0.1.0rc6",
+    "x-tesserix": {
+      "adapter": "native",
+      "authoringVersion": "1.0",
+      "egressHosts": [],
+      "lifecycle": "active",
+      "protocolVersions": [
+        "2026-07-28"
+      ],
+      "requiredScopes": [
+        "roamie:travel:read"
+      ],
+      "routePolicy": {
+        "directAccess": false,
+        "gatewayPath": "/mcp/roamie/roamie-travel-mcp"
+      },
+      "semantic": {
+        "capabilities": [],
+        "domains": [
+          "travel"
+        ],
+        "keywords": [],
+        "notFor": [
+          "booking or payment actions"
+        ],
+        "risk": "low",
+        "summary": "Read real nearby places for traveller recommendations.",
+        "whenToUse": [
+          "find nearby restaurants or attractions"
+        ]
+      },
+      "tools": [
+        {
+          "capabilities": [],
+          "description": "Read travel evidence; unconfigured providers return unavailable.",
+          "inputFingerprint": "e5e12778716692acb49b653d56d15a4d859a401e32b7a91ca128a4da807a690f",
+          "inputSchema": {
+            "properties": {},
+            "required": [],
+            "type": "object"
+          },
+          "inputSchemaFingerprint": "c8a1ac469a826ea3547ac220c7bbfdcd6b58080d4ec596ff2a0149c5ccb9b699",
+          "name": "travel_search",
+          "outputFingerprint": "1a39802791e34b0cde695ced5d1463f5dcdf65867b21c1cf34c3f45e9554f0c5",
+          "requiredScopes": [
+            "roamie:travel:read"
+          ],
+          "requires": [],
+          "semantic": {},
+          "status": "active"
+        }
+      ]
+    }
+  }
+}
