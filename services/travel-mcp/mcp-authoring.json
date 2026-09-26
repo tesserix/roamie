@@ -12,7 +12,7 @@
     "namespace": "roamie",
     "tenant_id": "roamie",
     "org_id": "tesserix",
-    "visibility": "internal",
+    "visibility": "public",
     "labels": {
       "mcp.tesserix.app/class": "platform",
       "mcp.tesserix.app/gateway-export": "false"
