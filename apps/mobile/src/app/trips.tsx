@@ -9,6 +9,7 @@ import { File } from 'expo-file-system';
 import { Button, Card, Chip, Icon, Screen, TAB_CLEARANCE } from '@/components/ui';
 import { TripDatePicker, localDate, tripDateLabel } from '@/components/trip-date-picker';
 import { DestinationLookup } from '@/components/destination-lookup';
+import { InterestList } from '@/components/interest-list';
 import { FOOD_PREFERENCES, TRIP_STYLES, type Destination } from '@/lib/trip-contract';
 import { SearchPicker } from '@/components/search-picker';
 import { CURRENCIES } from '@/data/currencies';
@@ -83,7 +84,7 @@ function NewTrip({ done, cancel }: { done: (id: string) => void; cancel: () => v
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{FOOD_PREFERENCES.map(food => <Chip key={food} label={food} selected={foods.includes(food)} onPress={() => setFoods(toggle(foods, food))} />)}</View>
       <Text style={[font.caption, { color: c.muted }]}>Choose all that apply. Confirm ingredients and allergy safety directly with the venue.</Text>
     </View> : null}
-    <Field label="Things you love" value={request.interests} change={field('interests')} placeholder="Gardens, street food, art, a slower pace…" multiline />
+    <InterestList label="Things you love" value={request.interests} change={field('interests')} placeholder="Gardens, street food, a slower pace…" />
     </View>
     <View style={{ gap: 12, paddingTop: 8 }}>
     {error ? <Text accessibilityRole="alert" style={{ color: c.danger }}>{error}</Text> : null}
