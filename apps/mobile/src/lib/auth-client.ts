@@ -1,7 +1,7 @@
 import * as AuthSession from 'expo-auth-session';
 import * as SecureStore from 'expo-secure-store';
 
-export type Provider = 'google' | 'facebook' | 'apple';
+export type Provider = 'google' | 'apple';
 export type NativePlatform = 'ios' | 'android';
 export type Customer = { sub: string; email: string; name: string };
 export type AuthConfig = {
@@ -34,7 +34,7 @@ let refreshing: Promise<string> | null = null;
 let storageWrites: Promise<void> = Promise.resolve();
 
 export function providersFor(platform: string): Provider[] {
-  return platform === 'ios' ? ['google', 'facebook', 'apple'] : platform === 'android' ? ['google', 'facebook'] : [];
+  return platform === 'ios' ? ['google', 'apple'] : platform === 'android' ? ['google'] : [];
 }
 
 function queueStorage(write: () => Promise<void>): Promise<void> {
@@ -75,7 +75,7 @@ export async function loadAuthConfig(): Promise<AuthConfig> {
   if (!response.ok) throw new Error('Sign-in is temporarily unavailable. Please try again.');
   const config = await response.json() as AuthConfig;
   if (config.issuer !== 'https://auth.tesserix.app' || !config.organizationId || !config.projectId ||
-      !config.clientIds?.ios || !config.clientIds.android || ![config.providers?.google, config.providers?.facebook, config.providers?.apple].some(id => typeof id === 'string' && id.trim().length > 0)) {
+      !config.clientIds?.ios || !config.clientIds.android || ![config.providers?.google, config.providers?.apple].some(id => typeof id === 'string' && id.trim().length > 0)) {
     throw new Error('Sign-in is not configured yet. Please try again later.');
   }
   return config;

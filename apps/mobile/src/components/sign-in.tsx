@@ -34,7 +34,7 @@ export default function SignIn() {
               style={({ pressed }) => ({ alignItems: 'center', gap: space.sm, opacity: disabled ? 0.4 : pressed ? 0.65 : 1 })}
             >
               <View style={{ width: 64, height: 64, borderRadius: 32, borderWidth: 1, borderColor: c.muted, alignItems: 'center', justifyContent: 'center' }}>
-                <FontAwesome name={provider} size={28} color={provider === 'facebook' ? '#1877F2' : c.text} />
+                <FontAwesome name={provider} size={28} color={c.text} />
               </View>
               <Text style={[font.caption, { color: c.text }]}>{label}</Text>
             </Pressable>
