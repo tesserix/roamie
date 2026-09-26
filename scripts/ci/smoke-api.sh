@@ -13,8 +13,14 @@ cleanup() {
 trap cleanup EXIT
 
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
-  -keyout "$smoke_dir/server.key" -out "$smoke_dir/server.crt" \
-  -subj '/CN=database' -addext 'subjectAltName=DNS:database' >/dev/null 2>&1
+  -keyout "$smoke_dir/ca.key" -out "$smoke_dir/ca.crt" \
+  -subj '/CN=Roamie smoke CA' >/dev/null 2>&1
+openssl req -newkey rsa:2048 -nodes -keyout "$smoke_dir/server.key" \
+  -out "$smoke_dir/server.csr" -subj '/CN=database' >/dev/null 2>&1
+printf 'subjectAltName=DNS:database\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n' > "$smoke_dir/server.ext"
+openssl x509 -req -in "$smoke_dir/server.csr" -CA "$smoke_dir/ca.crt" \
+  -CAkey "$smoke_dir/ca.key" -CAcreateserial -days 1 \
+  -extfile "$smoke_dir/server.ext" -out "$smoke_dir/server.crt" >/dev/null 2>&1
 docker network create "$smoke_name" >/dev/null
 docker create --name "$smoke_name-db" --network "$smoke_name" --network-alias database \
   -e POSTGRES_PASSWORD=isolated-ci-only "$pg_image" bash -c \
@@ -32,11 +38,11 @@ CREATE ROLE roamie_owner LOGIN PASSWORD 'isolated-ci-only' NOSUPERUSER NOCREATED
 CREATE DATABASE roamie_smoke_test OWNER roamie_owner;
 SQL
 
-pg_args=(-e PGHOST=database -e PGDATABASE=roamie_smoke_test -e PGPASSWORD=isolated-ci-only -e PGSSLROOTCERT=/tmp/server.crt)
+pg_args=(-e PGHOST=database -e PGDATABASE=roamie_smoke_test -e PGPASSWORD=isolated-ci-only -e PGSSLROOTCERT=/tmp/ca.crt)
 # Copy the public CA into each container; never mount the server's private key.
 docker create --name "$smoke_name-api" --network "$smoke_name" \
   "${pg_args[@]}" -e PGUSER=roamie_owner "$API_IMAGE" migrate >/dev/null
-docker cp "$smoke_dir/server.crt" "$smoke_name-api:/tmp/server.crt"
+docker cp "$smoke_dir/ca.crt" "$smoke_name-api:/tmp/ca.crt"
 docker start -a "$smoke_name-api"
 test "$(docker inspect -f '{{.State.ExitCode}}' "$smoke_name-api")" = 0
 docker rm "$smoke_name-api" >/dev/null
@@ -47,7 +53,7 @@ docker create --name "$smoke_name-api" --network "$smoke_name" \
   -e ZITADEL_PROJECT_ID=smoke-project -e ZITADEL_IOS_CLIENT_ID=smoke-ios \
   -e ZITADEL_ANDROID_CLIENT_ID=smoke-android -e ZITADEL_GOOGLE_IDP_ID=smoke-google \
   "$API_IMAGE" >/dev/null
-docker cp "$smoke_dir/server.crt" "$smoke_name-api:/tmp/server.crt"
+docker cp "$smoke_dir/ca.crt" "$smoke_name-api:/tmp/ca.crt"
 docker start "$smoke_name-api" >/dev/null
 
 # Probe from the database container so this also runs inside Cloud Build.
