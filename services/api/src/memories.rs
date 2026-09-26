@@ -299,7 +299,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "media-tests"))]
+#[cfg(all(test, media_tests))]
 mod media_tests {
     use super::*;
     #[tokio::test]
