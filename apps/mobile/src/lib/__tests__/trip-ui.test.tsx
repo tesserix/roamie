@@ -47,6 +47,15 @@ test('traveller creates a trip, adds a timed meal and reopens the saved calendar
  await fireEvent.changeText(screen.getByLabelText('Bags for the whole group (0–24)'), '2');
  await fireEvent.changeText(screen.getByLabelText('Things you love'), 'Gardens');
  await fireEvent.press(screen.getByRole('button', { name: 'Create my trip' }));
+ expect(await screen.findByRole('header', { name: 'Kyoto memories' })).toBeTruthy();
+ expect(screen.getByText('Kyoto → Osaka')).toBeTruthy();
+ const secondDay = screen.getByRole('button', { name: /^Day 2,/ });
+ await fireEvent.press(secondDay);
+ expect(secondDay.props.accessibilityState.selected).toBe(true);
+ await fireEvent.press(screen.getByRole('button', { name: /^Day 1,/ }));
+ await fireEvent.press(screen.getByRole('tab', { name: 'Memories' }));
+ expect(await screen.findByRole('button', { name: 'Choose photos' })).toBeTruthy();
+ await fireEvent.press(screen.getByRole('tab', { name: 'Your days' }));
  await fireEvent.press(await screen.findByRole('button', { name: 'Add a stop' }));
  await fireEvent.changeText(screen.getByLabelText('Place or activity'), 'Lunch by the river');
  await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
