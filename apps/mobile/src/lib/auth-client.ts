@@ -81,9 +81,16 @@ export async function loadAuthConfig(): Promise<AuthConfig> {
   return config;
 }
 
+export class AccountVerificationError extends Error {
+  constructor() {
+    super('This account could not be verified for Roamie. Try another account or contact support.');
+  }
+}
+
 export async function fetchCustomer(accessToken: string): Promise<Customer> {
   const response = await authFetch('/v1/auth/me', { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!response.ok) throw new Error(response.status === 403 ? 'Please verify the email on your account before continuing.' : 'We could not verify your sign-in. Please try again.');
+  if (response.status === 403) throw new AccountVerificationError();
+  if (!response.ok) throw new Error('We could not verify your sign-in. Please try again.');
   const customer = await response.json() as Customer;
   if (!customer.sub || !customer.email) throw new Error('We could not verify your account.');
   return customer;

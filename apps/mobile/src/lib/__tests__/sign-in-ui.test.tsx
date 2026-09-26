@@ -1,5 +1,6 @@
-import { expect, jest, test } from '@jest/globals';
+import { afterEach, expect, jest, test } from '@jest/globals';
 import { render, screen, fireEvent } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 import * as AuthSession from 'expo-auth-session';
 import SignIn from '../../components/sign-in';
 import { AuthProvider } from '../auth';
@@ -24,12 +25,18 @@ test('social icons keep provider names accessible and unavailable Facebook disab
  expect(await screen.findByRole('button', {name: 'Back to sign-in'})).toBeTruthy();
 });
 
-test('Google launches the pinned HTTPS Zitadel endpoints with PKCE',async()=>{
+afterEach(() => { jest.restoreAllMocks(); });
+test.each<[string, string, string]>([
+ ['ios','google','g'], ['ios','apple','a'], ['android','google','g'], ['android','facebook','f'],
+])('%s %s selects the provider directly with PKCE and the registered callback',async(platform,provider,id)=>{
+ jest.replaceProperty(Platform,'OS',platform);
  await session.clear();
- global.fetch=jest.fn<typeof fetch>().mockResolvedValue({ok:true,json:async()=>({issuer:'https://auth.tesserix.app',organizationId:'org',projectId:'project',clientIds:{ios:'ios',android:'android'},providers:{google:'g'}})} as Response);
+ global.fetch=jest.fn<typeof fetch>().mockResolvedValue({ok:true,json:async()=>({issuer:'https://auth.tesserix.app',organizationId:'org',projectId:'project',clientIds:{ios:'ios',android:'android'},providers:{google:'g',apple:'a',facebook:'f'}})} as Response);
  await render(<AuthProvider><SignIn/></AuthProvider>);
- await fireEvent.press(await screen.findByRole('button',{name:'Continue with Google'}));
+ await fireEvent.press(await screen.findByRole('button',{name:'Continue with '+provider[0].toUpperCase()+provider.slice(1)}));
  const request=jest.mocked(AuthSession.AuthRequest).mock.results.at(-1)?.value as {promptAsync:ReturnType<typeof jest.fn>};
  expect(request.promptAsync).toHaveBeenCalledWith(expect.objectContaining({authorizationEndpoint:'https://auth.tesserix.app/oauth/v2/authorize',tokenEndpoint:'https://auth.tesserix.app/oauth/v2/token'}));
- expect(AuthSession.AuthRequest).toHaveBeenCalledWith(expect.objectContaining({usePKCE:true,redirectUri:'roamie:/auth/callback',responseType:'code'}));
+ expect(AuthSession.AuthRequest).toHaveBeenCalledWith(expect.objectContaining({clientId:platform,usePKCE:true,redirectUri:'roamie:/auth/callback',responseType:'code',scopes:expect.arrayContaining(['urn:zitadel:iam:org:id:org','urn:zitadel:iam:org:project:id:project:aud','urn:zitadel:iam:org:idp:id:'+id])}));
+ const options=jest.mocked(AuthSession.AuthRequest).mock.calls.at(-1)?.[0];
+ expect(options?.prompt).toBeUndefined();
 });

@@ -1,7 +1,7 @@
 import { beforeEach, expect, jest, test } from '@jest/globals';
 import * as SecureStore from 'expo-secure-store';
 import * as AuthSession from 'expo-auth-session';
-import { loadAuthConfig, providersFor, session, type AuthConfig } from '../auth-client';
+import { fetchCustomer, loadAuthConfig, providersFor, session, type AuthConfig } from '../auth-client';
 jest.mock('expo-secure-store', () => ({ getItemAsync: jest.fn(), setItemAsync: jest.fn(), deleteItemAsync: jest.fn() }));
 jest.mock('expo-auth-session', () => ({ refreshAsync: jest.fn(), revokeAsync: jest.fn(), TokenTypeHint: { RefreshToken: 'refresh_token' } }));
 
@@ -77,4 +77,9 @@ test('one unconfigured provider does not disable the available social providers'
   const available = { ...config, providers: { google: 'google-id', apple: 'apple-id' } };
   global.fetch = jest.fn<typeof fetch>().mockResolvedValue({ ok: true, json: async () => available } as Response);
   await expect(loadAuthConfig()).resolves.toEqual(available);
+});
+
+test('a forbidden account response does not claim that the email is unverified', async () => {
+ global.fetch=jest.fn<typeof fetch>().mockResolvedValue({ok:false,status:403} as Response);
+ await expect(fetchCustomer('test-access')).rejects.toThrow('This account could not be verified for Roamie. Try another account or contact support.');
 });
