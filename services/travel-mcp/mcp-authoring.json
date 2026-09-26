@@ -1,0 +1,53 @@
+{
+  "manifest_version": "1.0",
+  "name": "io.github.tesserix/roamie-travel-mcp",
+  "version": "0.1.0rc6",
+  "description": "Read sourced Roamie nearby travel evidence with verified caller authorization.",
+  "title": "Roamie Travel MCP",
+  "repository": {
+    "source": "github",
+    "url": "https://github.com/tesserix/roamie"
+  },
+  "ownership": {
+    "namespace": "roamie",
+    "tenant_id": "roamie",
+    "org_id": "tesserix",
+    "visibility": "internal",
+    "labels": {
+      "mcp.tesserix.app/class": "platform",
+      "mcp.tesserix.app/gateway-export": "false"
+    }
+  },
+  "adapter": "native",
+  "protocol_versions": [
+    "2026-07-28"
+  ],
+  "lifecycle": "active",
+  "route_policy": {
+    "direct_access": false,
+    "gateway_path": "/mcp/roamie/roamie-travel-mcp"
+  },
+  "remote": {
+    "url": "https://roamie-travel-mcp.roamie.svc.cluster.local/mcp"
+  },
+  "credential_ref": {
+    "secret_name": "product-mcp-upstream-keys",
+    "key": "ROAMIE_TRAVEL_MCP_KEY"
+  },
+  "required_scopes": [
+    "roamie:travel:read"
+  ],
+  "semantic": {
+    "summary": "Read real nearby places for traveller recommendations.",
+    "domains": [
+      "travel"
+    ],
+    "risk": "low",
+    "when_to_use": [
+      "find nearby restaurants or attractions"
+    ],
+    "not_for": [
+      "booking or payment actions"
+    ]
+  }
+}

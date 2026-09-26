@@ -1,8 +1,15 @@
 use crate::auth::{AuthError, Config, Verifier};
+use aws_lc_rs::{
+    encoding::AsDer,
+    rsa::{KeyPair, KeySize, PublicKeyComponents},
+    signature::KeyPair as _,
+};
 use axum::{routing::get, Json, Router};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    Engine,
+};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use rsa::{pkcs1::EncodeRsaPrivateKey, traits::PublicKeyParts, RsaPrivateKey};
 use serde_json::{json, Value};
 use std::{
     sync::{
@@ -12,9 +19,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-fn key() -> &'static RsaPrivateKey {
-    static KEY: OnceLock<RsaPrivateKey> = OnceLock::new();
-    KEY.get_or_init(|| RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048).expect("test RSA key"))
+fn key() -> &'static KeyPair {
+    static KEY: OnceLock<KeyPair> = OnceLock::new();
+    KEY.get_or_init(|| KeyPair::generate(KeySize::Rsa2048).expect("test RSA key"))
 }
 
 pub fn token(overrides: Value) -> String {
@@ -22,10 +29,15 @@ pub fn token(overrides: Value) -> String {
     for (name, value) in overrides.as_object().expect("overrides") {
         claims[name] = value.clone();
     }
-    let der = key().to_pkcs1_der().expect("test DER");
+    let der = key().as_der().expect("test DER");
     let mut header = Header::new(Algorithm::RS256);
     header.kid = Some("test-key".into());
-    encode(&header, &claims, &EncodingKey::from_rsa_der(der.as_bytes())).expect("test JWT")
+    let pem = format!(
+        "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----",
+        STANDARD.encode(der.as_ref())
+    );
+    let encoding = EncodingKey::from_rsa_pem(pem.as_bytes()).expect("test encoding key");
+    encode(&header, &claims, &encoding).expect("test JWT")
 }
 
 pub fn profile() -> Value {
@@ -33,7 +45,8 @@ pub fn profile() -> Value {
 }
 
 pub fn verifier(profile: Value) -> (Verifier, Arc<AtomicUsize>) {
-    let keys = json!({"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"test-key","n":URL_SAFE_NO_PAD.encode(key().n().to_bytes_be()),"e":URL_SAFE_NO_PAD.encode(key().e().to_bytes_be())}]});
+    let public = PublicKeyComponents::from(key().public_key());
+    let keys = json!({"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"test-key","n":URL_SAFE_NO_PAD.encode(public.n),"e":URL_SAFE_NO_PAD.encode(public.e)}]});
     let hits = Arc::new(AtomicUsize::new(0));
     let count = hits.clone();
     let app = Router::new()

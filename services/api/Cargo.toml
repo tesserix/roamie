@@ -31,4 +31,5 @@ async-trait = "0.1.92"
 http-body-util.workspace = true
 tower.workspace = true
 
-rsa = "0.9"
+aws-lc-rs = "1.18"
+jsonwebtoken = { workspace = true, features = ["use_pem"] }

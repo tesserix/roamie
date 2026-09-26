@@ -50,6 +50,8 @@ fn model_reply(answer: Value) -> Value {
 pub(crate) fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc<AppState> {
     let http = reqwest::Client::new();
     Arc::new(AppState {
+        trip_manager: None,
+        travel_mcp_key: None,
         auth: None,
         development_auth_disabled: true,
         database: None,
@@ -636,4 +638,69 @@ async fn production_api_requires_identity_before_parsing_input() {
         .development_auth_disabled = false;
     let (status, _) = call(app, "POST", "/v1/translate/text", Some(json!({}))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn trip_manager_requires_authentication_and_fails_closed_when_unconfigured() {
+    let mut s = state("http://unused", "http://unused", None);
+    let owner = Arc::get_mut(&mut s).expect("owner");
+    owner.development_auth_disabled = false;
+    owner.auth = Some(crate::auth_tests::verifier(crate::auth_tests::profile()).0);
+    for (token, expected) in [
+        (None, StatusCode::UNAUTHORIZED),
+        (
+            Some(crate::auth_tests::token(json!({}))),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+    ] {
+        let mut request = Request::builder()
+            .method("POST")
+            .uri("/v1/trip-manager")
+            .header("content-type", "application/json");
+        if let Some(token) = token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        let response = router(s.clone()).oneshot(request.body(Body::from(
+            json!({"profile":{"trip_id":"trip","revision":"1"},"specialist":"food","request":{"prompt":"dinner"}}).to_string()
+        )).expect("request")).await.expect("response");
+        assert_eq!(response.status(), expected);
+    }
+}
+
+#[tokio::test]
+async fn travel_mcp_workload_route_rejects_unconfigured_or_missing_identity() {
+    let response = router(state("http://unused", "http://unused", None))
+        .oneshot(
+            Request::builder()
+                .uri("/internal/v1/travel/nearby?lat=1&lng=2&kind=food&diet=none")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn travel_mcp_workload_key_allows_only_its_nearby_route() {
+    let (base, hits) = upstream(StatusCode::OK, json!({"places":[]})).await;
+    let mut s = state("http://unused", "http://unused", Some(&base));
+    Arc::get_mut(&mut s).expect("owner").travel_mcp_key = Some("k".repeat(32));
+    for (token, status) in [
+        ("wrong".to_owned(), StatusCode::UNAUTHORIZED),
+        ("k".repeat(32), StatusCode::OK),
+    ] {
+        let response = router(s.clone())
+            .oneshot(
+                Request::builder()
+                    .uri("/internal/v1/travel/nearby?lat=1&lng=2&kind=food&diet=none")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), status);
+    }
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
 }
