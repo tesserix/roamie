@@ -23,8 +23,12 @@ tracing-subscriber.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 
+jsonwebtoken.workspace = true
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 async-trait = "0.1.92"
 http-body-util.workspace = true
 tower.workspace = true
+
+rsa = "0.9"

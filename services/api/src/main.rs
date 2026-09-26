@@ -1,3 +1,9 @@
+mod accounts;
+#[cfg(test)]
+mod audit_tests;
+mod auth;
+#[cfg(test)]
+mod auth_tests;
 mod database;
 mod error;
 mod fx;
@@ -28,6 +34,8 @@ use tower_http::trace::TraceLayer;
 use error::{Error, Result};
 
 struct AppState {
+    auth: Option<auth::Verifier>,
+    development_auth_disabled: bool,
     database: Option<database::Database>,
     http: reqwest::Client,
     ai: Option<gemini::Gemini>,
@@ -49,7 +57,13 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let database = database::Database::from_env(false).await?;
+    let development_auth_disabled =
+        auth::development_mode(&env_or("AUTH_ENABLED", "true"), cfg!(debug_assertions))?;
+    let database = database::Database::from_env(development_auth_disabled).await?;
+    anyhow::ensure!(
+        cfg!(debug_assertions) || database.is_some(),
+        "database configuration required in release builds"
+    );
     if std::env::args().nth(1).as_deref() == Some("migrate") {
         database
             .as_ref()
@@ -59,6 +73,11 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("database migrations complete");
         return Ok(());
     }
+    let auth = if development_auth_disabled {
+        None
+    } else {
+        Some(auth::Verifier::new(auth::Config::from_env()?)?)
+    };
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(25))
         .build()?;
@@ -89,6 +108,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .ok();
     let state = Arc::new(AppState {
+        auth,
+        development_auth_disabled,
         database,
         ocr,
         http,
@@ -97,7 +118,12 @@ async fn main() -> anyhow::Result<()> {
         places,
     });
 
-    let addr = format!("0.0.0.0:{}", env_or("PORT", "8080"));
+    let host = if development_auth_disabled {
+        "127.0.0.1"
+    } else {
+        "0.0.0.0"
+    };
+    let addr = format!("{host}:{}", env_or("PORT", "8080"));
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(%addr, "roamie-api listening");
     axum::serve(listener, router(state))
@@ -113,10 +139,18 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/signs/translate", post(sign_translate))
         .route("/receipts/extract", post(receipt_extract))
         .route("/nearby", get(nearby_search))
-        .route("/fx", get(fx_latest));
+        .route("/fx", get(fx_latest))
+        .route("/auth/me", get(accounts::me))
+        .route("/auth/audit", get(accounts::audit))
+        .route("/reference/trip-styles", get(accounts::styles))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_customer,
+        ));
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/readyz", get(readiness))
+        .route("/v1/auth/config", get(auth::configuration))
         .nest("/v1", v1)
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(12 * 1024 * 1024))

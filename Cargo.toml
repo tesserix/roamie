@@ -23,3 +23,5 @@ tower = { version = "0.5.3", features = ["util"] }
 
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "uuid", "time", "json", "migrate", "macros"] }
 uuid = { version = "1", features = ["v7", "serde"] }
+
+jsonwebtoken = { version = "10.3", default-features = false, features = ["aws_lc_rs"] }

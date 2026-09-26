@@ -26,8 +26,20 @@ jobs:
       expo_node_version: 22.19.0
       expo_package_manager: npm
       containers_enabled: true
+      # The release requires TLS Postgres and identity config; exercise it below.
       container_images: >-
-        {"include":[{"name":"roamie-api","context":".","dockerfile":"docker/api.Dockerfile","target":"","source_root":"services/api","build_args":"","requires_application_build_secret":false,"trivy_ignore_file":"","smoke_port":8080,"smoke_path":"/healthz"}]}
+        {"include":[{"name":"roamie-api","context":".","dockerfile":"docker/api.Dockerfile","target":"","source_root":"services/api","build_args":"","requires_application_build_secret":false,"trivy_ignore_file":"","smoke_port":0,"smoke_path":"/healthz"}]}
+
+  authenticated-container:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Build release image
+        run: docker build -f docker/api.Dockerfile -t roamie-api:smoke .
+      - name: Verify release with TLS Postgres and required authentication
+        env:
+          API_IMAGE: roamie-api:smoke
+        run: bash scripts/ci/smoke-api.sh
 
   database:
     runs-on: ubuntu-24.04
