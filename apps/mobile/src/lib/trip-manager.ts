@@ -82,7 +82,7 @@ export function restoreChosenPlan(value: unknown, trip: Trip): ChosenPlan | unde
     }
     validatePlanOptions(plan.advice.response.trip_options,profile,plan.advice.response.recommendations.map(item=>item.id));
     for (const option of plan.advice.response.trip_options) {
-      if ([option.title,option.summary,option.accommodation_guidance,option.transport_guidance].some(text=>typeof text !== 'string')) return undefined;
+      if ([option.label,option.summary,option.accommodation_guidance,option.transport_guidance].some(text=>typeof text !== 'string')) return undefined;
       if (option.days.some(day=>typeof day.destination !== 'string' || day.stops.some(stop=>typeof stop.note !== 'string'))) return undefined;
     }
     const chosen = plan.advice.response.trip_options.find(option=>option.tier===plan.option.tier);

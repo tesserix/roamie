@@ -82,7 +82,7 @@ export function PlanCard({option,advice,currency,select,disabled}:{option:TripOp
   const c=useColors(); const byId=new Map(advice.response.recommendations.map(item=>[item.id,item]));
   const labels={accommodation_minor:'Accommodation',food_minor:'Food',activities_minor:'Activities',transport_minor:'Transport',contingency_minor:'Contingency'};
   return <Card style={{gap:14,padding:20}}>
-    <Text accessibilityRole="header" style={[font.headline,{color:c.text}]}>{option.tier==='budget'?'Budget':option.tier==='balanced'?'Balanced':'Premium'} · {option.title}</Text>
+    <Text accessibilityRole="header" style={[font.headline,{color:c.text}]}>{option.tier==='budget'?'Budget':option.tier==='balanced'?'Balanced':'Premium'} · {option.label}</Text>
     <Text style={[font.title,{color:c.text}]}>{format(planTotal(option),currency)}</Text>
     <Text style={[font.caption,{color:c.muted}]}>Approximate whole-trip allocation for your party. Flights excluded. This is not a live quote.</Text>
     <Text style={{color:c.text}}>{option.summary}</Text>
