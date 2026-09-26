@@ -855,3 +855,26 @@ async fn travel_mcp_workload_key_allows_only_its_nearby_route() {
     }
     assert_eq!(hits.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn model_calls_outlast_the_shared_client_timeout() {
+    let app = axum::Router::new().fallback(|| async {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        axum::Json(model_reply(json!({ "ok": true })))
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let url = format!("http://{}", listener.local_addr().expect("addr"));
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(1))
+        .build()
+        .expect("client");
+    let ai = gemini::Gemini::with_auth(http, url, Arc::new(FakeToken));
+    let reply: Value = ai
+        .json("system", vec![], json!({}))
+        .await
+        .expect("a slow itinerary draft still arrives");
+    assert_eq!(reply, json!({ "ok": true }));
+}
