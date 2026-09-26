@@ -13,12 +13,12 @@ const osaka = { ...tokyo, placeId: 'osaka', name: 'Osaka', label: 'Osaka, Japan'
 const trip = createTrip({ title: 'Japan', destination: 'Japan', startDate: '2027-01-01', endDate: '2027-01-04', currency: 'JPY', budgetMinor: 20000, travellers: 1, diet: 'none', interests: '', stays: [{ destination: tokyo, days: 2 }, { destination: osaka, days: 2 }] });
 beforeEach(() => { jest.clearAllMocks(); jest.mocked(session.current).mockReturnValue({ sub: 'traveller' } as never); });
 
-test('each destination check uses its own dates and verified destination coordinates', async () => {
+test('a new profile is created and each destination uses its own dates and verified coordinates', async () => {
   const sent: any[] = [];
   jest.mocked(searchDestinations).mockImplementation(async query => [{ ...(query.startsWith('Tokyo') ? tokyo : osaka), latitude: 35, longitude: 139 }]);
   jest.mocked(fetch).mockImplementation(async (_url, init) => {
     const body = init?.body ? JSON.parse(String(init.body)) : null;
-    if (init?.method === 'GET') return { ok: false, status: 404 } as Awaited<ReturnType<typeof fetch>>;
+    if (init?.method === 'GET') return { ok: false, status: 409, json: async () => ({ error: 'profile_changed' }) } as Awaited<ReturnType<typeof fetch>>;
     if (init?.method === 'PUT') return { ok: true, json: async () => ({ revision: 'revision-1' }) } as Awaited<ReturnType<typeof fetch>>;
     sent.push(body);
     return { ok: true, json: async () => ({ profile_revision: 'revision-1', response: { status: 'ok', recommendations: [], limitations: [] } }) } as Awaited<ReturnType<typeof fetch>>;

@@ -16,7 +16,7 @@ async function call<T>(path: string, method: string, payload: unknown, signal: A
   const token = await session.accessToken();
   const res = await fetch(API_BASE + path, { method, signal, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) });
   if (!customer || customer !== session.current()?.sub) throw new Error('Your account changed. Please retry.');
-  if (method === 'GET' && res.status === 404) return null;
+  if (method === 'GET' && res.status === 409 && (await res.json()).error === 'profile_changed') return null;
   if (res.status === 401) throw new Error('Sign in again to check your trip.');
   if (res.status === 409) throw new Error('Your trip preferences changed. Please retry.');
   if (!res.ok) throw new Error('Trip checks are unavailable. Please retry later.');
