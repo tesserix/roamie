@@ -1,7 +1,7 @@
 import { beforeEach, expect, jest, test } from '@jest/globals';
 import { fetch } from 'expo/fetch';
 import { session } from '../auth-client';
-import { loadTravelProfile, saveTravelProfile, askTripManager, initialPreferences } from '../trip-manager';
+import { loadTravelProfile, saveTravelProfile, askTripManager, initialPreferences, applyReviewedPlan } from '../trip-manager';
 import { createTrip } from '../trips';
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
 jest.mock('../auth-client', () => ({ API_BASE: 'https://roamie-api.tesserix.app', session: {current: jest.fn(() => ({sub:'alice'})), accessToken: jest.fn(async () => 'test-token'), clear: jest.fn(async () => {})} }));
@@ -44,4 +44,16 @@ test('discards a result when the account changes while the request is running', 
 test('rejects incomplete trip comparisons instead of offering duplicate tiers', async () => {
  respond({...reply,response:{...reply.response,specialist:'trip-planner',status:'ok',trip_options:[]}});
  await expect(askTripManager(saved,'trip-planner',{prompt:'Three plans',plan_options:true})).rejects.toThrow('three');
+});
+
+
+test('choosing a reviewed option populates daily plans without inventing prices or coordinates', () => {
+ const option = {tier:'budget' as const,label:'Quiet trip',summary:'Museums',accommodation_guidance:'Compare hotels',transport_guidance:'Check transit',budget:{accommodation_minor:2000,food_minor:1000,activities_minor:500,transport_minor:500,contingency_minor:500},days:[{date:'2026-10-01',destination:'Hanoi',stops:[{evidence_id:'museum',time:'09:00',minutes:300,note:'Suggested visit'}]}]};
+ const advice = {...reply,response:{...reply.response,status:'ok' as const,specialist:'trip-planner' as const,recommendations:[{id:'museum',name:'Museum',source_url:'https://maps.google.com/place',observed_at:'2026-09-26T00:00:00Z',maps_url:'https://www.google.com/maps/dir/?api=1&destination=21,105',location:{latitude:21,longitude:105},cost_minor:null,currency:null,duration_seconds:null,warnings:[]}]},review_run_ids:['pre','post'] as [string,string]};
+ const oneDay={...trip,endDate:'2026-10-01',days:trip.days.slice(0,1)};
+ const selected=applyReviewedPlan(oneDay,{option,advice,currency:'AUD',profileRevision:'r1'});
+ expect(selected.days[0].stops[0]).toMatchObject({title:'Museum',costUnknown:true,costMinor:0,minutes:300,place:{lat:21,lng:105}});
+ expect(selected.days[0].destination).toBe('Hanoi');
+ expect(selected.notice).toContain('not reviewed');
+ expect(oneDay.days[0].stops).toHaveLength(0);
 });

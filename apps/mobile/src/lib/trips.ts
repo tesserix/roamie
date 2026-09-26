@@ -1,7 +1,9 @@
 import type { ChosenPlan } from './trip-manager';
-import type { Destination, PlanRequest, TripDay, TripStop, TravelMode } from './trip-contract';
+import type { Destination, PlanRequest, TripDay as WireDay, TripStop as WireStop, TravelMode } from './trip-contract';
 import { FOOD_PREFERENCES, TRIP_STYLES } from './trip-contract';
-export type { PlanRequest, TripDay, TripStop, TravelMode } from './trip-contract';
+export type { PlanRequest, TravelMode } from './trip-contract';
+export type TripStop = WireStop & { costUnknown?: boolean };
+export type TripDay = Omit<WireDay, 'stops'> & { stops: TripStop[] };
 export type MemoryPhoto = { id: string; uri: string; width: number; height: number; caption: string; creationTime: number };
 export type Trip = PlanRequest & { id: string; managerPlan?: ChosenPlan; destinationDetails?: Destination; days: TripDay[]; photos: MemoryPhoto[]; notice: string; updatedAt: string };
 export const tripStorageKey = (account: string) => `roamie.trips.v1.${encodeURIComponent(account)}`;
@@ -42,7 +44,7 @@ function minute(time: string): number {
 }
 export function updateStop(trip: Trip, dayIndex: number, stop: TripStop): Trip {
   if (!trip.days[dayIndex]) throw new Error('Choose a trip day.');
-  if (!stop.title.trim() || stop.title.length > 120 || stop.note.length > 500 || !Number.isInteger(stop.minutes) || stop.minutes < 15 || stop.minutes > 240 || !Number.isSafeInteger(stop.costMinor) || stop.costMinor < 0 || stop.costMinor > 1e9) throw new Error('Check the stop name, duration and estimated cost.');
+  if (!stop.title.trim() || stop.title.length > 120 || stop.note.length > 500 || !Number.isInteger(stop.minutes) || stop.minutes < 15 || stop.minutes > 480 || !Number.isSafeInteger(stop.costMinor) || stop.costMinor < 0 || stop.costMinor > 1e9) throw new Error('Check the stop name, duration and estimated cost.');
   const stops = [...trip.days[dayIndex].stops.filter(s => s.id !== stop.id), stop].sort((a, b) => minute(a.time) - minute(b.time));
   if (stops.length > 12) throw new Error('Keep each day to 12 stops or fewer.');
   let end = 0;

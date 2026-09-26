@@ -27,6 +27,9 @@ test('saves preferences, compares three reviewed plans and chooses without auto-
   expect(askTripManager).toHaveBeenCalledWith(expect.objectContaining({revision:'r2'}),'trip-planner',expect.objectContaining({plan_options:true,destination:'Hanoi',travellers:1}),expect.any(AbortSignal));
   expect(screen.getAllByText(/not a live quote/)).toHaveLength(3);
   expect(choose).not.toHaveBeenCalled();
+  expect(screen.queryByText('Confirm opening hours')).toBeNull();
+  await fireEvent.press(screen.getByRole('button',{name:'View balanced itinerary'}));
+  expect(screen.getAllByText('Confirm opening hours')).toHaveLength(1);
   await fireEvent.press(screen.getByRole('button',{name:'Choose balanced trip'}));
   expect(choose).toHaveBeenCalledWith(expect.objectContaining({option:expect.objectContaining({tier:'balanced'}),profileRevision:'r2'}));
 });

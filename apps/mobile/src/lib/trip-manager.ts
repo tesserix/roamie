@@ -1,5 +1,5 @@
 import { apiRequest, ApiError } from './trip-api';
-import { tripDates, type Trip } from './trips';
+import { tripDates, newId, updateStop, type Trip } from './trips';
 import type { TripOption } from './planning-contract';
 export type { TripOption } from './planning-contract';
 
@@ -15,7 +15,7 @@ export type ManagerRequest = { prompt: string; plan_options?:boolean; stays?:{de
 export type Advice = {
   manager_id: string; profile_revision: string; review_run_ids: [string,string];
   response: { trip_options?: TripOption[]; status: 'ok' | 'unavailable' | 'no_matches'; specialist: Specialist; limitations: string[];
-    recommendations: {id:string;name:string;source_url:string;observed_at:string;maps_url:string|null;cost_minor:number|null;currency:string|null;duration_seconds:number|null;warnings:string[]}[];
+    recommendations: {id:string;name:string;source_url:string;observed_at:string;location?:{latitude:number;longitude:number}|null;maps_url:string|null;cost_minor:number|null;currency:string|null;duration_seconds:number|null;warnings:string[]}[];
   };
 };
 export function initialPreferences(trip: Trip, language: string): TravelPreferences {
@@ -88,4 +88,23 @@ export function restoreChosenPlan(value: unknown, trip: Trip): ChosenPlan | unde
     const chosen = plan.advice.response.trip_options.find(option=>option.tier===plan.option.tier);
     return chosen && JSON.stringify(chosen)===JSON.stringify(plan.option) ? plan : undefined;
   } catch {return undefined;}
+}
+
+export function applyReviewedPlan(trip: Trip, managerPlan: ChosenPlan): Trip {
+  const byId = new Map(managerPlan.advice.response.recommendations.map(item=>[item.id,item]));
+  const dates = tripDates(trip.startDate,trip.endDate);
+  if (managerPlan.option.days.map(day=>day.date).join(',')!==dates.join(',')) throw new Error('The plan dates changed. Ask your manager to refresh it.');
+  let selected: Trip = {...trip,managerPlan,currency:managerPlan.currency,
+    budgetMinor:trip.currency===managerPlan.currency?trip.budgetMinor:0,
+    days:managerPlan.option.days.map(day=>({date:day.date,destination:day.destination,stops:[]})),
+    notice:'Proposed visits and approximate budget allocations, not confirmed prices or bookings. Flights excluded. Later manual edits are not reviewed by your trip manager.'};
+  managerPlan.option.days.forEach((day,index)=>day.stops.forEach(stop=>{
+    const fact=byId.get(stop.evidence_id);
+    if(!fact)throw new Error('A source is missing. Ask your manager to refresh the plan.');
+    const priced=fact.cost_minor!==null && fact.currency===managerPlan.currency;
+    selected=updateStop(selected,index,{id:newId(),time:stop.time,minutes:stop.minutes,kind:'sight',title:fact.name.slice(0,120),
+      note:stop.note,costMinor:priced?fact.cost_minor!:0,costUnknown:!priced,transport:[],
+      place:fact.location?{id:fact.id,name:fact.name,address:'',lat:fact.location.latitude,lng:fact.location.longitude,mapsUri:fact.maps_url??fact.source_url}:null});
+  }));
+  return selected;
 }
