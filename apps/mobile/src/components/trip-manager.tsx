@@ -16,7 +16,7 @@ export function TripManager({trip, language, choose}: {trip:Trip;language:string
   const [ready,setReady] = useState(false), [busy,setBusy] = useState(''), [error,setError] = useState(''), [attempt,setAttempt] = useState(0);
   const controller=useRef<AbortController|null>(null);
   useEffect(()=>{
-    const task=new AbortController(); controller.current=task; setReady(false); setAdvice(null); setError('');
+    const task=new AbortController(); controller.current=task;
     loadTravelProfile(trip.id,task.signal).then(saved=>{
       if (!task.signal.aborted) { setProfile(saved); setPreferences(saved?.preferences ?? initialPreferences(trip,language)); setReady(true); }
     }).catch(e=>{if(!task.signal.aborted)setError(e instanceof Error?e.message:'Could not load preferences.');})
@@ -56,7 +56,7 @@ export function TripManager({trip, language, choose}: {trip:Trip;language:string
       <Button label={specialist==='trip-planner'?'Compare three trip options':'Ask my trip manager'} disabled={!!busy} onPress={()=>void ask()}/>
     </>:null}
     {busy?<Card><ActivityIndicator accessibilityLabel="Reviewing your trip"/><Text style={{color:c.text}}>{busy}</Text><Button label="Cancel request" kind="secondary" onPress={()=>{controller.current?.abort();controller.current=null;setBusy('');setError('Cancelled. Your selected plan is unchanged.');}}/></Card>:null}
-    {error?<View style={{gap:10}}><Text accessibilityRole="alert" style={{color:c.danger}}>{error}</Text><Button label="Reload saved preferences" kind="secondary" onPress={()=>setAttempt(n=>n+1)}/></View>:null}
+    {error?<View style={{gap:10}}><Text accessibilityRole="alert" style={{color:c.danger}}>{error}</Text><Button label="Reload saved preferences" kind="secondary" onPress={()=>{setReady(false);setAdvice(null);setError('');setAttempt(n=>n+1);}}/></View>:null}
     {advice?<>
       <Text style={[font.caption,{color:c.muted}]}>Reviewed for your saved travel preferences.</Text>
       {advice.response.limitations.map((text,index)=><Text key={index} style={[font.caption,{color:c.muted}]}>{text}</Text>)}
