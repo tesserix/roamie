@@ -5,6 +5,7 @@ import { useColorScheme } from 'react-native';
 
 import { AccessibilityProvider } from '@/lib/accessibility';
 import AppTabs from '@/components/app-tabs';
+import { TravelLoading } from '@/components/travel-brand';
 import Welcome from '@/components/welcome';
 import SignIn from '@/components/sign-in';
 import { AuthProvider, useAuth } from '@/lib/auth';
@@ -18,14 +19,14 @@ function Root() {
   useEffect(() => {
     if (ready) SplashScreen.hideAsync();
   }, [ready]);
-  if (!ready) return null;
+  if (!ready) return <TravelLoading />;
   return profile ? <AppTabs /> : <Welcome />;
 }
 
 function Account() {
   const { customer, ready } = useAuth();
   useEffect(() => { if (ready) void SplashScreen.hideAsync(); }, [ready]);
-  if (!ready) return null;
+  if (!ready) return <TravelLoading />;
   if (!customer) return <SignIn />;
   return <StoreProvider key={customer.sub} accountId={customer.sub}><TripsProvider accountId={customer.sub}><Root /></TripsProvider></StoreProvider>;
 }

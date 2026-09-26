@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BrandHeader, TravelHero } from './travel-brand';
 import { ProfileSettings } from './profile-settings';
 import { Badge, Button, Card, Chip, Icon } from '@/components/ui';
 import { LanguagePicker } from '@/components/language-picker';
@@ -46,15 +47,17 @@ export default function Welcome() {
       <ScrollView
         contentContainerStyle={{ padding: space.lg, paddingTop: insets.top + space.lg, paddingBottom: insets.bottom + space.lg, gap: space.md }}
         keyboardShouldPersistTaps="handled">
-        <View style={{ gap: space.md }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><Badge icon="globe.europe.africa.fill" tint={c.onAccent} bg={c.accent} size={56} /><ProfileSettings /></View>
-          <Text style={[font.largeTitle, { color: c.text }]}>{"A little less planning.\nA lot more exploring."}</Text>
-          <Text style={[font.body, { color: c.muted, fontSize: 17 }]}>{"Choose your language. We’ll help with the rest along the way."}</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><BrandHeader /><ProfileSettings /></View>
+        <TravelHero />
+        <View style={{ gap: 8, marginTop: 4 }}>
+          <Text accessibilityRole="header" style={[font.largeTitle, { color: c.text, fontSize: 30 }]}>Make yourself at home.</Text>
+          <Text style={[font.body, { color: c.muted }]}>Start with your language. We’ll help you feel local, wherever you land.</Text>
         </View>
 
         <Section icon="character.bubble.fill" title="Your language">
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel={`Your language, ${languageName(language)}`}
             accessibilityHint="Choose the language you want everything translated into"
             onPress={() => setPicking(true)}
             style={({ pressed }) => [styles.field, { backgroundColor: c.background, borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}>
@@ -63,7 +66,11 @@ export default function Welcome() {
           </Pressable>
         </Section>
 
-        <Button label={extras ? 'Hide optional preferences' : 'Add budget and food preferences'} kind="secondary" onPress={() => setExtras(value => !value)} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Add budget and food preferences" accessibilityState={{ expanded: extras }} onPress={() => setExtras(value => !value)} style={({ pressed }) => ({ paddingVertical: 12, minHeight: 52, flexDirection: 'row', gap: 12, alignItems: 'center', opacity: pressed ? 0.7 : 1 })}>
+          <Badge icon="slider.horizontal.3" tint={c.accent} bg={c.accentSoft} size={38} />
+          <View style={{ flex: 1, gap: 3 }}><Text style={[font.headline, { color: c.text }]}>Make it your kind of trip</Text><Text style={[font.caption, { color: c.muted }]}>Budget & food preferences · optional</Text></View>
+          <Icon name={extras ? 'chevron.up' : 'chevron.down'} size={16} color={c.muted} />
+        </Pressable>
         {extras && <View style={{ gap: space.md }}>
         <Section icon="wallet.pass.fill" title="Trip budget" hint="Optional. We'll nudge you at 50%, 80% and 100%.">
           <View style={{ flexDirection: 'row', gap: space.sm }}>
@@ -107,7 +114,7 @@ export default function Welcome() {
           <Icon name="lock.fill" size={13} color={c.muted} />
           <Text style={[font.caption, { color: c.muted }]}>Your trip details stay on this phone.</Text>
         </View>
-        <Button label="Change account" kind="secondary" onPress={() => { void signOut(); }} />
+        <Pressable accessibilityRole="button" onPress={() => { void signOut(); }} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', alignItems: 'center', opacity: pressed ? 0.7 : 1 })}><Text style={[font.caption, { color: c.muted, textDecorationLine: 'underline' }]}>Change account</Text></Pressable>
       </ScrollView>
       <LanguagePicker
         visible={picking}
