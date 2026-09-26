@@ -2,7 +2,7 @@ import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Platform } from 'react-native';
-import { developmentAuthDisabled, authDeadline, fetchCustomer, loadAuthConfig, providersFor, session, type AuthConfig, type Customer, type NativePlatform, type Provider } from './auth-client';
+import { AccountVerificationError, developmentAuthDisabled, authDeadline, fetchCustomer, loadAuthConfig, providersFor, session, type AuthConfig, type Customer, type NativePlatform, type Provider } from './auth-client';
 
 WebBrowser.maybeCompleteAuthSession();
 type Auth = { customer: Customer | null; ready: boolean; busy: boolean; error: string | null; config: AuthConfig | null; retry: () => Promise<void>; signIn: (provider: Provider) => Promise<void> };
@@ -50,7 +50,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         scopes: ['openid', 'email', 'profile', 'offline_access', 'urn:zitadel:iam:user:resourceowner',
           `urn:zitadel:iam:org:id:${config.organizationId}`, `urn:zitadel:iam:org:project:id:${config.projectId}:aud`,
           `urn:zitadel:iam:org:idp:id:${config.providers[provider]}`],
-        prompt: AuthSession.Prompt.Login,
       });
       const result = await request.promptAsync(discovery);
       if (result.type === 'cancel' || result.type === 'dismiss') return;
@@ -58,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const tokens = await authDeadline(AuthSession.exchangeCodeAsync({ clientId: config.clientIds[platform], code: result.params.code, redirectUri, extraParams: { code_verifier: request.codeVerifier } }, discovery));
       await session.accept(tokens, await fetchCustomer(tokens.accessToken), config, platform, expected);
     } catch (error) {
-      setError(error instanceof Error && error.message.startsWith('Please verify') ? error.message : 'Sign-in did not finish. Please try again.');
+      setError(error instanceof AccountVerificationError ? error.message : 'Sign-in did not finish. Please try again.');
     } finally { setBusy(false); }
   }
   return <Context.Provider value={{ customer, ready, busy, error, config, retry: async () => { setBusy(true); setError(null); await retry(); }, signIn }}>{children}</Context.Provider>;
