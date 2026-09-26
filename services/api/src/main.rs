@@ -10,6 +10,7 @@ mod error;
 mod fx;
 mod gemini;
 mod lang;
+mod memories;
 mod money;
 mod nearby;
 mod ocr;
@@ -22,6 +23,7 @@ mod translate;
 mod travel_mcp;
 mod travel_profiles;
 mod trip_manager;
+mod trips;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,6 +50,7 @@ struct AppState {
     fx: fx::Fx,
     places: Option<nearby::Places>,
     ocr: Option<ocr::Ocr>,
+    memories: memories::Renderer,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -124,6 +127,7 @@ async fn main() -> anyhow::Result<()> {
         ai,
         fx: fx::Fx::new(fx::FX_BASE),
         places,
+        memories: memories::Renderer::new(),
     });
 
     let host = if development_auth_disabled {
@@ -138,6 +142,10 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown())
         .await?;
     Ok(())
+}
+
+fn timeout(seconds: u64) -> TimeoutLayer {
+    TimeoutLayer::with_status_code(StatusCode::GATEWAY_TIMEOUT, Duration::from_secs(seconds))
 }
 
 fn router(state: Arc<AppState>) -> Router {
@@ -162,6 +170,13 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/auth/me", get(accounts::me))
         .route("/auth/audit", get(accounts::audit))
         .route("/reference/trip-styles", get(accounts::styles))
+        .route("/trips/plan", post(trips::plan))
+        .layer(timeout(60))
+        // Rendering outlasts the standard budget but must finish inside Cloudflare's 100s origin limit.
+        .route(
+            "/memories/render",
+            post(memories::render).layer(timeout(90)),
+        )
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth::require_customer,
@@ -175,13 +190,10 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/healthz", get(|| async { "ok" }))
         .route("/readyz", get(readiness))
         .route("/v1/auth/config", get(auth::configuration))
+        .layer(timeout(60))
         .nest("/v1", v1)
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(12 * 1024 * 1024))
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::GATEWAY_TIMEOUT,
-            Duration::from_secs(60),
-        ))
         .layer(TraceLayer::new_for_http())
 }
 

@@ -6,6 +6,7 @@ use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
+use ts_rs::TS;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -13,8 +14,8 @@ pub struct Search {
     query: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Destination {
     pub place_id: String,
     pub name: String,

@@ -11,6 +11,8 @@ pub enum Error {
     Conflict,
     #[error("storage unavailable")]
     Storage(#[from] sqlx::Error),
+    #[error("render capacity exhausted")]
+    Busy,
     #[error("invalid request: {0}")]
     Invalid(String),
     #[error("no speech in utterance")]
@@ -46,6 +48,11 @@ impl IntoResponse for Error {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "storage_unavailable",
                 "Account storage is temporarily unavailable.".into(),
+            ),
+            Error::Busy => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "busy",
+                "Roamie is making memories. Please try again shortly.".into(),
             ),
             Error::Invalid(m) => (StatusCode::BAD_REQUEST, "invalid", m.clone()),
             Error::NoSpeech => (
