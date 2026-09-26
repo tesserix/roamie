@@ -6,6 +6,11 @@ pg_image='postgres@sha256:a85daf0dbd5e79586e850e3fe4b21b796799828ad015ce2166aeb9
 smoke_dir=$(mktemp -d)
 smoke_name="roamie-smoke-$$"
 cleanup() {
+  local result=$?
+  if ((result != 0)); then
+    docker logs --tail 80 "$smoke_name-api" 2>&1 || true
+    docker logs --tail 30 "$smoke_name-db" 2>&1 || true
+  fi
   docker rm -f "$smoke_name-api" "$smoke_name-db" >/dev/null 2>&1 || true
   docker network rm "$smoke_name" >/dev/null 2>&1 || true
   rm -rf "$smoke_dir"
@@ -48,6 +53,7 @@ test "$(docker inspect -f '{{.State.ExitCode}}' "$smoke_name-api")" = 0
 docker rm "$smoke_name-api" >/dev/null
 
 docker create --name "$smoke_name-api" --network "$smoke_name" \
+  --add-host metadata.google.internal:127.0.0.1 \
   "${pg_args[@]}" -e PGUSER=roamie_app -e AUTH_ENABLED=true \
   -e ZITADEL_ISSUER=https://identity.example -e ZITADEL_ORG_ID=smoke-org \
   -e ZITADEL_PROJECT_ID=smoke-project -e ZITADEL_IOS_CLIENT_ID=smoke-ios \
