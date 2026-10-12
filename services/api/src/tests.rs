@@ -1590,3 +1590,233 @@ async fn typed_conversation_preserves_the_input_and_reviews_a_rewritten_transcri
     assert_eq!(body["transcript"], "ठीक है, धन्यवाद।");
     assert_eq!(body["reviewRequired"], true);
 }
+
+#[tokio::test]
+async fn automatic_text_detects_source_without_target_language_bias() {
+    use axum::{Json, Router};
+    let app = Router::new().fallback(|Json(body): Json<Value>| async move {
+        let recognition = body["generationConfig"]["responseSchema"]["properties"].get("translation").is_none();
+        let answer = if recognition {
+            assert!(!body["contents"].to_string().contains("Target language"));
+            json!({"language":"en"})
+        } else {
+            json!({"language":"hi","translation":"ट्रेन स्टेशन कहाँ है?","romanized":"tren steshan kahan hai?"})
+        };
+        Json(model_reply(answer))
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let (status, body) = call(
+        state(&url, "http://unused", None),
+        "POST",
+        "/v1/translate/text",
+        Some(json!({"text":"Where is the train station?","to":"hi"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["detected"], "en");
+    assert_eq!(body["translation"], "ट्रेन स्टेशन कहाँ है?");
+    task.abort();
+}
+
+#[tokio::test]
+async fn conversation_detects_before_translating_and_auto_mine_starts_in_hindi() {
+    use axum::{Json, Router};
+    let app = Router::new().fallback(|Json(body): Json<Value>| async move {
+        let recognition = body["generationConfig"]["responseSchema"]["properties"].get("to_mine").is_none();
+        let answer = if recognition {
+            assert!(!body["contents"].to_string().contains("requestedTranslations"));
+            json!({"language":"hi","confidence":0.99,"transcript":"आप कैसे हैं?"})
+        } else {
+            json!({"language":"or","confidence":0.99,"transcript":"आप कैसे हैं?","to_mine":"How are you?","to_partner":"ଆପଣ କେମିତି ଅଛନ୍ତି?"})
+        };
+        Json(model_reply(answer))
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let (status, body) = call(
+        state(&url, "http://unused", None),
+        "POST",
+        "/v1/talk/turn",
+        Some(json!({"mine":"en","partner":"or","autoMine":true,"text":"आप कैसे हैं?"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["detected"], "hi");
+    assert_eq!(body["mine"], "hi");
+    assert_eq!(body["partner"], "or");
+    assert_eq!(body["fromMe"], true);
+    assert_eq!(body["target"], "or");
+    assert_eq!(body["translation"], "ଆପଣ କେମିତି ଅଛନ୍ତି?");
+    task.abort();
+}
+
+#[tokio::test]
+async fn conversation_remembers_both_languages_and_tracks_language_switches() {
+    let cases = [
+        (
+            "hi",
+            "or",
+            true,
+            "partner",
+            "or",
+            "ଆପଣ କେମିତି ଅଛନ୍ତି?",
+            "hi",
+            "or",
+            false,
+            "hi",
+            "आप कैसे हैं?",
+        ),
+        (
+            "hi",
+            "or",
+            true,
+            "mine",
+            "hi",
+            "मैं ठीक हूँ।",
+            "hi",
+            "or",
+            true,
+            "or",
+            "ମୁଁ ଭଲ ଅଛି।",
+        ),
+        (
+            "hi",
+            "or",
+            true,
+            "partner",
+            "bn",
+            "আপনি কেমন আছেন?",
+            "hi",
+            "bn",
+            false,
+            "hi",
+            "आप कैसे हैं?",
+        ),
+        (
+            "hi",
+            "or",
+            true,
+            "mine",
+            "en",
+            "I am fine.",
+            "en",
+            "or",
+            true,
+            "or",
+            "ମୁଁ ଭଲ ଅଛି।",
+        ),
+        (
+            "hi",
+            "or",
+            false,
+            "mine",
+            "en",
+            "How are you?",
+            "hi",
+            "en",
+            false,
+            "hi",
+            "आप कैसे हैं?",
+        ),
+    ];
+    for (
+        mine,
+        partner,
+        auto,
+        speaker,
+        detected,
+        original,
+        want_mine,
+        want_partner,
+        from_me,
+        target,
+        translation,
+    ) in cases
+    {
+        let (model, _) = upstream(StatusCode::OK, model_reply(json!({"language":detected,"confidence":0.99,"transcript":original,"to_mine":"आप कैसे हैं?","to_partner":"ମୁଁ ଭଲ ଅଛି।"}))).await;
+        let (status, body) = call(state(&model,"http://unused",None),"POST","/v1/talk/turn",Some(json!({"mine":mine,"partner":partner,"autoMine":auto,"expectedSpeaker":speaker,"text":original,"history":[{"original":"नमस्ते","translation":"ନମସ୍କାର"}]}))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["detected"], detected, "{body}");
+        assert_eq!(body["mine"], want_mine, "{body}");
+        assert_eq!(body["partner"], want_partner, "{body}");
+        assert_eq!(body["fromMe"], from_me, "{body}");
+        assert_eq!(body["target"], target, "{body}");
+        assert_eq!(body["translation"], translation, "{body}");
+    }
+}
+
+#[tokio::test]
+async fn automatic_conversation_routes_both_model_calls_and_jev_through_gateway() {
+    use axum::{http::HeaderMap, routing::post, Json, Router};
+    let hits = Arc::new(AtomicUsize::new(0));
+    let captured = hits.clone();
+    let app = Router::new()
+        .route("/v1/chat/completions", post(move |headers: HeaderMap, Json(body): Json<Value>| {
+            let captured = captured.clone();
+            async move {
+                assert_eq!(headers["authorization"], "Bearer synthetic-customer");
+                assert_eq!(body["model"], "roamie-structured");
+                let recognition = body["response_format"]["json_schema"]["schema"]["properties"].get("to_mine").is_none();
+                captured.fetch_add(1, Ordering::SeqCst);
+                let answer = if recognition {
+                    assert!(!body["messages"][1].to_string().contains("recentConversation"));
+                    json!({"language":"hi","confidence":0.99,"transcript":"आप कैसे हैं?"})
+                } else {
+                    assert!(body["messages"][1].to_string().contains("sourceLanguage"));
+                    json!({"to_mine":"आप कैसे हैं?","to_partner":"ଆପଣ କେମିତି ଅଛନ୍ତି?"})
+                };
+                Json(json!({"choices":[{"message":{"content":answer.to_string()}}]}))
+            }
+        }))
+        .route("/v1/decisions", post(|headers: HeaderMap, Json(body): Json<Value>| async move {
+            assert_eq!(headers["authorization"], "Bearer synthetic-customer");
+            assert_eq!(body["state"]["sourceLanguage"], "hi");
+            assert_eq!(body["state"]["targetLanguage"], "or");
+            Json(json!({"model":"jev-1.13.0","answers":{"readability":{"type":"choice","choice":"accept","confidence":0.95,"probabilities":{"accept":0.95,"review":0.04,"retake":0.01}}},"usage":{"input_tokens":40,"output_tokens":10}}))
+        }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let gateway =
+        crate::gateway::Gateway::for_test(format!("http://{}", listener.local_addr().unwrap()));
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut s = state("http://unused", "http://unused", None);
+    let mutable = Arc::get_mut(&mut s).unwrap();
+    mutable.ai = Some(gemini::Gemini::with_gateway(gateway.clone()));
+    mutable.jev = Some(crate::decisions::Jev::with_gateway(gateway));
+    let (status, body) = crate::gateway::scope(
+        "synthetic-customer".into(),
+        "talk/turn".into(),
+        call(
+            s,
+            "POST",
+            "/v1/talk/turn",
+            Some(json!({"mine":"en","partner":"or","autoMine":true,"text":"आप कैसे हैं?"})),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(hits.load(Ordering::SeqCst), 2);
+    assert_eq!(body["reviewRequired"], false);
+    assert_eq!(body["translation"], "ଆପଣ କେମିତି ଅଛନ୍ତି?");
+    task.abort();
+}
+
+#[tokio::test]
+async fn auto_conversation_without_a_known_partner_keeps_first_partner_discovery() {
+    let (model, _) = upstream(StatusCode::OK, model_reply(json!({"language":"hi","confidence":0.99,"transcript":"नमस्ते","to_mine":"Hello","to_partner":"Hello"}))).await;
+    let (status, body) = call(
+        state(&model, "http://unused", None),
+        "POST",
+        "/v1/talk/turn",
+        Some(json!({"mine":"en","partner":"en","autoMine":true,"text":"नमस्ते"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["mine"], "en");
+    assert_eq!(body["partner"], "hi");
+    assert_eq!(body["fromMe"], false);
+    assert_eq!(body["target"], "en");
+    assert_eq!(body["translation"], "Hello");
+}
