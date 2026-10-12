@@ -1,17 +1,88 @@
-import { SymbolView, type SFSymbol } from 'expo-symbols';
+import { SymbolView, type AndroidSymbol, type SFSymbol } from 'expo-symbols';
 import type { ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View, type ColorValue, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View, type ColorValue, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ProfileSettings } from './profile-settings';
 import { font, lift, radius, space, touch, useColors } from '@/constants/theme';
-import { speak, stopSpeaking, useSpeaking } from '@/lib/voice';
+import { playbackVoice, speak, stopSpeaking, useSpeaking } from '@/lib/voice';
+import { useAccessibility } from '@/lib/accessibility';
 
-// Room for the floating native tab bar so the last row is never hidden behind it.
-export const TAB_CLEARANCE = 96;
+// iOS tabs float over content; Android tabs reserve their own space.
+export const TAB_CLEARANCE = Platform.OS === 'ios' ? 96 : space.md;
+
+const MATERIAL_SYMBOLS: Partial<Record<SFSymbol, AndroidSymbol>> = {
+  'arrow.left': 'arrow_back',
+  'arrow.left.arrow.right': 'swap_horiz',
+  'arrow.right': 'arrow_forward',
+  'arrow.triangle.turn.up.right.circle.fill': 'directions',
+  'arrow.up': 'arrow_upward',
+  'arrow.up.arrow.down': 'swap_vert',
+  'arrow.up.left.and.arrow.down.right': 'fullscreen',
+  'bag.fill': 'shopping_bag',
+  'banknote.fill': 'payments',
+  'bed.double.fill': 'hotel',
+  'bicycle': 'pedal_bike',
+  'bubble.left.and.bubble.right.fill': 'forum',
+  'calendar': 'calendar_month',
+  'camera': 'photo_camera',
+  'camera.fill': 'photo_camera',
+  'car': 'directions_car',
+  'character.bubble.fill': 'translate',
+  'character.cursor.ibeam': 'text_fields',
+  'checkmark': 'check',
+  'chevron.down': 'keyboard_arrow_down',
+  'chevron.left': 'chevron_left',
+  'chevron.right': 'chevron_right',
+  'creditcard': 'credit_card',
+  'cross.case.fill': 'local_pharmacy',
+  'cross.fill': 'medical_services',
+  'doc.text.viewfinder': 'document_scanner',
+  'ellipsis': 'more_horiz',
+  'exclamationmark.triangle': 'warning',
+  'eye': 'visibility',
+  'flame.fill': 'local_fire_department',
+  'fork.knife': 'restaurant',
+  'info.circle.fill': 'info',
+  'keyboard': 'keyboard',
+  'lightbulb.fill': 'lightbulb',
+  'link': 'link',
+  'location.fill': 'my_location',
+  'location.slash.fill': 'location_off',
+  'lock.fill': 'lock',
+  'magnifyingglass': 'search',
+  'map': 'map',
+  'mappin': 'location_on',
+  'mappin.and.ellipse': 'location_on',
+  'mic.fill': 'mic',
+  'person.badge.shield.checkmark.fill': 'support_agent',
+  'phone.fill': 'call',
+  'photo': 'image',
+  'photo.on.rectangle': 'photo_library',
+  'plus': 'add',
+  'shield.fill': 'shield',
+  'slider.horizontal.3': 'tune',
+  'sos': 'emergency',
+  'speaker.wave.2.fill': 'volume_up',
+  'square.and.arrow.up': 'share',
+  'square.grid.2x2.fill': 'grid_view',
+  'stop.fill': 'stop',
+  'sunset': 'wb_twilight',
+  'text.viewfinder': 'document_scanner',
+  'ticket.fill': 'confirmation_number',
+  'tram.fill': 'tram',
+  'trash': 'delete',
+  'wallet.pass.fill': 'account_balance_wallet',
+  'wave.3.right': 'contactless',
+  'waveform': 'record_voice_over',
+  'wifi.exclamationmark': 'wifi_off',
+  'xmark': 'close',
+  'xmark.circle.fill': 'cancel',
+};
 
 export function Icon({ name, size = 20, color }: { name: SFSymbol; size?: number; color: ColorValue }) {
-  return <SymbolView name={name} size={size} tintColor={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no" resizeMode="scaleAspectFit" style={{ width: size, height: size }} />;
+  const material = MATERIAL_SYMBOLS[name] ?? 'help';
+  return <SymbolView name={{ ios: name, android: material, web: material }} size={size} tintColor={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no" resizeMode="scaleAspectFit" style={{ width: size, height: size }} />;
 }
 
 export function Screen({
@@ -217,12 +288,13 @@ export function SpeakButton({ text, lang, id, tone = 'soft' }: { text: string; l
   const c = useColors();
   const key = id ?? `${lang}:${text}`;
   const speaking = useSpeaking(key);
+  const { voice } = useAccessibility();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={speaking ? 'Stop reading' : 'Read aloud'}
       hitSlop={8}
-      onPress={() => (speaking ? stopSpeaking() : speak(text, lang, key))}
+      onPress={() => (speaking ? stopSpeaking() : speak(text, lang, key, playbackVoice(voice)))}
       style={({ pressed }) => [
         styles.iconButton,
         { backgroundColor: tone === 'soft' ? c.accentSoft : 'transparent', opacity: pressed ? 0.6 : 1 },

@@ -20,6 +20,7 @@ export const LANGUAGES: Record<string, string> = {
   my: 'Burmese',
   ne: 'Nepali',
   nl: 'Dutch',
+  or: 'Odia',
   pl: 'Polish',
   pt: 'Portuguese',
   ru: 'Russian',

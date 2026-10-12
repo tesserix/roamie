@@ -20,3 +20,12 @@ test('app is linked to its own Tesserix project on both platforms', () => {
   assert.equal(expo.ios.bundleIdentifier, 'app.tesserix.roamie');
   assert.equal(expo.android.package, 'app.tesserix.roamie');
 });
+test('the simulator preview runs standalone without Apple signing or Metro', () => {
+  const eas = read('apps/mobile/eas.json');
+  assert.equal(eas.build['preview-simulator']?.extends, 'preview');
+  assert.equal(eas.build['preview-simulator']?.ios?.simulator, true);
+  assert.notEqual(eas.build['preview-simulator']?.developmentClient, true);
+});
+test('package and store versions describe the same mobile release', () => {
+  assert.equal(read('apps/mobile/package.json').version, read('apps/mobile/app.json').expo.version);
+});

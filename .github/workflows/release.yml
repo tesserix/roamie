@@ -1,0 +1,66 @@
+name: Release record
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: node scripts/ci/release.mjs
+      - name: Require a main branch commit
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+  verify:
+    needs: preflight
+    uses: ./.github/workflows/ci.yml
+
+  draft:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify published containers and record immutable digests
+        run: |
+          api_commit=$(git log -1 --format=%H "$GITHUB_SHA" -- services/api docker Cargo.toml Cargo.lock .dockerignore)
+          mcp_commit=$(git log -1 --format=%H "$GITHUB_SHA" -- services/travel-mcp .github/workflows/travel-mcp.yml .github/workflows/travel-mcp-verify.yml scripts/ci/smoke-travel-mcp.sh)
+          test -n "$api_commit" && test -n "$mcp_commit"
+          api_image="ghcr.io/tesserix/roamie-api:sha-$api_commit"
+          mcp_image="ghcr.io/tesserix/roamie-travel-mcp:sha-$mcp_commit"
+          docker pull "$api_image"
+          docker pull "$mcp_image"
+          API_IMAGE="$api_image" bash scripts/ci/smoke-api.sh
+          MCP_IMAGE="$mcp_image" MCP_PREFIX=ROAMIE bash scripts/ci/smoke-travel-mcp.sh
+          api_digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$api_image")
+          mcp_digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$mcp_image")
+          jq -n --arg version "$GITHUB_REF_NAME" --arg commit "$GITHUB_SHA" --arg api "$api_digest" --arg mcp "$mcp_digest" --arg api_commit "$api_commit" --arg mcp_commit "$mcp_commit" '{version:$version,commit:$commit,component_commits:{api:$api_commit,travel_mcp:$mcp_commit},images:{api:$api,travel_mcp:$mcp}}' > "$RUNNER_TEMP/roamie-release.json"
+      - name: Create a reviewable release record
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP/roamie-release.json" --verify-tag --draft --generate-notes

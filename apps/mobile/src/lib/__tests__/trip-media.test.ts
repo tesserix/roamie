@@ -1,22 +1,28 @@
-import { expect, jest, test } from '@jest/globals';
-import { photoData, deletePhotos, discardVideo, chooseMusic } from '../trip-media';
+import { beforeEach, expect, jest, test } from '@jest/globals';
+import { photoData, deletePhotos, discardVideo, chooseMusic, exportTrip } from '../trip-media';
 import { createTrip } from '../trips';
 const mockPick = jest.fn<() => Promise<unknown>>();
 let mockSize = 100;
 jest.mock('expo-document-picker', () => ({getDocumentAsync: () => mockPick()}));
 const mockRead = jest.fn(async () => 'YWJj'), mockDelete = jest.fn();
+const mockPrint = jest.fn(async (_options: unknown) => ({uri:'file:///app/Cache/printed.pdf'}));
 jest.mock('expo-file-system', () => ({
  Paths: { document: 'file:///app/Documents/', cache: {uri:'file:///app/Cache/'} },
- Directory: class { uri: string; constructor(...parts: string[]) { this.uri = parts[0].replace(/\/+$/, '') + '/' + parts.slice(1).join('/') + '/'; } },
- File: class { uri: string; exists = true; size = mockSize; constructor(uri: string | {uri:string}, name?:string) { this.uri = typeof uri === 'string' ? uri : uri.uri + name; } base64 = mockRead; delete() { mockDelete(this.uri); } },
+ Directory: class { uri: string; constructor(...parts: string[]) { this.uri = parts[0].replace(/\/+$/, '') + '/' + parts.slice(1).join('/') + '/'; } create() {} },
+ File: class { uri: string; exists = true; size = mockSize; constructor(uri: string | {uri:string}, name?:string) { this.uri = typeof uri === 'string' ? uri : uri.uri + name; } base64 = mockRead; delete() { mockDelete(this.uri); } move() {} },
 }));
 jest.mock('expo-image-manipulator', () => ({}));
 jest.mock('expo-image-picker', () => ({}));
 jest.mock('expo-media-library', () => ({}));
-jest.mock('expo-print', () => ({}));
+jest.mock('expo-print', () => ({printToFileAsync: (options: unknown) => mockPrint(options)}));
 jest.mock('expo-sharing', () => ({}));
 const trip = createTrip({title:'Trip',destination:'Hanoi',startDate:'2026-10-02',endDate:'2026-10-03',currency:'USD',budgetMinor:0,travellers:1,diet:'none',interests:''});
 const photo = {id:'photo-1',uri:`file:///app/Documents/roamie-trips/alice/${trip.id}/photo-1.jpg`,width:10,height:10,caption:'A memory',creationTime:0};
+beforeEach(() => {mockDelete.mockClear(); mockPrint.mockClear();});
+test('PDF exports reserve native page margins so content is not clipped at page boundaries', async () => {
+ expect(await exportTrip('alice',trip,'itinerary')).toBe(`file:///app/Documents/roamie-trips/alice/${trip.id}/itinerary.pdf`);
+ expect(mockPrint).toHaveBeenCalledWith(expect.objectContaining({margins:{top:51,bottom:51,left:51,right:51}}));
+});
 test('exports and removes owned photos when native directory URIs end in a slash', async () => {
  expect(await photoData('alice',{...trip,photos:[photo]})).toEqual([{data:'YWJj',caption:'A memory'}]);
  deletePhotos('alice',trip.id,[photo]);

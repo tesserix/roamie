@@ -1,6 +1,6 @@
 import { fetch } from 'expo/fetch';
 import { API_BASE, session } from './auth-client';
-import { searchDestinations } from './trip-api';
+import { resolveDestination } from './trip-api';
 import { stayDates, type Trip } from './trips';
 
 export type PlanningFact = { id: string; name: string; source_url: string; observed_at: string;
@@ -29,7 +29,7 @@ export async function checkTripReadiness(trip: Trip, signal: AbortSignal): Promi
   const abort = () => controller.abort();
   signal.addEventListener('abort', abort);
   if (signal.aborted) abort();
-  const timer = setTimeout(abort, 120000);
+  let timer = setTimeout(abort, 120000);
   try {
     const path = '/v1/trips/' + encodeURIComponent(trip.id) + '/profile';
     const previous = await call<Saved>(path, 'GET', undefined, controller.signal);
@@ -40,15 +40,16 @@ export async function checkTripReadiness(trip: Trip, signal: AbortSignal): Promi
     const dates = stayDates(trip.startDate, stays.map(s => s.days));
     const checks: DestinationCheck[] = [];
     for (const [i, stay] of stays.entries()) {
+      clearTimeout(timer);
+      timer = setTimeout(abort, 120000);
       const range = dates[i];
       const result: DestinationCheck = { destination: stay.destination.label, ...range };
       try {
-        const matches = await searchDestinations(stay.destination.label, controller.signal);
-        const place = matches.find(p => p.placeId === stay.destination.placeId);
+        const place = await resolveDestination(stay.destination, controller.signal);
         const base = { destination: stay.destination.label, destination_country: stay.destination.countryCode, start_date: range.start, end_date: range.end, currency: trip.currency };
         const send = (specialist: string, request: unknown) => call<PlanningResponse>('/v1/trip-manager', 'POST', { profile: { trip_id: trip.id, revision: saved.revision }, specialist, request }, controller.signal);
         const results = await Promise.allSettled([
-          place?.latitude != null && place.longitude != null ? send('weather', { ...base, prompt: 'Review weather for this destination and these dates. Preserve forecast coverage warnings and preparation suggestions.', origin: { latitude: place.latitude, longitude: place.longitude } }) : Promise.resolve(null),
+          send('weather', { ...base, prompt: 'Review weather for this destination and these dates. Preserve forecast coverage warnings and preparation suggestions.', origin: { latitude: place.latitude, longitude: place.longitude } }),
           send('entry-guidance', { ...base, prompt: 'Review entry preparation for this destination and these dates. Provide the official-source checklist and clearly identify unverified eligibility, fees and missing traveller information.' }),
         ]);
         result.weather = results[0].status === 'fulfilled' ? results[0].value ?? undefined : undefined;

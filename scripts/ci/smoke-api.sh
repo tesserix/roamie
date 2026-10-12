@@ -55,6 +55,7 @@ docker rm "$smoke_name-api" >/dev/null
 docker create --name "$smoke_name-api" --network "$smoke_name" \
   --add-host metadata.google.internal:127.0.0.1 \
   "${pg_args[@]}" -e PGUSER=roamie_app -e AUTH_ENABLED=true \
+  -e AI_GATEWAY_ORIGIN=http://roamie-ai.agentgateway-system.svc.cluster.local:8080 \
   -e ZITADEL_ISSUER=https://identity.example -e ZITADEL_ORG_ID=smoke-org \
   -e ZITADEL_PROJECT_ID=smoke-project -e ZITADEL_IOS_CLIENT_ID=smoke-ios \
   -e ZITADEL_ANDROID_CLIENT_ID=smoke-android -e ZITADEL_GOOGLE_IDP_ID=smoke-google \

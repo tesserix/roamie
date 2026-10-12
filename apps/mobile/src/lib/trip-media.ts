@@ -63,7 +63,7 @@ export async function photoData(account: string, trip: Trip) {
 }
 export async function exportTrip(account: string, trip: Trip, kind: 'itinerary' | 'album'): Promise<string> {
   const html = kind === 'album' ? albumHtml(trip, await photoData(account, trip)) : itineraryHtml(trip);
-  const result = await Print.printToFileAsync({ html, width: 595, height: 842 });
+  const result = await Print.printToFileAsync({ html, width: 595, height: 842, margins: {top:51,bottom:51,left:51,right:51} });
   const directory = tripDirectory(account, trip.id); directory.create({ intermediates: true, idempotent: true });
   const file = new File(directory, `${kind}.pdf`); if (file.exists) file.delete();
   new File(result.uri).move(file);

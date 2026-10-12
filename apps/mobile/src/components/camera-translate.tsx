@@ -12,7 +12,7 @@ type Photo = { uri: string; width: number; height: number; base64: string; mimeT
 type Read =
   | { status: 'reading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; detected: string; gist: string; lines: SignLine[] };
+  | { status: 'ready'; detected: string; gist: string; lines: SignLine[]; reviewRequired?: boolean };
 
 const PICK: ImagePicker.ImagePickerOptions = { base64: true, quality: 0.6, mediaTypes: ['images'] };
 
@@ -131,6 +131,7 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
 
       {ready ? (
         <>
+          {ready.reviewRequired && <Text accessibilityRole="alert" style={[font.body, { color: c.warn }]}>Some text is uncertain. Check the original photo before relying on this translation.</Text>}
           <View style={[styles.gist, lift, { backgroundColor: c.surface }]}>
             <Badge icon="lightbulb.fill" tint={c.accent} bg={c.accentSoft} size={36} />
             <View style={{ flex: 1, gap: 2 }}>

@@ -112,7 +112,7 @@ export default function Welcome() {
         />
         <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 }}>
           <Icon name="lock.fill" size={13} color={c.muted} />
-          <Text style={[font.caption, { color: c.muted }]}>Your trip details stay on this phone.</Text>
+          <Text style={[font.caption, { color: c.muted }]}>Your wallet stays on this phone. Connected planning uses your trip preferences.</Text>
         </View>
         <Pressable accessibilityRole="button" onPress={() => { void signOut(); }} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', alignItems: 'center', opacity: pressed ? 0.7 : 1 })}><Text style={[font.caption, { color: c.muted, textDecorationLine: 'underline' }]}>Change account</Text></Pressable>
       </ScrollView>

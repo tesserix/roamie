@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, Tex
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { font, space, useColors } from '@/constants/theme';
 import { useAccessibility } from '@/lib/accessibility';
-import { speak, stopSpeaking, useSpeaking } from '@/lib/voice';
+import { playbackVoice, speak, stopSpeaking, useSpeaking } from '@/lib/voice';
 
 const cards = [
   { title: 'Please write your reply', text: 'I’m deaf or hard of hearing. Please type or write your reply. Thank you.' },
@@ -14,7 +14,7 @@ const cards = [
 ];
 
 export function CommunicationCards({ disabled = false }: { disabled?: boolean }) {
-  const c = useColors(), insets = useSafeAreaInsets(), { reducedMotion } = useAccessibility();
+  const c = useColors(), insets = useSafeAreaInsets(), { reducedMotion, voice } = useAccessibility();
   const [page, setPage] = useState<'closed' | 'list' | 'edit' | 'show'>('closed');
   const [message, setMessage] = useState('');
   const speaking = useSpeaking('communication-card');
@@ -45,7 +45,7 @@ export function CommunicationCards({ disabled = false }: { disabled?: boolean })
             {action('Choose another card', () => { stopSpeaking(); setPage('list'); })}
           </> : <>
             <Text selectable accessibilityLanguage="en" style={{ flexGrow: 1, color: c.text, fontSize: 32, lineHeight: 44, fontWeight: '600' }}>{message.trim()}</Text>
-            {action(speaking ? 'Stop reading' : 'Read aloud', () => { if (speaking) stopSpeaking(); else void speak(message.trim(), 'en', 'communication-card'); })}
+            {action(speaking ? 'Stop reading' : 'Read aloud', () => { if (speaking) stopSpeaking(); else void speak(message.trim(), 'en', 'communication-card', playbackVoice(voice)); })}
             {action('Edit message', () => { stopSpeaking(); setPage('edit'); })}
           </>}
         </ScrollView>

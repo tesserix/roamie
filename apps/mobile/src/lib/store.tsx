@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 export type Diet = 'none' | 'vegetarian' | 'vegan' | 'jain' | 'pescatarian' | 'halal' | 'kosher';
 
@@ -24,38 +24,60 @@ type State = {
   profile: Profile | null;
   expenses: Expense[];
   partner: string | null;
+  talkLanguage: string | null;
 };
 
 type Store = State & {
   ready: boolean;
+  error: string | null;
+  retry: () => void;
   saveProfile: (p: Profile) => void;
   addExpense: (e: Omit<Expense, 'id' | 'at'> & { at?: string }) => void;
   removeExpense: (id: string) => void;
-  setPartner: (lang: string) => void;
+  setPartner: (lang: string | null) => void;
+  setTalkLanguage: (lang: string | null) => void;
   clearAll: () => Promise<void>;
 };
 
 export const accountStorageKey = (accountId: string) => `roamie.v2.auth.tesserix.app.${encodeURIComponent(accountId)}`;
-const EMPTY: State = { profile: null, expenses: [], partner: null };
+const EMPTY: State = { profile: null, expenses: [], partner: null, talkLanguage: null };
 const Ctx = createContext<Store | null>(null);
 
 export function StoreProvider({ children, accountId }: { children: ReactNode; accountId: string }) {
   const key = accountStorageKey(accountId);
   const [state, setState] = useState<State>(EMPTY);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0), [saveAttempt, setSaveAttempt] = useState(0);
+  const writes = useRef(Promise.resolve());
 
   useEffect(() => {
     let mounted = true;
     AsyncStorage.getItem(key)
-      .then((raw) => raw && mounted && setState({ ...EMPTY, ...JSON.parse(raw) }))
-      .catch(() => {})
-      .finally(() => { if (mounted) setReady(true); });
+      .then(raw => {
+        const saved: State = raw ? JSON.parse(raw) : EMPTY;
+        if (!saved || !Array.isArray(saved.expenses) || saved.expenses.some(e => !e || typeof e.id !== 'string' || typeof e.note !== 'string') || (saved.profile !== null && (typeof saved.profile !== 'object' || !saved.profile || typeof saved.profile.homeCurrency !== 'string' || typeof saved.profile.language !== 'string' || !Number.isSafeInteger(saved.profile.budgetMinor) || saved.profile.budgetMinor < 0))) throw new Error('Invalid wallet');
+        if (saved.talkLanguage != null && (typeof saved.talkLanguage !== 'string' || !/^[a-z]{2,3}$/.test(saved.talkLanguage))) throw new Error('Invalid language');
+        if (mounted) { setState({ ...EMPTY, ...saved }); setReady(true); }
+      })
+      .catch(() => { if (mounted) setError('We could not open your saved wallet. Your data has not been changed.'); });
     return () => { mounted = false; };
-  }, [key]);
+  }, [key, attempt]);
 
   useEffect(() => {
-    if (ready) AsyncStorage.setItem(key, JSON.stringify(state)).catch(() => {});
-  }, [ready, state, key]);
+    if (!ready) return;
+    let mounted = true;
+    const operation = writes.current.then(() => AsyncStorage.setItem(key, JSON.stringify(state)));
+    writes.current = operation.catch(() => {});
+    operation.then(() => { if (mounted) setError(null); }).catch(() => { if (mounted) setError('Your latest wallet changes have not been saved. Keep Roamie open and try again.'); });
+    return () => { mounted = false; };
+  }, [ready, state, key, saveAttempt]);
+
+  const retry = useCallback(() => {
+    setError(null);
+    if (ready) setSaveAttempt(value => value + 1);
+    else setAttempt(value => value + 1);
+  }, [ready]);
 
   const saveProfile = useCallback((profile: Profile) => setState((s) => ({ ...s, profile })), []);
   const addExpense = useCallback(
@@ -70,15 +92,17 @@ export function StoreProvider({ children, accountId }: { children: ReactNode; ac
     (id: string) => setState((s) => ({ ...s, expenses: s.expenses.filter((e) => e.id !== id) })),
     [],
   );
-  const setPartner = useCallback((partner: string) => setState((s) => ({ ...s, partner })), []);
+  const setPartner = useCallback((partner: string | null) => setState((s) => ({ ...s, partner })), []);
+  const setTalkLanguage = useCallback((talkLanguage: string | null) => setState((s) => ({ ...s, talkLanguage })), []);
   const clearAll = useCallback(async () => {
+    await writes.current;
     await AsyncStorage.removeItem(key);
     setState(EMPTY);
   }, [key]);
 
   const value = useMemo(
-    () => ({ ...state, ready, saveProfile, addExpense, removeExpense, setPartner, clearAll }),
-    [state, ready, saveProfile, addExpense, removeExpense, setPartner, clearAll],
+    () => ({ ...state, ready, error, retry, saveProfile, addExpense, removeExpense, setPartner, setTalkLanguage, clearAll }),
+    [state, ready, error, retry, saveProfile, addExpense, removeExpense, setPartner, setTalkLanguage, clearAll],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

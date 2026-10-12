@@ -15,16 +15,27 @@ export async function apiRequest<T>(path: string, payload: unknown, read: (respo
   signal?.addEventListener('abort', abort);
   if (signal?.aborted) abort();
   const customer = session.current()?.sub;
+  const revision = session.revision?.();
+  const changed = () => session.current()?.sub !== customer || session.revision?.() !== revision;
   try {
     const token = await session.accessToken();
-    if (!customer || session.current()?.sub !== customer) throw new Error('The account changed. Please try again.');
+    if (!customer || changed()) throw new Error('The account changed. Please try again.');
     if (controller.signal.aborted) throw new Error('Request cancelled or timed out.');
     const response = await fetch(`${API_BASE}${path}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: method === 'GET' ? undefined : JSON.stringify(payload), signal: controller.signal });
-    if (response.status === 401) { if (session.current()?.sub === customer) await session.clear(); throw new Error('Sign in again to continue.'); }
-    if (!response.ok) { const body = await response.json().catch(() => null); throw new ApiError(response.status, body?.error ?? 'unavailable', body?.message ?? 'Roamie could not finish that. Please try again.'); }
+    if (!customer || changed()) throw new Error('The account changed. Please try again.');
+    if (response.status === 401) { if (!changed()) await session.clear(); throw new Error('Sign in again to continue.'); }
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      const fallback = response.status === 504
+        ? path === '/v1/trip-manager'
+          ? 'This request took too long. Your saved trip is still available. Please try again.'
+          : 'This request took too long. Please try again.'
+        : 'Roamie could not finish that. Please try again.';
+      throw new ApiError(response.status, body?.error ?? 'unavailable', body?.message ?? fallback);
+    }
     const data = await read(response);
     if (signal?.aborted || controller.signal.aborted) throw new Error('Request cancelled or timed out.');
-    if (!customer || session.current()?.sub !== customer) throw new Error('The account changed. Please try again.');
+    if (!customer || changed()) throw new Error('The account changed. Please try again.');
     return data;
   } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
 }
@@ -39,3 +50,14 @@ export const renderMemory = (title: string, durationSeconds: 60 | 90, images: st
 }, 125000, signal);
 
 export const searchDestinations = (query: string, signal?: AbortSignal) => apiRequest<Destination[]>('/v1/destinations/search', { query }, res => res.json(), 12000, signal);
+
+export async function resolveDestination(destination: Destination, signal: AbortSignal): Promise<Destination & { latitude: number; longitude: number }> {
+  if (signal.aborted) throw new Error('Request cancelled or timed out.');
+  const located = (place?: Destination): place is Destination & { latitude: number; longitude: number } =>
+    typeof place?.latitude === 'number' && Math.abs(place.latitude) <= 90 &&
+    typeof place.longitude === 'number' && Math.abs(place.longitude) <= 180;
+  if (located(destination)) return destination;
+  const place = (await searchDestinations(destination.label, signal)).find(item => item.placeId === destination.placeId);
+  if (!located(place)) throw new Error('Choose this destination again from search so we can check its weather and entry guidance.');
+  return place;
+}

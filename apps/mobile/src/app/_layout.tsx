@@ -1,7 +1,7 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
-import { useColorScheme } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Text, View, useColorScheme } from 'react-native';
 
 import { AccessibilityProvider } from '@/lib/accessibility';
 import AppTabs from '@/components/app-tabs';
@@ -12,17 +12,25 @@ import { AuthProvider, useAuth } from '@/lib/auth';
 import { useCardPaymentCapture } from '@/lib/card-payment-capture';
 import { StoreProvider, useStore } from '@/lib/store';
 import { TripsProvider } from '@/lib/trip-store';
+import { Button, Message, Screen } from '@/components/ui';
+import Sos from '@/app/sos';
+import { signOut } from '@/lib/sign-out';
+import { font, space, useColors } from '@/constants/theme';
 
 SplashScreen.preventAutoHideAsync();
 
 function Root() {
-  const { ready, profile } = useStore();
+  const { ready, profile, error, retry } = useStore();
+  const [emergency, setEmergency] = useState(false);
+  const colors = useColors();
   useCardPaymentCapture();
   useEffect(() => {
-    if (ready) SplashScreen.hideAsync();
-  }, [ready]);
+    if (ready || error) SplashScreen.hideAsync();
+  }, [ready, error]);
+  if (emergency) return <View style={{ flex: 1 }}><Button label="Back to Roamie" kind="secondary" onPress={() => setEmergency(false)} /><Sos /></View>;
+  if (!ready && error) return <Screen title="Your saved wallet"><Message icon="exclamationmark.triangle" title="Couldn't open your wallet" body={error} action={<View style={{ gap: space.sm }}><Button label="Retry loading wallet" onPress={retry} /><Button label="Emergency help" kind="secondary" onPress={() => setEmergency(true)} /><Button label="Sign out" kind="secondary" onPress={() => void signOut()} /></View>} /></Screen>;
   if (!ready) return <TravelLoading />;
-  return profile ? <AppTabs /> : <Welcome />;
+  return <View style={{ flex: 1 }}>{error && <View style={{ padding: space.md, backgroundColor: colors.warnSoft, gap: space.sm }}><Text accessibilityRole="alert" style={[font.body, { color: colors.text }]}>{error}</Text><Button label="Retry saving wallet" kind="secondary" onPress={retry} /></View>}{profile ? <AppTabs /> : <Welcome />}</View>;
 }
 
 function Account() {

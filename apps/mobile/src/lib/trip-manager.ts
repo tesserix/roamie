@@ -1,4 +1,4 @@
-import { apiRequest, ApiError, searchDestinations } from './trip-api';
+import { apiRequest, ApiError, resolveDestination } from './trip-api';
 import { tripDates, newId, updateStop, type Trip } from './trips';
 import type { TripOption } from './planning-contract';
 export type { TripOption } from './planning-contract';
@@ -17,9 +17,7 @@ export async function buildManagerRequest(trip: Trip, prompt: string, specialist
   const selected = trip.stays?.length ? trip.stays : trip.destinationDetails ? [{ destination: trip.destinationDetails, days: trip.days.length }] : [];
   if (!selected.length) return request;
   request.stays = await Promise.all(selected.map(async stay => {
-    const places = await searchDestinations(stay.destination.label, signal);
-    const place = places.find(item => item.placeId === stay.destination.placeId);
-    if (!place || place.latitude == null || place.longitude == null) throw new Error('Choose this destination again from search so we can check its weather and entry guidance.');
+    const place = await resolveDestination(stay.destination, signal);
     return { destination: stay.destination.label, days: stay.days, country: place.countryCode, origin: { latitude: place.latitude, longitude: place.longitude } };
   }));
   request.origin = request.stays[0].origin;
@@ -34,13 +32,19 @@ export type Advice = {
   };
 };
 export function initialPreferences(trip: Trip, language: string): TravelPreferences {
-  return { allergies: [], diets: [...new Set([...(trip.diet === 'none' ? [] : [trip.diet]), ...(trip.preferences?.foodPreferences ?? [])])], budget_minor: trip.budgetMinor || null, currency: trip.currency,
+  return { allergies: [], diets: normalizeDiets([...(trip.diet === 'none' ? [] : [trip.diet]), ...(trip.preferences?.foodPreferences ?? [])]), budget_minor: trip.budgetMinor || null, currency: trip.currency,
     accessibility_requirements: trip.preferences?.styles.includes('Step-free') ? ['Step-free'] : [],
     preferences: [`Party: ${trip.travellers} travellers; ${trip.preferences?.adults ?? trip.travellers} adults; children ${trip.preferences?.children ?? 0}; luggage ${trip.preferences?.luggage ?? 0}`, ...(trip.preferences?.styles ?? []), ...(trip.preferences?.foodPreferences ?? []), ...trip.interests.split(',').map(s => s.trim()).filter(Boolean)].slice(0,20),
     language, start_date: trip.startDate, end_date: trip.endDate, photo_consent: false, selected_photo_ids: [] };
 }
+function normalizeDiets(diets: string[]): string[] {
+  return [...new Set(diets.map(diet => diet.trim().toLowerCase()).filter(Boolean))];
+}
 export async function loadTravelProfile(tripId: string, signal?: AbortSignal): Promise<SavedTravelProfile | null> {
-  try { return await apiRequest(`/v1/trips/${encodeURIComponent(tripId)}/profile`, undefined, res => res.json(), 12000, signal, 'GET'); }
+  try {
+    const saved = await apiRequest<SavedTravelProfile>(`/v1/trips/${encodeURIComponent(tripId)}/profile`, undefined, res => res.json(), 12000, signal, 'GET');
+    return {...saved, preferences: {...saved.preferences, diets: normalizeDiets(saved.preferences.diets)}};
+  }
   catch (error) { if (error instanceof ApiError && error.status === 409 && error.code === 'profile_changed') return null; throw error; }
 }
 export const saveTravelProfile = (tripId:string, preferences:TravelPreferences, revision:string|null, signal?:AbortSignal):Promise<SavedTravelProfile> =>
