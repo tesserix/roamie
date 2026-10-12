@@ -1364,7 +1364,7 @@ async fn odia_speech_uses_the_gateway_and_returns_bounded_wav_audio() {
     let expected = data.clone();
     let app = Router::new().route("/v1/speech", post(move |headers: HeaderMap, Json(body): Json<Value>| async move {
         assert_eq!(headers["authorization"], "Bearer signed-synthetic-customer");
-        assert!(body["contents"][0]["parts"][0]["text"].as_str().unwrap().contains("ଧନ୍ୟବାଦ"));
+        assert_eq!(body["contents"], json!([{"role":"user","parts":[{"text":"ଧନ୍ୟବାଦ"}]}]), "TTS reads its input verbatim; instructions must never enter the spoken transcript");
         assert_eq!(body["generationConfig"]["responseModalities"][0], "AUDIO");
         Json(json!({"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"audio/wav","data":data}}]}}]}))
     }));
@@ -1402,6 +1402,15 @@ async fn speech_uses_a_warm_female_or_smooth_male_studio_voice() {
     for (request, want) in [
         (json!({"text":"Hello","language":"en"}), "Sulafat"),
         (
+            json!({"text":"ଆପଣ କେମିତି ଅଛନ୍ତି?","language":"or","voice":"female"}),
+            "Sulafat",
+        ),
+        (
+            json!({"text":"ରେଳ ଷ୍ଟେସନ କେଉଁଠି ଅଛି?","language":"or","voice":"male"}),
+            "Algieba",
+        ),
+        (json!({"text":"आप कैसे हैं?","language":"hi"}), "Sulafat"),
+        (
             json!({"text":"Hello","language":"en","voice":"female"}),
             "Sulafat",
         ),
@@ -1411,7 +1420,9 @@ async fn speech_uses_a_warm_female_or_smooth_male_studio_voice() {
         ),
     ] {
         let data = data.clone();
+        let transcript = request["text"].clone();
         let app = Router::new().route("/v1/speech", post(move |Json(body): Json<Value>| async move {
+            assert_eq!(body["contents"], json!([{"role":"user","parts":[{"text":transcript}]}]));
             assert_eq!(body["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"], want);
             Json(json!({"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"audio/wav","data":data}}]}}]}))
         }));
@@ -1819,4 +1830,29 @@ async fn auto_conversation_without_a_known_partner_keeps_first_partner_discovery
     assert_eq!(body["fromMe"], false);
     assert_eq!(body["target"], "en");
     assert_eq!(body["translation"], "Hello");
+}
+
+#[tokio::test]
+async fn privacy_resources_are_public_and_offer_account_deletion_without_login() {
+    for path in ["/privacy", "/account-deletion"] {
+        let response = router(state("http://unused", "http://unused", None))
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(
+            response.headers()["content-type"],
+            "text/html; charset=utf-8"
+        );
+        assert!(response.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("default-src 'none'"));
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let html = std::str::from_utf8(&bytes).unwrap();
+        assert!(html.contains("Roamie"));
+        assert!(html.contains("sales@tesserix.app"));
+        assert!(html.contains("account-deletion"));
+        assert!(!html.contains("<script"));
+    }
 }

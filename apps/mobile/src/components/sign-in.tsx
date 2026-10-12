@@ -1,3 +1,4 @@
+import { PrivacyLinks } from './privacy-links';
 import { useState } from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
@@ -49,6 +50,7 @@ export default function SignIn() {
       <Text style={[font.caption, { color: c.muted }]}>Your wallet stays on this phone. Connected planning uses your trip preferences. Emergency help is always available.</Text>
       <Button label="Emergency help" kind="secondary" onPress={() => setEmergency(true)} />
       <CommunicationCards />
+      <PrivacyLinks />
     </ScrollView>
   );
 }

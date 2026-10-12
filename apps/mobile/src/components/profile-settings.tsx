@@ -1,3 +1,4 @@
+import { PrivacyLinks } from './privacy-links';
 import { useState } from 'react';
 import { Modal, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -65,6 +66,7 @@ export function ProfileSettings() {
             <Text style={[font.body, { color: c.muted }]}>In Translate, you can type, read replies or show a large message. With a screen reader, double-tap to start recording and again to finish.</Text>
           </View>
           <CommunicationCards />
+          <PrivacyLinks />
           {settings.error ? <Text accessibilityRole="alert" style={{ color: c.danger }}>{settings.error}</Text> : null}
         </ScrollView>
       </View>

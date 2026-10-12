@@ -98,11 +98,12 @@ impl Gemini {
     pub async fn speech(
         &self,
         text: &str,
-        language: &crate::lang::Lang,
+        _language: &crate::lang::Lang,
         voice: crate::speech::Voice,
     ) -> Result<Value> {
         let unavailable = || Error::Unavailable("Speech playback");
-        let body = json!({"contents":[{"role":"user","parts":[{"text":format!("Read aloud exactly as written in language {} at a natural conversational pace. Speak only the following text:\n{text}",language.as_str())}]}],"generationConfig":{"responseModalities":["AUDIO"],"speechConfig":{"voiceConfig":{"prebuiltVoiceConfig":{"voiceName":voice.studio_name()}}}}});
+        // Gemini 3.8 TTS reads the text verbatim, including any embedded instructions.
+        let body = json!({"contents":[{"role":"user","parts":[{"text":text}]}],"generationConfig":{"responseModalities":["AUDIO"],"speechConfig":{"voiceConfig":{"prebuiltVoiceConfig":{"voiceName":voice.studio_name()}}}}});
         let mut response = match &self.transport {
             Transport::Gateway(gateway) => {
                 gateway

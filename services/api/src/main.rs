@@ -17,6 +17,7 @@ mod memories;
 mod money;
 mod nearby;
 mod ocr;
+mod privacy;
 mod receipts;
 mod signs;
 mod speech;
@@ -246,6 +247,8 @@ fn router(state: Arc<AppState>) -> Router {
             "/internal/v1/travel/profile/verify",
             post(travel_profiles::verify).layer(RequestBodyLimitLayer::new(32768)),
         )
+        .route("/privacy", get(privacy::privacy))
+        .route("/account-deletion", get(privacy::account_deletion))
         .route("/healthz", get(|| async { "ok" }))
         .route("/readyz", get(readiness))
         .route("/v1/auth/config", get(auth::configuration))

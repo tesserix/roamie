@@ -29,3 +29,15 @@ test('the simulator preview runs standalone without Apple signing or Metro', () 
 test('package and store versions describe the same mobile release', () => {
   assert.equal(read('apps/mobile/package.json').version, read('apps/mobile/app.json').expo.version);
 });
+
+test('Android uses user-selected media and foreground-only speech', () => {
+  const { expo } = read('apps/mobile/app.json');
+  for (const permission of ['READ_MEDIA_IMAGES', 'READ_MEDIA_VIDEO', 'SYSTEM_ALERT_WINDOW', 'FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_MEDIA_PLAYBACK']) {
+    const full = `android.permission.${permission}`;
+    assert.ok(expo.android.blockedPermissions?.includes(full), `${full} must not ship`);
+    assert.ok(!expo.android.permissions.includes(full));
+  }
+  const audio = expo.plugins.find(p => Array.isArray(p) && p[0] === 'expo-audio')[1];
+  assert.equal(audio.enableBackgroundPlayback, false);
+  assert.equal(audio.enableBackgroundRecording, false);
+});
