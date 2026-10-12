@@ -1,6 +1,9 @@
 import { getLocales } from 'expo-localization';
 import * as Speech from 'expo-speech';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { File, Paths } from 'expo-file-system';
 import { useSyncExternalStore } from 'react';
+import { synthesizeSpeech } from './api';
 
 // Speech slightly under normal pace is far easier to follow in a second language.
 const RATE = 0.92;
@@ -38,14 +41,16 @@ export function speak(text: string, lang: string, key = text): Promise<boolean> 
   const revision = speechRevision;
   return new Promise(resolve => {
     let finished = false;
+    let cleanup = () => {};
     const done = (completed: boolean) => {
       if (finished) return;
       finished = true;
       clearTimeout(timeout);
+      try { cleanup(); } catch { completed = false; }
       if (revision === speechRevision) { finishSpeech = null; setCurrent(null); }
       resolve(completed);
     };
-    const timeout = setTimeout(() => { stopSpeaking(); done(false); }, 60000);
+    let timeout = setTimeout(() => { stopSpeaking(); done(false); }, 60000);
     finishSpeech = done;
     const play = async () => {
       voices ??= Speech.getAvailableVoicesAsync().catch(() => []);
@@ -53,6 +58,32 @@ export function speak(text: string, lang: string, key = text): Promise<boolean> 
       const voice = pickVoice(await voices, lang, region);
       if (finished || revision !== speechRevision) return;
       setCurrent(key);
+      if (!voice) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => { stopSpeaking(); done(false); }, 120000);
+        const controller = new AbortController();
+        cleanup = () => controller.abort();
+        const audio = await synthesizeSpeech(text, lang, controller.signal);
+        if (finished || revision !== speechRevision) return;
+        const file = new File(Paths.cache, `roamie-speech-${Date.now()}-${revision}.wav`);
+        cleanup = () => { controller.abort(); if (file.exists) file.delete(); };
+        file.write(audio.data, { encoding: 'base64' });
+        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+        if (finished || revision !== speechRevision) { cleanup(); return; }
+        const player = createAudioPlayer(file.uri);
+        const subscription = player.addListener('playbackStatusUpdate', status => {
+          if (status.didJustFinish) done(true);
+        });
+        cleanup = () => {
+          controller.abort();
+          subscription.remove();
+          player.pause();
+          player.remove();
+          if (file.exists) file.delete();
+        };
+        player.play();
+        return;
+      }
       Speech.speak(text, { language: lang, voice, rate: RATE, onDone: () => done(true), onStopped: () => done(false), onError: () => done(false) });
     };
     void play().catch(() => done(false));

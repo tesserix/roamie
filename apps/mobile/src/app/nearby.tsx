@@ -1,6 +1,6 @@
 import type { SFSymbol } from 'expo-symbols';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Badge, Button, Chip, Icon, Message, Screen, TAB_CLEARANCE } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
@@ -22,32 +22,35 @@ export default function Nearby() {
   const { profile } = useStore();
   const here = useHere();
   const [kind, setKind] = useState<Kind>('food');
-  const [load, setLoad] = useState<Load>({ status: 'loading' });
+  const [result, setLoad] = useState<Load & { key: string }>({ status: 'loading', key: '' });
 
   const [attempt, setAttempt] = useState(0);
   const lat = here.coords?.lat;
   const lng = here.coords?.lng;
   const diet = kind === 'food' ? profile!.diet : 'none';
+  const requestKey = JSON.stringify([lat, lng, kind, diet, attempt]);
+  const load: Load = result.key === requestKey ? result : { status: 'loading' };
   const icon = KINDS.find((k) => k.value === kind)!.icon;
 
   useEffect(() => {
     if (lat === undefined || lng === undefined) return;
     let live = true;
+    const controller = new AbortController();
     (async () => {
       try {
-        const res = await nearby(lat, lng, kind, diet);
-        if (live) setLoad({ status: 'ready', ...res });
+        const res = await nearby(lat, lng, kind, diet, controller.signal);
+        if (live) setLoad({ status: 'ready', ...res, key: requestKey });
       } catch (e) {
-        if (live) setLoad({ status: 'error', message: e instanceof ApiError ? e.message : 'Something went wrong.' });
+        if (live) setLoad({ status: 'error', key: requestKey, message: e instanceof ApiError ? e.message : 'Something went wrong.' });
       }
     })();
     return () => {
       live = false;
+      controller.abort();
     };
-  }, [lat, lng, kind, diet, attempt]);
+  }, [lat, lng, kind, diet, requestKey]);
 
   const retry = () => {
-    setLoad({ status: 'loading' });
     setAttempt((a) => a + 1);
   };
 
@@ -57,8 +60,11 @@ export default function Nearby() {
       <Message
         icon="location.slash.fill"
         title="Location is off"
-        body="Turn on location for Roamie in Settings to see places around you."
-        action={<Button label="Open Settings" onPress={() => Linking.openSettings()} />}
+        body={here.servicesEnabled === false ? 'Turn on your phone’s Location Services, then return and tap Try again.' : 'Allow location for Roamie to see places around you.'}
+        action={<View style={{ gap: space.sm }}>
+          <Button label={here.canAskAgain ? 'Allow location' : 'Open Settings'} onPress={here.canAskAgain ? here.refresh : () => { void Linking.openSettings().catch(() => Alert.alert('Open your phone settings', 'Allow location access for Roamie, then return and tap Try again.')); }} />
+          <Button label="Try again" kind="secondary" onPress={here.refresh} />
+        </View>}
       />
     );
   } else if (here.status === 'error') {
@@ -100,7 +106,7 @@ export default function Nearby() {
           <Pressable
             accessibilityRole="link"
             accessibilityHint="Opens directions in Maps"
-            onPress={() => Linking.openURL(item.mapsUri)}
+            onPress={() => { void Linking.openURL(item.mapsUri).catch(() => Alert.alert('Could not open Maps', 'Try again or search for ' + item.name + ' in your Maps app.')); }}
             style={({ pressed }) => [styles.card, lift, { backgroundColor: c.surface, opacity: pressed ? 0.75 : 1 }]}>
             <Badge icon={icon} tint={c.accent} bg={c.accentSoft} size={44} />
             <View style={{ flex: 1, gap: 3 }}>
@@ -136,7 +142,6 @@ export default function Nearby() {
               onPress={() => {
                 if (k.value === kind) return;
                 setKind(k.value);
-                setLoad({ status: 'loading' });
               }}
             />
           ))}

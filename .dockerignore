@@ -4,3 +4,15 @@ target
 docs
 apps
 **/*.md
+graft
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.env
+**/.env.*
+**/*.p8
+**/*.p12
+**/*.mobileprovision
+**/credentials.json

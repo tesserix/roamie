@@ -1,0 +1,61 @@
+name: TestFlight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-release
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Validate store configuration before building
+        run: node scripts/ci/testflight.mjs configure
+        env:
+          ROAMIE_ASC_APP_ID: ${{ vars.ROAMIE_ASC_APP_ID }}
+
+  verify:
+    needs: preflight
+    uses: ./.github/workflows/mobile-verify.yml
+
+  submit:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: testflight
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 22.19.0
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - run: npm ci
+      - name: Configure Roamie's store app
+        run: node ../../scripts/ci/testflight.mjs configure
+        env:
+          ROAMIE_ASC_APP_ID: ${{ vars.ROAMIE_ASC_APP_ID }}
+      - name: Build the iOS binary and submit that exact build
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          test -n "$EXPO_TOKEN"
+          build_result="$RUNNER_TEMP/roamie-ios-build.json"
+          npx --yes eas-cli@22.2.0 build --platform ios --profile production --non-interactive --wait --json > "$build_result"
+          build_id=$(node ../../scripts/ci/testflight.mjs build-id "$build_result")
+          printf 'EAS build: https://expo.dev/accounts/tesserix-org/projects/roamie/builds/%s\n' "$build_id" >> "$GITHUB_STEP_SUMMARY"
+          npx --yes eas-cli@22.2.0 submit --platform ios --profile production --id "$build_id" --non-interactive --wait

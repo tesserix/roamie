@@ -12,17 +12,19 @@ type Props = {
   visible: boolean;
   title: string;
   selected: string;
+  allowAuto?: boolean;
   onPick: (code: string) => void;
   onClose: () => void;
 };
 
-export function LanguagePicker({ visible, title, selected, onPick, onClose }: Props) {
+export function LanguagePicker({ visible, title, selected, allowAuto = false, onPick, onClose }: Props) {
   const c = useColors();
   const [query, setQuery] = useState('');
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? ITEMS.filter(([code, name]) => name.toLowerCase().includes(q) || code === q) : ITEMS;
-  }, [query]);
+    const choices = allowAuto ? [['', 'Auto-detect'], ...ITEMS] : ITEMS;
+    return q ? choices.filter(([code, name]) => name.toLowerCase().includes(q) || code === q) : choices;
+  }, [query, allowAuto]);
 
   const close = () => {
     setQuery('');

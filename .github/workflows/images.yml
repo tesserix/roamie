@@ -8,7 +8,13 @@ on:
       - docker/**
       - Cargo.toml
       - Cargo.lock
+      - .dockerignore
   workflow_dispatch:
+    inputs:
+      promote_deploy:
+        description: Advance the deploy branch after verified publication
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -48,8 +54,10 @@ jobs:
 
   # Kargo watches `deploy`, so a commit only lands there once its image is pullable.
   advance-deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.promote_deploy && github.ref == 'refs/heads/main'
     needs: verify-published
     runs-on: ubuntu-24.04
+    environment: production
     permissions:
       contents: write
     concurrency:

@@ -2,50 +2,15 @@ name: Travel MCP verification
 on:
   workflow_dispatch:
   pull_request:
-    paths: ["services/travel-mcp/**", ".github/workflows/travel-mcp.yml", "scripts/ci/smoke-travel-mcp.sh"]
+    paths: ["services/travel-mcp/**", ".github/workflows/travel-mcp.yml", ".github/workflows/travel-mcp-verify.yml", "scripts/ci/smoke-travel-mcp.sh"]
   push:
     branches: [main]
-    paths: ["services/travel-mcp/**", ".github/workflows/travel-mcp.yml", "scripts/ci/smoke-travel-mcp.sh"]
+    paths: ["services/travel-mcp/**", ".github/workflows/travel-mcp.yml", ".github/workflows/travel-mcp-verify.yml", "scripts/ci/smoke-travel-mcp.sh"]
 permissions:
   contents: read
 jobs:
   verify:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      matrix:
-        package: [services/travel-mcp]
-    container:
-      image: ghcr.io/tesserix/base-python-adk-3.14:20260912@sha256:4cbbea807dc3af7664824e7e270a9618eaa49cb16806c83d58236ce3c2aba523
-      options: --user root
-    defaults:
-      run:
-        working-directory: ${{ matrix.package }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
-        with:
-          version: "0.12.5"
-      - run: uv sync --frozen
-        env:
-          UV_PROJECT_ENVIRONMENT: .venv
-      - run: |
-          .venv/bin/ruff format --check .
-          .venv/bin/ruff check .
-          .venv/bin/mypy --strict src/
-          .venv/bin/pytest
-          .venv/bin/python - <<'PYTHON'
-          import runpy
-          from pathlib import Path
-          paths = [Path("server.json"), Path("mcpserver.json"), Path("tool.json")]
-          before = [path.read_bytes() for path in paths]
-          runpy.run_path("scripts/compile_manifest.py", run_name="__main__")
-          if before != [path.read_bytes() for path in paths]:
-              raise SystemExit("Compiled manifests differ from checked-in artifacts")
-          PYTHON
-          uv build
+    uses: ./.github/workflows/travel-mcp-verify.yml
 
   image:
     needs: verify

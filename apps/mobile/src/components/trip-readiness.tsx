@@ -20,7 +20,7 @@ export function TripReadiness({ trip }: { trip: Trip }) {
   }
   return <Card>
     <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Before you go</Text>
-    <Text style={[font.body, { color: c.muted }]}>Check weather for each stop and prepare with official entry guidance. Forecasts cover the next ten days; visa eligibility and fees require official confirmation.</Text>
+    <Text style={[font.body, { color: c.muted }]}>Check weather for each stop and prepare with official entry guidance. Forecast availability depends on the destination, provider and trip dates; visa eligibility and fees require official confirmation.</Text>
     {busy ? <View style={{ gap: 12 }}><ActivityIndicator accessibilityLabel="Checking trip conditions" color={c.accent} /><Text accessibilityLiveRegion="polite" style={[font.body, { color: c.text }]}>Checking your destinations…</Text><Button label="Cancel trip check" kind="secondary" onPress={() => { task.current?.abort(); task.current = null; setBusy(false); }} /></View> : <Button label={checks.length ? 'Refresh trip checks' : 'Check weather & entry guidance'} kind="secondary" onPress={() => void check()} />}
     {!!error && <Text accessibilityRole="alert" style={[font.body, { color: c.danger }]}>{error}</Text>}
     {checks.map((check, i) => <View key={i} style={{ gap: 14, paddingTop: 16, borderTopWidth: 1, borderColor: c.border }}>
@@ -30,13 +30,23 @@ export function TripReadiness({ trip }: { trip: Trip }) {
       {!!check.error && <Text style={[font.body, { color: c.danger }]}>{check.error}</Text>}
       {[check.weather, check.entry].flatMap(response => response?.response.recommendations ?? []).map(fact => <View key={fact.id} style={{ gap: 10 }}>
         <Text style={[font.headline, { color: c.text }]}>{fact.name}</Text>
-        {fact.weather?.local_date && <Text style={[font.body, { color: c.text }]}>{fact.weather.minimum_celsius ?? '—'}° – {fact.weather.maximum_celsius ?? '—'}°C · Daytime rain {fact.weather.precipitation_percent ?? '—'}%</Text>}
-        {!!fact.weather?.missing_dates.length && <Text style={[font.body, { color: c.muted }]}>No forecast yet for {fact.weather.missing_dates.length} trip day(s). Check again closer to departure.</Text>}
+        {fact.weather?.local_date && <Text style={[font.body, { color: c.text }]}>{fact.weather.minimum_celsius ?? '—'}° – {fact.weather.maximum_celsius ?? '—'}°C · Precipitation chance {fact.weather.precipitation_percent ?? '—'}%</Text>}
+        {!!fact.weather?.missing_dates.length && <Text style={[font.body, { color: c.muted }]}>Forecast unavailable for {fact.weather.missing_dates.length} trip day(s). See the provider guidance below.</Text>}
         {[...(fact.weather?.suggestions ?? []), ...(fact.entry?.checklist ?? [])].map((item, index) => <Text key={index} style={[font.body, { color: c.text }]}>{item}</Text>)}
         {!!fact.entry && <Text style={[font.caption, { color: c.muted }]}>Visa eligibility and fees are unverified. Passport country, residency, purpose and transit stops affect the requirements.</Text>}
         {fact.weather && <Text style={[font.caption, { color: c.muted }]}>Checked {new Date(fact.observed_at).toLocaleString()}</Text>}
-        <Button label={fact.weather ? 'Weather by Google · Source' : 'Open entry guidance source'} kind="secondary" onPress={() => { if (fact.source_url.startsWith('https://')) void Linking.openURL(fact.source_url).catch(() => setError('Could not open the source. Please try again.')); }} />
+        <Button label={fact.weather ? weatherSourceLabel(fact.source_url) : 'Open entry guidance source'} kind="secondary" onPress={() => { if (fact.source_url.startsWith('https://')) void Linking.openURL(fact.source_url).catch(() => setError('Could not open the source. Please try again.')); }} />
       </View>)}
     </View>)}
   </Card>;
+}
+
+function weatherSourceLabel(source: string): string {
+  try {
+    const host = new URL(source).hostname;
+    if (host === 'open-meteo.com') return 'Weather by Open-Meteo · Source';
+    if (host === 'api.met.no' || host === 'www.met.no') return 'Weather by MET Norway · Source';
+    if (host === 'developers.google.com') return 'Weather by Google · Source';
+  } catch { /* Invalid sources have no provider attribution. */ }
+  return 'Weather source';
 }

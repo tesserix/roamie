@@ -8,6 +8,8 @@ export type Here = {
   coords: { lat: number; lng: number } | null;
   country: string | null;
   checkedAt: number | null;
+  canAskAgain?: boolean;
+  servicesEnabled?: boolean;
   refresh: () => void;
 };
 
@@ -33,18 +35,32 @@ export function useHere(): Here {
     let timer: ReturnType<typeof setTimeout>;
     const locate = async () => {
       setState({ status: 'loading', coords: null, country: null, checkedAt: null });
-      const perm = await Location.requestForegroundPermissionsAsync();
-      if (!perm.granted) return { status: 'denied' as const, coords: null, country: null, checkedAt: null };
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      const place = await Location.reverseGeocodeAsync(pos.coords).catch(() => []);
-      return { status: 'ready' as const, coords, country: place[0]?.isoCountryCode?.toUpperCase() ?? null, checkedAt: Date.now() };
+      let perm = await Location.getForegroundPermissionsAsync();
+      if (!perm.granted && perm.canAskAgain) perm = await Location.requestForegroundPermissionsAsync();
+      if (!live) return;
+      if (!perm.granted) {
+        setState({ status: 'denied', coords: null, country: null, checkedAt: null, canAskAgain: perm.canAskAgain });
+        return;
+      }
+      const servicesEnabled = await Location.hasServicesEnabledAsync();
+      if (!live) return;
+      if (!servicesEnabled) {
+        setState({ status: 'denied', coords: null, country: null, checkedAt: null, servicesEnabled: false });
+        return;
+      }
+      const position = async () => {
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        const place = await Location.reverseGeocodeAsync(pos.coords).catch(() => []);
+        return { status: 'ready' as const, coords, country: place[0]?.isoCountryCode?.toUpperCase() ?? null, checkedAt: Date.now() };
+      };
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Location timed out')), 15000);
+      });
+      const next = await Promise.race([position(), timeout]);
+      if (live) setState(next);
     };
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Location timed out')), 15000);
-    });
-    Promise.race([locate(), timeout])
-      .then((next) => { if (live) setState(next); })
+    locate()
       .catch(() => { if (live) setState({ status: 'error', coords: null, country: null, checkedAt: null }); })
       .finally(() => clearTimeout(timer));
     return () => { live = false; clearTimeout(timer); };

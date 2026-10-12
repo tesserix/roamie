@@ -12,7 +12,7 @@ things travellers juggle across five different apps today:
 | **SOS** | Nobody knows the ambulance number in the country they just landed in. | The right emergency numbers and your embassy for whatever country you're in, one tap, offline. |
 
 AI companion agents that plan and assist throughout the trip come in **MVP 2**, built on
-the same Vertex AI foundation that MVP 1 sets up.
+the shared AI gateway and Vertex foundation that MVP 1 sets up.
 
 **Release priorities:** V1 focuses on Talk, Nearby, SOS and a manual budget with local
 alerts. Read-only bank linking and receipt scanning follow in MVP 2. Payments,
@@ -24,7 +24,7 @@ and release gates.
 
 1. **Zero-setup by default.** One language setting, one budget, one diet profile. No
    mode switches, no "from/to" pickers.
-2. **AI interprets; data decides.** Gemini on Vertex AI translates, reads receipts and
+2. **AI interprets; data decides.** Gemini through the private AI gateway translates, interprets OCR evidence and
    ranks places. Emergency numbers, balances, FX rates and budget maths come only from
    deterministic, sourced data. Never from a model.
 3. **Read-only money.** Roamie can see transactions. It can never move money, and it
@@ -40,10 +40,15 @@ and release gates.
 
 - [Product brief](docs/product-brief.md): the problem, the users, the three pillars, and
   the MVP 1/MVP 2 scope
-- [Architecture](docs/architecture.md): the system shape, the Vertex AI integration, and
+- [Architecture](docs/architecture.md): the system shape, the model integration, and
   the key flows
 - [Backlog conventions](docs/backlog.md): issue template, labels, board fields, MVP
   phasing
+
+- [Production readiness](docs/production-readiness.md): verified evidence, release gates and deployment sequence
+- [Mobile builds](docs/mobile-builds.md): emulator, device and TestFlight setup
+- [Releases](docs/releases.md): CI, images and versioned release records
+- [AI gateway and console](docs/adr/0010-private-ai-gateway-and-console.md): identity and usage integration
 
 ## Status
 

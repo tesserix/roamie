@@ -10,12 +10,20 @@ const saved = {trip_id:trip.id,revision:'r1',preferences:initialPreferences(trip
 const reply = {manager_id:'trip-manager-test',profile_revision:'r1',review_run_ids:['pre','post'],response:{status:'no_matches',specialist:'food',recommendations:[],limitations:['No verified matches'],exchange_comparisons:[]}};
 const respond = (data: unknown, status = 200) => jest.mocked(fetch).mockResolvedValueOnce({ok:status < 400,status,json:async () => data} as Awaited<ReturnType<typeof fetch>>);
 beforeEach(() => { jest.clearAllMocks(); jest.mocked(session.current).mockReturnValue({sub:'alice'} as ReturnType<typeof session.current>); });
+test('deduplicates dietary requirements irrespective of case', () => {
+ const family = createTrip({...trip, diet:'vegetarian', travellers:3, preferences:{styles:['Family'],adults:2,children:1,luggage:2,foodPreferences:['Vegetarian','No beef']}});
+ expect(initialPreferences(family,'en').diets).toEqual(['vegetarian','no beef']);
+});
 test('loads and saves the customer profile with optimistic revision protection', async () => {
  respond(saved); expect(await loadTravelProfile(trip.id)).toEqual(saved);
  expect(jest.mocked(fetch).mock.calls[0][1]).toMatchObject({method:'GET',headers:{Authorization:'Bearer test-token'}});
  respond(saved); await saveTravelProfile(trip.id,saved.preferences,'r1');
  expect(JSON.parse(String(jest.mocked(fetch).mock.calls[1][1]?.body))).toEqual({expected_revision:'r1',preferences:saved.preferences});
  expect(saved.preferences.budget_minor).toBeNull();
+});
+test('normalizes dietary requirements in an existing saved profile without changing its revision', async () => {
+ respond({...saved,preferences:{...saved.preferences,diets:[' vegetarian ', 'Vegetarian', '', 'No beef']}});
+ expect(await loadTravelProfile(trip.id)).toEqual({...saved,preferences:{...saved.preferences,diets:['vegetarian','no beef']}});
 });
 test('sends only the saved profile reference and request through the API', async () => {
  respond(reply); expect((await askTripManager(saved,'food',{prompt:'Lunch'})).response.status).toBe('no_matches');
@@ -30,6 +38,12 @@ test('does not turn an unavailable profile service into an empty profile', async
  respond({error:'unavailable',message:'Profile storage is unavailable'},503);
  await expect(loadTravelProfile(trip.id)).rejects.toThrow('Profile storage');
  respond({error:'profile_changed'},409); expect(await loadTravelProfile(trip.id)).toBeNull();
+});
+test('explains a gateway timeout without losing the saved trip or signing out', async () => {
+ jest.mocked(fetch).mockResolvedValueOnce({ok:false,status:504,json:async () => JSON.parse('<html>Gateway timeout</html>')} as Awaited<ReturnType<typeof fetch>>);
+ await expect(askTripManager(saved,'trip-planner',{prompt:'Three plans',plan_options:true})).rejects.toThrow('took too long');
+ expect(session.clear).not.toHaveBeenCalled();
+ expect(saved.revision).toBe('r1');
 });
 test('stops requests if the account changes during token refresh', async () => {
  jest.mocked(session.accessToken).mockImplementationOnce(async () => { jest.mocked(session.current).mockReturnValue({sub:'bob'} as ReturnType<typeof session.current>); return 'new-token'; });
@@ -70,4 +84,21 @@ test('resolves each stay before sending weather and entry planning details', asy
  ]);
  expect(request.destination_country).toBe('AU');
  expect(request.origin).toEqual({latitude:-37.8,longitude:145});
+});
+
+test('planning retains saved destination coordinates when search is unavailable', async () => {
+ const destination={placeId:'tok',label:'Tokyo, Japan',name:'Tokyo',country:'Japan',countryCode:'JP',latitude:35.7,longitude:139.7};
+ jest.mocked(fetch).mockRejectedValueOnce(new Error('Search unavailable'));
+ const request=await buildManagerRequest({...trip,stays:[{destination,days:2}]},'Plan','trip-planner',new AbortController().signal);
+ expect(request.origin).toEqual({latitude:35.7,longitude:139.7});
+ expect(fetch).not.toHaveBeenCalled();
+ jest.mocked(fetch).mockReset();
+});
+
+test.each([{latitude:91,longitude:139},{latitude:35,longitude:-181},{latitude:NaN,longitude:139}])('planning resolves invalid stored coordinates %p', async coordinates => {
+ const destination={placeId:'tok',label:'Tokyo, Japan',name:'Tokyo',country:'Japan',countryCode:'JP',...coordinates};
+ jest.mocked(fetch).mockResolvedValueOnce({ok:true,json:async()=>[{...destination,latitude:35.7,longitude:139.7}]} as Awaited<ReturnType<typeof fetch>>);
+ const request=await buildManagerRequest({...trip,stays:[{destination,days:2}]},'Plan','trip-planner',new AbortController().signal);
+ expect(request.origin).toEqual({latitude:35.7,longitude:139.7});
+ expect(fetch).toHaveBeenCalledTimes(1);
 });

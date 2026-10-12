@@ -1,30 +1,26 @@
-import { authFetch, session } from './auth-client';
+import { apiRequest } from './trip-api';
 import type { StatementLine } from './statement';
 const OFFLINE = "Can't reach Roamie. Check your connection and try again.";
 
 export class ApiError extends Error {}
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  let res: Response;
+async function call<T>(path: string, payload?: unknown, signal?: AbortSignal, milliseconds = 65000): Promise<T> {
   try {
-    const token = await session.accessToken();
-    res = await authFetch(path, {
-      ...init,
-      headers: { 'content-type': 'application/json', ...init?.headers, Authorization: `Bearer ${token}` },
-    });
-  } catch {
-    throw new ApiError(OFFLINE);
+    return await apiRequest<T>(path, payload, async response => {
+      const body = await response.json();
+      if (body === null) throw new ApiError('Roamie returned an unreadable response. Please try again.');
+      return body as T;
+    }, milliseconds, signal, payload === undefined ? 'GET' : 'POST');
+  } catch (error) {
+    throw new ApiError(error instanceof TypeError ? OFFLINE : error instanceof Error ? error.message : OFFLINE);
   }
-  const body = await res.json().catch(() => null);
-  if (res.status === 401) {
-    await session.clear();
-    throw new ApiError('Sign in again to continue.');
-  }
-  if (!res.ok) throw new ApiError(body?.message ?? OFFLINE);
-  return body as T;
 }
 
 export type TurnResponse = {
+  mine?: string;
+  fromMe?: boolean;
+  reviewRequired?: boolean;
+  decisionModel?: string;
   detected: string;
   confidence: number;
   candidates: string[];
@@ -39,13 +35,18 @@ export type TurnResponse = {
 export type TurnRequest = {
   mine: string;
   partner: string;
+  autoMine?: boolean;
+  expectedSpeaker?: 'mine' | 'partner';
   audio?: { data: string; mimeType: string };
   text?: string;
   history: { original: string; translation: string }[];
 };
 
-export const talkTurn = (req: TurnRequest) =>
-  call<TurnResponse>('/v1/talk/turn', { method: 'POST', body: JSON.stringify(req) });
+export const talkTurn = (req: TurnRequest, signal?: AbortSignal) =>
+  call<TurnResponse>('/v1/talk/turn', req, signal);
+
+export const synthesizeSpeech = (text: string, language: string, signal?: AbortSignal) =>
+  call<{ data: string; mimeType: 'audio/wav' }>('/v1/talk/speech', { text, language }, signal);
 
 export type TextTranslation = {
   detected: string;
@@ -55,8 +56,8 @@ export type TextTranslation = {
   alternatives: string[];
 };
 
-export const translateText = (text: string, to: string, from?: string) =>
-  call<TextTranslation>('/v1/translate/text', { method: 'POST', body: JSON.stringify({ text, to, from }) });
+export const translateText = (text: string, to: string, from?: string, signal?: AbortSignal) =>
+  call<TextTranslation>('/v1/translate/text', { text, to, from }, signal);
 
 export type SignLine = {
   original: string;
@@ -65,11 +66,10 @@ export type SignLine = {
   box: { x: number; y: number; w: number; h: number };
 };
 
+export type DocumentSource = { ocrJobId: string; status: string; reviewRequired: boolean; decisionModel: string };
+
 export const translateSign = (data: string, mimeType: string, to: string) =>
-  call<{ detected: string; gist: string; lines: SignLine[] }>('/v1/signs/translate', {
-    method: 'POST',
-    body: JSON.stringify({ data, mimeType, to }),
-  });
+  call<{ detected: string; gist: string; lines: SignLine[]; reviewRequired?: boolean; ocrJobId?: string }>('/v1/signs/translate', { data, mimeType, to }, undefined, 95000);
 
 export type Receipt = {
   merchant: string;
@@ -78,21 +78,16 @@ export type Receipt = {
   date: string | null;
   category: string;
   confidence: number;
+  source?: DocumentSource;
 };
 
 export const readReceipt = (data: string, mimeType: string, localCurrency?: string) =>
-  call<Receipt>('/v1/receipts/extract', {
-    method: 'POST',
-    body: JSON.stringify({ data, mimeType, localCurrency }),
-  });
+  call<Receipt>('/v1/receipts/extract', { data, mimeType, localCurrency }, undefined, 95000);
 
-export type Statement = { transactions: StatementLine[]; outsideTrip: number; unreadable: number };
+export type Statement = { transactions: StatementLine[]; outsideTrip: number; unreadable: number; source?: DocumentSource };
 
 export const readStatement = (data: string, mimeType: string, from: string, to: string) =>
-  call<Statement>('/v1/statements/extract', {
-    method: 'POST',
-    body: JSON.stringify({ data, mimeType, from, to }),
-  });
+  call<Statement>('/v1/statements/extract', { data, mimeType, from, to }, undefined, 95000);
 
 export type Place = {
   id: string;
@@ -107,9 +102,9 @@ export type Place = {
 
 export type Kind = 'food' | 'pharmacy' | 'atm' | 'sights';
 
-export const nearby = (lat: number, lng: number, kind: Kind, diet: string) =>
+export const nearby = (lat: number, lng: number, kind: Kind, diet: string, signal?: AbortSignal) =>
   call<{ places: Place[]; relaxed: string[] }>(
-    `/v1/nearby?lat=${lat}&lng=${lng}&kind=${kind}&diet=${diet}`,
+    `/v1/nearby?lat=${lat}&lng=${lng}&kind=${kind}&diet=${diet}`, undefined, signal,
   );
 
 export const fxRates = (base: string) =>

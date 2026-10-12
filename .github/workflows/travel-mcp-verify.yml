@@ -1,0 +1,47 @@
+name: Travel MCP checks
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        package: [services/travel-mcp]
+    container:
+      image: ghcr.io/tesserix/base-python-runtime-3.14@sha256:19998ee5086dd48a151384b42324c916dfda841dcf000123a3bae27a55ce87a0
+      options: --user root
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          version: "0.12.5"
+      - run: uv sync --frozen
+        env:
+          UV_PROJECT_ENVIRONMENT: .venv
+      - run: |
+          .venv/bin/ruff format --check .
+          .venv/bin/ruff check .
+          .venv/bin/mypy --strict src/
+          .venv/bin/pytest
+          .venv/bin/python - <<'PYTHON'
+          import runpy
+          from pathlib import Path
+          paths = [Path("server.json"), Path("mcpserver.json"), Path("tool.json")]
+          before = [path.read_bytes() for path in paths]
+          runpy.run_path("scripts/compile_manifest.py", run_name="__main__")
+          if before != [path.read_bytes() for path in paths]:
+              raise SystemExit("Compiled manifests differ from checked-in artifacts")
+          PYTHON
+          uv build
+

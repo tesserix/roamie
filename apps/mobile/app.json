@@ -12,7 +12,8 @@
       "icon": "./assets/brand/roamie-icon.png",
       "supportsTablet": false,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Roamie listens only while you hold the mic, to translate what is said.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "Roamie listens when you start recording or a hands-free conversation, to translate what is said.",
         "NSLocationWhenInUseUsageDescription": "Roamie uses your location to find places nearby and show the right emergency numbers.",
         "NSCameraUsageDescription": "Roamie reads the total from a receipt you photograph.",
         "NSPhotoLibraryUsageDescription": "Roamie reads the total from a receipt photo you choose."
@@ -58,7 +59,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Roamie listens only while you hold the mic, to translate what is said."
+          "microphonePermission": "Roamie listens when you start recording or a hands-free conversation, to translate what is said."
         }
       ],
       "expo-localization",

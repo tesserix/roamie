@@ -7,6 +7,7 @@ import { Button } from '@/components/ui';
 import { font, space, useColors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { providersFor } from '@/lib/auth-client';
+import { CommunicationCards } from '@/components/communication-cards';
 
 export default function SignIn() {
   const c = useColors(); const insets = useSafeAreaInsets(); const auth = useAuth();
@@ -42,10 +43,12 @@ export default function SignIn() {
         })}
         {!providers.length && <Text style={[font.body, { color: c.muted }]}>Sign-in is available in the iOS and Android app.</Text>}
       </View>
+      {providers.length > 0 && <Button label="Continue with email" kind="secondary" busy={auth.busy} disabled={!auth.config} onPress={() => { void auth.signIn(); }} />}
       {auth.config && providers.some(provider => !auth.config?.providers[provider]) && <Text style={[font.caption, { color: c.muted }]}>{providers.filter(provider => !auth.config?.providers[provider]).map(provider => provider[0].toUpperCase() + provider.slice(1)).join(', ')} sign-in is not available yet. Choose another provider.</Text>}
       {auth.error && <View style={{ gap: space.sm }}><Text accessibilityRole="alert" style={[font.body, { color: c.danger }]}>{auth.error}</Text><Button label="Try again" busy={auth.busy} onPress={() => { void auth.retry(); }} /></View>}
-      <Text style={[font.caption, { color: c.muted }]}>Your trip stays on this phone. Emergency help is always available.</Text>
+      <Text style={[font.caption, { color: c.muted }]}>Your wallet stays on this phone. Connected planning uses your trip preferences. Emergency help is always available.</Text>
       <Button label="Emergency help" kind="secondary" onPress={() => setEmergency(true)} />
+      <CommunicationCards />
     </ScrollView>
   );
 }

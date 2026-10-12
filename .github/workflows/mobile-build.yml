@@ -11,7 +11,7 @@ on:
       profile:
         description: EAS build profile
         type: choice
-        options: [development, preview, production]
+        options: [development, preview, preview-simulator, production]
         default: preview
 
 permissions:
@@ -22,7 +22,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Validate simulator target
+        env:
+          PROFILE: ${{ inputs.profile }}
+          PLATFORM: ${{ inputs.platform }}
+        run: '[[ "$PROFILE" != "preview-simulator" || "$PLATFORM" == "ios" ]]'
+
+  verify:
+    needs: preflight
+    uses: ./.github/workflows/mobile-verify.yml
+
   build:
+    needs: verify
     uses: tesserix/tesserix-workflows/.github/workflows/expo-eas-build.yml@62f7f663a98d5ef92567850dd03c8c2513c9068e # v2.3.0
     with:
       working_directory: apps/mobile

@@ -303,7 +303,7 @@ pub async fn require_customer(
             email_verified: false,
             organization: "local-development".into(),
         });
-        return Ok(next.run(request).await);
+        return Ok(private_response(next.run(request).await));
     }
     let token = request
         .headers()
@@ -318,8 +318,25 @@ pub async fn require_customer(
         .ok_or(AuthError::Unavailable)?
         .verify(token)
         .await?;
+    let token = token.to_owned();
+    let capability = request
+        .uri()
+        .path()
+        .trim_start_matches("/v1/")
+        .trim_start_matches('/')
+        .to_owned();
     request.extensions_mut().insert(customer);
-    Ok(next.run(request).await)
+    Ok(private_response(
+        crate::gateway::scope(token, capability, next.run(request)).await,
+    ))
+}
+
+fn private_response(mut response: Response) -> Response {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
 }
 
 pub async fn configuration(

@@ -6,7 +6,7 @@ import { font, radius, space, useColors } from '@/constants/theme';
 import { format } from '@/lib/money';
 import type { StatementRow } from '@/lib/statement';
 
-export function StatementReview({ rows, home, range, onAdd, onClose }: { rows: StatementRow[]; home: string; range: string; onAdd: (rows: StatementRow[]) => void; onClose: () => void }) {
+export function StatementReview({ rows, home, range, notice, onAdd, onClose }: { rows: StatementRow[]; home: string; range: string; notice?: string; onAdd: (rows: StatementRow[]) => void; onClose: () => void }) {
   const c = useColors();
   const [picked, setPicked] = useState(() => rows.map(r => r.selected));
   const chosen = rows.filter((_, i) => picked[i]);
@@ -24,7 +24,7 @@ export function StatementReview({ rows, home, range, onAdd, onClose }: { rows: S
         data={rows}
         keyExtractor={(r, i) => `${r.date}-${r.merchant}-${i}`}
         contentContainerStyle={{ padding: space.md, gap: space.sm }}
-        ListHeaderComponent={rows.length ? <Text style={[font.body, { color: c.muted, paddingBottom: space.xs }]}>Spending from {range}. Untick anything that wasn&apos;t part of the trip.</Text> : null}
+        ListHeaderComponent={rows.length ? <View style={{ gap: space.sm }}><Text style={[font.body, { color: c.muted, paddingBottom: space.xs }]}>Spending from {range}. Untick anything that wasn&apos;t part of the trip.</Text>{notice && <Text accessibilityRole="alert" style={[font.body, { color: c.warn }]}>{notice}</Text>}</View> : null}
         ListEmptyComponent={<Message icon="creditcard" title={`No card spending between ${range}`} body="Check the statement covers your trip dates." />}
         renderItem={({ item, index }) => {
           const on = picked[index];

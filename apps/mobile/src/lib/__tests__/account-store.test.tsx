@@ -7,8 +7,8 @@ import { accountStorageKey, StoreProvider, useStore } from '../store';
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn(), removeItem: jest.fn() }));
 
 function Trip() {
-  const { ready, expenses } = useStore();
-  return <Text>{ready ? expenses.map(expense => expense.note).join(', ') || 'No expenses' : 'Loading'}</Text>;
+  const { ready, expenses, error } = useStore();
+  return <Text>{error ?? (ready ? expenses.map(expense => expense.note).join(', ') || 'No expenses' : 'Loading')}</Text>;
 }
 
 test('switching accounts never displays or saves the previous account trip under the next account', async () => {
@@ -24,4 +24,12 @@ test('switching accounts never displays or saves the previous account trip under
   await waitFor(() => expect(stored.get(accountStorageKey('bob'))).not.toContain('Alice hotel'));
   expect(JSON.parse(stored.get(accountStorageKey('alice'))!).expenses[0].note).toBe('Alice hotel');
   expect(stored.get('roamie.v1')).toBe('anonymous trip');
+});
+
+test('a damaged wallet is preserved instead of overwritten by an empty wallet', async () => {
+  jest.mocked(AsyncStorage.getItem).mockResolvedValue('{damaged');
+  jest.mocked(AsyncStorage.setItem).mockClear();
+  await render(<StoreProvider accountId="damaged"><Trip /></StoreProvider>);
+  expect(await screen.findByText('We could not open your saved wallet. Your data has not been changed.')).toBeTruthy();
+  expect(AsyncStorage.setItem).not.toHaveBeenCalled();
 });
