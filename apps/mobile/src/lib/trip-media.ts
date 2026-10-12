@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { getDocumentAsync } from 'expo-document-picker';
 import { Directory, File, Paths } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
@@ -34,7 +35,8 @@ export async function choosePhotos(account: string, trip: Trip): Promise<MemoryP
   try { for (const asset of result.assets) photos.push(await copyPhoto(account, trip.id, asset)); return photos; }
   catch (error) { deletePhotos(account, trip.id, photos); throw error; }
 }
-export async function suggestPhotos(account: string, trip: Trip): Promise<MemoryPhoto[]> {
+export async function suggestPhotos(account: string, trip: Trip): Promise<MemoryPhoto[] | null> {
+  if (Platform.OS === 'android') return choosePhotos(account, trip);
   const permission = await requestPermissionsAsync(false, ['photo']);
   if (!permission.granted) throw new Error('Allow photo access to suggest memories, or choose photos manually.');
   const from = new Date(`${trip.startDate}T00:00:00`).getTime(), to = new Date(`${trip.endDate}T23:59:59.999`).getTime();
@@ -74,8 +76,10 @@ export async function shareFile(uri: string, mimeType: string) {
   await Sharing.shareAsync(uri, { mimeType, dialogTitle: 'Share your Roamie trip', UTI: mimeType === 'application/pdf' ? 'com.adobe.pdf' : mimeType === 'video/mp4' ? 'public.mpeg-4' : 'public.png' });
 }
 export async function saveToPhotos(uri: string) {
-  const permission = await requestPermissionsAsync(true);
-  if (!permission.granted) throw new Error('Allow Roamie to save to Photos, or use Share instead.');
+  if (Platform.OS !== 'android' || Number(Platform.Version) < 29) {
+    const permission = await requestPermissionsAsync(true);
+    if (!permission.granted) throw new Error('Allow Roamie to save to Photos, or use Share instead.');
+  }
   await Asset.create(uri);
 }
 export function saveVideo(account: string, tripId: string, bytes: Uint8Array): string {
