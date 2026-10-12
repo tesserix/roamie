@@ -35,51 +35,86 @@ API image, but also restores its prior gateway configuration. Test fixtures cove
 source/target confusion, Hindi/Odia direction, first-turn AUTO, language changes,
 and explicit traveller-language preservation.
 
-## Verification — 2026-10-12
+## Verification and rollout — 2026-10-12
 
-Worktree: `../roamie-auto-conversation`, branch `fix/automatic-conversation`,
-based on release commit `174ca074f523f535538256ec68b15d66e9b1d7c0`.
-Unrelated worktrees were preserved. Changes are not committed or published.
+Roamie PRs #136–138 and GitOps PRs #1364–1366 are merged. Unrelated worktrees
+were preserved. The deployed API source is `474f5854d2d3e2d8e4e91526c15b6f7847aecb9d`,
+image digest `sha256:df471bec9011fc18573f5c7476f39563587e58a8a1e6a34f590dbf4742c397ee`.
+Argo reports the API and Registry route sync Synced/Healthy at GitOps revision
+`f5e343dba531fa33e609919af9260e367d3a91a1`.
 
-- Reproduced failing source/target confusion and initial Hindi AUTO regressions
-  before implementing the fixes.
-- `cargo test`: 114 passed, 7 pre-existing database tests ignored because they
-  require a disposable PostgreSQL database. No database code changed.
-- `cargo clippy --all-targets -- -D warnings`: passed.
-- `cargo fmt --check` and `git diff --check`: passed.
-- `cargo build`: debug binary used for local real-model verification.
-- A local debug server using Vertex Gemini 2.5 Flash correctly detected English,
-  Hindi, and Odia text. Hindi → Odia and Odia → Hindi preserved train-station
-  meaning. Switching the traveller to English kept the partner's Odia language.
-  Sample conversation response times were 2.52–4.11 seconds, not a benchmark.
-- Synthetic Hindi audio generated with macOS Lekha was detected as Hindi and
-  transcribed correctly, with an Odia translation and female voice selection.
-  No live Odia audio, device microphone, or target-language playback was tested.
-- A gateway contract test verifies both recognition and translation retain the
-  caller's authorization and that JEV receives source/target/translation evidence.
-  The real-model checks used development Vertex transport without JEV; they do
-  not establish deployed gateway or JEV success.
+The private gateway has workload identity, strict mobile JWT authentication and
+API workload authorization. Anonymous model access returned 401; signed model
+and JEV requests returned 200. The Kora JEV key was copied create-only into the
+Roamie OpenBao path and verified equal without exposing its value. The gateway's
+ExternalSecret is synced; the API never receives the provider credential.
 
-## Deployment status and prerequisites
+Recognition remains isolated from requested languages and conversation history.
+JEV's review instruction now explicitly distinguishes an intentional AUTO
+language change from inconsistent translation. The speech gateway allowlist now
+matches the application's Sulafat/Algieba voices; its former Kore-only rule
+caused playback 503s. Registry owns the updated policy.
 
-TestFlight 0.1.1 build 6 does not deploy the API. The current production API image
-is still `v19b6209`, digest
-`sha256:a770f699a388fa711cb988e5056a5dc1beb6328a2e106a4c1319e97651e4abec`.
-Its `TurnRequest` has neither `autoMine` nor `expectedSpeaker`. This is an omitted
-backend rollout, not evidence that the mobile fix was reverted.
+Executed checks:
 
-The required `roamie-ai` service is absent from `agentgateway-system`, and the
-`agentgateway-llm` Workload Identity policy lacks the Roamie gateway binding.
-An authorized Kubernetes login using the existing Roamie OpenBao reader returned
-403 for `kv/data/roamie/app/roamie-typesafe-api-key`; the short-lived OpenBao login
-was revoked. This does not establish whether the secret exists. No operator token
-was available in the environment or standard local token cache. No credential
-values were printed, changed, or copied.
+- `cargo test`: 114 passed; seven existing database-only tests require a disposable
+  database. The image pipeline separately passed authenticated TLS/Postgres smoke.
+- `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` and build passed.
+- Mobile Jest: 192 tests across 40 suites; TypeScript and Expo lint passed;
+  Expo Doctor passed 21/21 checks; seven release configuration tests passed.
+- Speech gateway regression failed before the allowlist fix, then passed.
+  `uv run --with pytest --with pyyaml python -m pytest` on gateway/Registry tests
+  passed 17 tests, and API/gateway configuration checks passed nine tests.
+  Helm lint passed for all three changed charts; server dry-run accepted the
+  generated Registry resources. All GitOps PR checks passed before merge.
+- Image workflow 38238782129 passed build, scan and signing. Its OCI revision
+  matches the deployed source commit.
+- Seven authenticated production cases passed: English AUTO to Hindi,
+  Hindi AUTO to Odia, Odia AUTO to Hindi, first Hindi traveller, Odia partner reply,
+  traveller switching to English, and preservation of explicit Hindi.
+  Conversation responses named `jev-1.13.0` and required no review for these
+  unambiguous cases. Observed sample request durations were 3.6–4.8 seconds.
+- Synthetic Hindi speech was recognized/transcribed as Hindi and translated to
+  Odia. A full Odia sentence generated by the production speech endpoint was
+  recognized/transcribed as Odia and translated to Hindi with JEV acceptance.
+  Both female and male production speech requests returned valid WAV files.
+- iOS simulator UI showed Hindi detected automatically, an Odia translation,
+  the correct Odia Show them display, and playback entering Stop reading state.
+  This used the existing simulator binary against the new backend, not the
+  signed TestFlight build. Device microphone/acoustic playback quality was not
+  independently assessed.
+- Console AI usage shows product `roamie`, service `roamie-api`, and reviewer
+  traffic. Some model requests remain unpriced/partially priced; the displayed
+  cost is not complete billing evidence.
 
-The existing gateway preparation lives in `../roamie-gitops-integration` and was
-not modified. An authorized OpenBao operator must provision/verify the Roamie JEV
-credential and its reader policy. Complete the gateway's GitOps chart, cloud
-identity binding and production checks before updating the API image; the current
-release build deliberately requires gateway transport and conversation JEV review.
-Then validate with the reviewer account and TestFlight app, including actual
-Hindi/Odia audio and playback. No production rollout was performed in this change.
+## Mobile distribution
+
+Version 0.1.2 uses mobile source `e02cd76505aeeea9bd7fb5c55296b0edb92ab0fd`.
+The later server changes do not require a mobile rebuild.
+
+- iOS build 7: EAS build `f0045eeb-f21f-43b7-95e4-0eea239e2ed9`, uploaded to
+  Apple and processed VALID. Assigned to Internal Testing, Roamie Internal and
+  Roamie External with automatic notifications enabled. Internal state is
+  IN_BETA_TESTING; external state is WAITING_FOR_BETA_REVIEW. Apple approval is
+  still required for external testers. The obsolete build-6 AUTO workaround
+  was removed after deployed verification.
+- Android version code 3: production AAB build
+  `899ce5cb-e477-4c80-9b56-4270208be86e`, published through Play Console to the
+  internal testing track. EAS automated submission failed because its service
+  account lacks app permissions; no account permissions were broadened.
+- Android preview APK `ed361502-9248-47ce-967b-9a49c0642327` installed successfully
+  on a separate API-36 emulator. The existing emulator's app had a different
+  signing key and was preserved. Android UI acceptance is not completed.
+- Android tester opt-in: https://play.google.com/apps/internaltest/4700443123919803208
+
+## Remaining limits
+
+A standalone synthesized “dhanyabad” was attributed to Hindi despite requesting
+Odia speech; that word is shared across languages and does not establish speaker
+identity. Full Odia sentences passed. Do not claim every short or acoustically
+ambiguous utterance is disambiguated, or that these samples prove microphone
+quality, background-noise robustness or production latency SLOs.
+
+Rollback should revert the GitOps API digest and relevant gateway policy as an
+approved Git change. No database schema changes were introduced. Open-Meteo
+primary/Google weather fallback configuration was preserved.
