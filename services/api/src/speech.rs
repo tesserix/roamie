@@ -15,6 +15,26 @@ use crate::{
 pub struct Request {
     text: String,
     language: Lang,
+    #[serde(default)]
+    voice: Voice,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Voice {
+    #[default]
+    Female,
+    Male,
+}
+
+impl Voice {
+    /// Gemini studio voices chosen for a calm, reassuring tone.
+    pub fn studio_name(self) -> &'static str {
+        match self {
+            Voice::Female => "Sulafat",
+            Voice::Male => "Algieba",
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -37,7 +57,9 @@ pub async fn synthesize(
         .ai
         .as_ref()
         .ok_or(Error::Unavailable("Speech playback"))?;
-    let response = ai.speech(&request.text, &request.language).await?;
+    let response = ai
+        .speech(&request.text, &request.language, request.voice)
+        .await?;
     let parts = response["candidates"][0]["content"]["parts"]
         .as_array()
         .ok_or(Error::Unavailable("Speech playback"))?;

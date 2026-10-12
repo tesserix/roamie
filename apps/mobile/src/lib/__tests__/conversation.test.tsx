@@ -7,6 +7,7 @@ import * as Speech from 'expo-speech';
 import Talk from '../../app/index';
 import { StoreProvider, useStore } from '../store';
 import { session } from '../auth-client';
+import { AccessibilityProvider } from '../accessibility';
 
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn(async () => {}) }));
 jest.mock('expo-router', () => ({ useIsFocused: () => true }));
@@ -18,7 +19,7 @@ jest.mock('expo-audio', () => {
 });
 jest.mock('expo/fetch', () => ({ fetch: (...args: Parameters<typeof global.fetch>) => global.fetch(...args) }));
 jest.mock('expo-file-system', () => ({ File: class { exists = true; async base64() { return 'YXVkaW8='; } delete() {} } }));
-jest.mock('expo-speech', () => ({ stop: jest.fn(), speak: jest.fn(), getAvailableVoicesAsync: jest.fn(async () => [{ identifier: 'english', language: 'en-US' }, { identifier: 'hindi', language: 'hi-IN' }, { identifier: 'odia-test', language: 'or-IN' }]) }));
+jest.mock('expo-speech', () => ({ VoiceQuality: { Default: 'Default', Enhanced: 'Enhanced' }, stop: jest.fn(), speak: jest.fn(), getAvailableVoicesAsync: jest.fn(async () => [{ identifier: 'english', language: 'en-US' }, { identifier: 'com.apple.voice.compact.en-US.Samantha', language: 'en-US' }, { identifier: 'com.apple.voice.compact.en-GB.Daniel', language: 'en-GB' }, { identifier: 'hindi', language: 'hi-IN' }, { identifier: 'odia-test', language: 'or-IN' }]) }));
 jest.mock('expo-notifications', () => ({ cancelAllScheduledNotificationsAsync: jest.fn(async () => {}) }));
 
 function ReadyTalk() { return useStore().ready ? <Talk /> : null; }
@@ -66,6 +67,21 @@ test('Hindi is detected first and an English reply uses the remembered Hindi tar
   await fireEvent.press(actions[1]);
   expect(screen.getAllByText('धन्यवाद')).toHaveLength(2);
   await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+});
+
+test.each([
+  ['matches the speaker', 'match', 'com.apple.voice.compact.en-GB.Daniel'],
+  ['keeps a chosen female voice', 'female', 'com.apple.voice.compact.en-US.Samantha'],
+])('translation playback %s', async (_, voice, want) => {
+  jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
+  global.fetch = jest.fn<typeof global.fetch>().mockResolvedValue({ ok: true, status: 200, json: async () => ({ detected: 'hi', partner: 'hi', target: 'en', transcript: 'नमस्ते', translation: 'Hello', romanized: '', sameLanguage: false, voice: 'male' }) } as Response);
+  jest.spyOn(session, 'current').mockReturnValue({ sub: 'conversation-test', name: 'Test traveller', email: 'test@example.invalid' });
+  jest.mocked(AsyncStorage.getItem).mockImplementation(async key => key === 'roamie.accessibility.v1' ? JSON.stringify({ voice }) : JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, partner: null, talkLanguage: null, expenses: [] }));
+  await render(<AccessibilityProvider><StoreProvider accountId="conversation-test"><ReadyTalk /></StoreProvider></AccessibilityProvider>);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Type instead' }));
+  await fireEvent.changeText(screen.getByLabelText('Type something to translate'), 'नमस्ते');
+  await fireEvent.press(screen.getByRole('button', { name: 'Translate' }));
+  await waitFor(() => expect(Speech.speak).toHaveBeenLastCalledWith('Hello', expect.objectContaining({ voice: want })));
 });
 
 test.each([

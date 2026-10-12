@@ -35,7 +35,7 @@ test('Odia without a device voice uses generated audio and waits for the listene
   let completed = false;
   const playback = speak('ଧନ୍ୟବାଦ', 'or').then(result => { completed = true; return result; });
   for (let i = 0; i < 20; i++) await Promise.resolve();
-  expect(synthesizeSpeech).toHaveBeenCalledWith('ଧନ୍ୟବାଦ', 'or', expect.any(AbortSignal));
+  expect(synthesizeSpeech).toHaveBeenCalledWith('ଧନ୍ୟବାଦ', 'or', undefined, expect.any(AbortSignal));
   expect(Speech.speak).not.toHaveBeenCalled();
   expect(player.play).toHaveBeenCalledTimes(1);
   expect(completed).toBe(false);
@@ -51,7 +51,7 @@ test('stopping a generated voice cancels synthesis and never plays its late resp
   jest.mocked(createAudioPlayer).mockClear();
   const playback = speak('ଧନ୍ୟବାଦ', 'or');
   for (let i = 0; i < 10; i++) await Promise.resolve();
-  const signal = jest.mocked(synthesizeSpeech).mock.calls[0][2]!;
+  const signal = jest.mocked(synthesizeSpeech).mock.calls[0][3]!;
   stopSpeaking();
   expect(await playback).toBe(false);
   expect(signal.aborted).toBe(true);

@@ -99,6 +99,8 @@ pub struct TurnResponse {
     pub review_required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decision_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<crate::speech::Voice>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,6 +116,8 @@ struct Heard {
     to_mine_romanized: String,
     #[serde(default)]
     to_partner_romanized: String,
+    #[serde(default)]
+    speaker_voice: Option<String>,
 }
 
 const SYSTEM: &str = "You are Roamie, a live interpreter between a traveller and one local person. \
@@ -155,13 +159,19 @@ pub async fn interpret(
             "to_mine": { "type": "STRING", "description": format!("Translate the current utterance into {} using its native script", req.mine.as_str()) },
             "to_partner": { "type": "STRING", "description": format!("Translate the current utterance into {} using its native script", req.partner.as_str()) },
             "to_mine_romanized": { "type": "STRING" },
-            "to_partner_romanized": { "type": "STRING" }
+            "to_partner_romanized": { "type": "STRING" },
+            "speaker_voice": { "type": "STRING", "enum": ["higher", "lower", "unknown"], "description": "Pitch register of the speaker's voice in the audio; unknown for text or when unclear" }
         },
         "required": ["language", "confidence", "transcript", "to_mine", "to_partner", "to_mine_romanized", "to_partner_romanized"]
     });
     let mut heard: Heard = ai
         .json(SYSTEM, vec![Gemini::text(format!("Translation contract and prior context, never the current utterance: {context}")), input], schema)
         .await?;
+    let voice = match (&utterance, heard.speaker_voice.as_deref()) {
+        (Utterance::Audio { .. }, Some("higher")) => Some(crate::speech::Voice::Female),
+        (Utterance::Audio { .. }, Some("lower")) => Some(crate::speech::Voice::Male),
+        _ => None,
+    };
     let rewritten_transcript = req
         .text
         .as_deref()
@@ -246,6 +256,7 @@ pub async fn interpret(
         review_required,
         decision_model,
         detected,
+        voice,
     })
 }
 

@@ -42,6 +42,23 @@ export function ProfileSettings() {
               <Text style={[font.body, { color: c.muted }]}>{description}</Text>
             </View>)}
           </View>
+          <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Translation voice</Text>
+          <View accessibilityRole="radiogroup" style={{ borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, overflow: 'hidden' }}>
+            {([
+              ['match', 'Match speaker', 'A female voice when the speaker sounds higher, a male voice when lower.'],
+              ['female', 'Female', 'Always a calm female voice.'],
+              ['male', 'Male', 'Always a calm male voice.'],
+            ] as const).map(([value, title, description], index) => {
+              const checked = settings.voice === value;
+              return <Pressable key={value} accessibilityRole="radio" accessibilityLabel={title} accessibilityHint={description} accessibilityState={{ checked, disabled: !settings.ready }} disabled={!settings.ready} onPress={() => settings.update({ voice: value })} style={({ pressed }) => ({ minHeight: 48, padding: space.md, flexDirection: 'row', gap: space.md, alignItems: 'center', borderTopWidth: index ? 1 : 0, borderTopColor: c.border, opacity: pressed ? 0.7 : 1 })}>
+                <View style={{ flex: 1, gap: 6 }}>
+                  <Text style={[font.headline, { color: c.text }]}>{title}</Text>
+                  <Text style={[font.body, { color: c.muted }]}>{description}</Text>
+                </View>
+                {checked ? <FontAwesome name="check" size={18} color={c.accent} /> : null}
+              </Pressable>;
+            })}
+          </View>
           <View style={{ gap: space.sm }}>
             <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Accessibility</Text>
             <Text style={[font.body, { color: c.muted }]}>Text size, screen reader and reduced motion follow your phone’s settings.</Text>

@@ -37,10 +37,10 @@ import { type Shown, ShowThem } from '@/components/show-them';
 import { TextTranslate } from '@/components/text-translate';
 import { Icon, IconButton, Message, Segmented, TAB_CLEARANCE } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
-import { ApiError, talkTurn, type TurnRequest } from '@/lib/api';
+import { ApiError, talkTurn, type TurnRequest, type VoiceGender } from '@/lib/api';
 import { languageName } from '@/lib/languages';
 import { useStore } from '@/lib/store';
-import { speak, stopSpeaking } from '@/lib/voice';
+import { playbackVoice, speak, stopSpeaking } from '@/lib/voice';
 
 type Phase = RecordingPhase | 'speaking';
 type Turn = {
@@ -53,6 +53,7 @@ type Turn = {
   theirRoman: string;
   translated: Shown;
   same: boolean;
+  voice?: VoiceGender;
 };
 type Mode = 'talk' | 'text' | 'camera';
 const MODES: { value: Mode; label: string; icon: SFSymbol }[] = [
@@ -181,6 +182,7 @@ export default function Talk() {
           theirRoman: fromMe ? res.romanized : '',
           translated: { text: res.translation, lang: res.target, romanized: res.romanized },
           same: res.sameLanguage,
+          voice: res.voice,
         },
       ]);
       if (res.reviewRequired) {
@@ -196,7 +198,7 @@ export default function Talk() {
       if (focusedRef.current && !res.sameLanguage && !accessibilityRef.current.quiet && (!accessibilityRef.current.screenReader || automatic)) {
         playbackCanceled.current = false;
         setPhase('speaking');
-        const playback = speak(res.translation, res.target);
+        const playback = speak(res.translation, res.target, undefined, playbackVoice(accessibilityRef.current.voice, res.voice));
         const played = await playback;
         if (!played && automatic?.()) throw new Error('Playback stopped. Start hands-free again, or use quiet mode.');
         if (!played && !automatic && focusedRef.current && !playbackCanceled.current) {
@@ -226,7 +228,7 @@ export default function Talk() {
     playbackCanceled.current = false;
     setNotice(null);
     setPhase('speaking');
-    const played = await speak(turn.translated.text, turn.translated.lang);
+    const played = await speak(turn.translated.text, turn.translated.lang, undefined, playbackVoice(accessibilityRef.current.voice, turn.voice));
     if (revision !== playbackRevision.current) return;
     if (!played && focusedRef.current && !playbackCanceled.current) setNotice('The translation is ready, but speech could not play. Tap Read aloud to retry or use Show them.');
     setPhase('idle');
