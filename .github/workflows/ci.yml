@@ -51,6 +51,7 @@ jobs:
       expo_lockfile_path: apps/mobile/package-lock.json
       expo_node_version: 22.19.0
       expo_package_manager: npm
+      expo_audit_config_path: apps/mobile/audit-ci.jsonc
       containers_enabled: true
       # The release requires TLS Postgres and identity config; exercise it below.
       container_images: >-
