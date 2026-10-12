@@ -5,7 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ProfileSettings } from './profile-settings';
 import { font, lift, radius, space, touch, useColors } from '@/constants/theme';
-import { speak, stopSpeaking, useSpeaking } from '@/lib/voice';
+import { playbackVoice, speak, stopSpeaking, useSpeaking } from '@/lib/voice';
+import { useAccessibility } from '@/lib/accessibility';
 
 // iOS tabs float over content; Android tabs reserve their own space.
 export const TAB_CLEARANCE = Platform.OS === 'ios' ? 96 : space.md;
@@ -287,12 +288,13 @@ export function SpeakButton({ text, lang, id, tone = 'soft' }: { text: string; l
   const c = useColors();
   const key = id ?? `${lang}:${text}`;
   const speaking = useSpeaking(key);
+  const { voice } = useAccessibility();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={speaking ? 'Stop reading' : 'Read aloud'}
       hitSlop={8}
-      onPress={() => (speaking ? stopSpeaking() : speak(text, lang, key))}
+      onPress={() => (speaking ? stopSpeaking() : speak(text, lang, key, playbackVoice(voice)))}
       style={({ pressed }) => [
         styles.iconButton,
         { backgroundColor: tone === 'soft' ? c.accentSoft : 'transparent', opacity: pressed ? 0.6 : 1 },

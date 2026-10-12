@@ -154,6 +154,38 @@ async fn partner_speech_is_translated_into_my_language() {
 }
 
 #[tokio::test]
+async fn translation_voice_follows_the_speakers_voice_register() {
+    let spoken =
+        json!({ "mine": "en", "partner": "th", "audio": {"mimeType":"audio/mp4","data":"AAAA"} });
+    let typed = json!({ "mine": "en", "partner": "th", "text": "สวัสดี" });
+    for (register, request, want) in [
+        (json!("lower"), &spoken, json!("male")),
+        (json!("higher"), &spoken, json!("female")),
+        (json!("unknown"), &spoken, Value::Null),
+        (Value::Null, &spoken, Value::Null),
+        (json!("lower"), &typed, Value::Null),
+    ] {
+        let (ai, _) = upstream(
+            StatusCode::OK,
+            model_reply(json!({
+                "language": "th", "confidence": 0.97, "transcript": "สวัสดี",
+                "to_mine": "Hello", "to_partner": "สวัสดี", "speaker_voice": register
+            })),
+        )
+        .await;
+        let (status, body) = call(
+            state(&ai, "http://unused", None),
+            "POST",
+            "/v1/talk/turn",
+            Some(request.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["voice"], want, "register {register} for {request}");
+    }
+}
+
+#[tokio::test]
 async fn talk_without_input_is_rejected() {
     let (status, body) = call(
         state("http://unused", "http://unused", None),
@@ -1358,6 +1390,59 @@ async fn odia_speech_uses_the_gateway_and_returns_bounded_wav_audio() {
     assert_eq!(body["data"], expected);
     task.abort();
     let _ = task.await;
+}
+
+#[tokio::test]
+async fn speech_uses_a_warm_female_or_smooth_male_studio_voice() {
+    use axum::{routing::post, Json, Router};
+    use base64::Engine;
+    let mut wav = b"RIFF\x24\0\0\0WAVE".to_vec();
+    wav.resize(44, 0);
+    let data = base64::engine::general_purpose::STANDARD.encode(wav);
+    for (request, want) in [
+        (json!({"text":"Hello","language":"en"}), "Sulafat"),
+        (
+            json!({"text":"Hello","language":"en","voice":"female"}),
+            "Sulafat",
+        ),
+        (
+            json!({"text":"Hello","language":"en","voice":"male"}),
+            "Algieba",
+        ),
+    ] {
+        let data = data.clone();
+        let app = Router::new().route("/v1/speech", post(move |Json(body): Json<Value>| async move {
+            assert_eq!(body["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"], want);
+            Json(json!({"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"audio/wav","data":data}}]}}]}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let gateway =
+            crate::gateway::Gateway::for_test(format!("http://{}", listener.local_addr().unwrap()));
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let mut state = state("http://unused", "http://unused", None);
+        Arc::get_mut(&mut state).unwrap().ai = Some(gemini::Gemini::with_gateway(gateway));
+        let (status, body) = crate::gateway::scope(
+            "signed-synthetic-customer".into(),
+            "talk/speech".into(),
+            call(state, "POST", "/v1/talk/speech", Some(request)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        task.abort();
+        let _ = task.await;
+    }
+}
+
+#[tokio::test]
+async fn speech_rejects_an_unknown_voice() {
+    let (status, _) = call(
+        state("http://unused", "http://unused", None),
+        "POST",
+        "/v1/talk/speech",
+        Some(json!({"text":"Hello","language":"en","voice":"robot"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[tokio::test]

@@ -30,6 +30,7 @@ export type TurnResponse = {
   target: string;
   partner: string;
   sameLanguage: boolean;
+  voice?: VoiceGender;
 };
 
 export type TurnRequest = {
@@ -45,8 +46,10 @@ export type TurnRequest = {
 export const talkTurn = (req: TurnRequest, signal?: AbortSignal) =>
   call<TurnResponse>('/v1/talk/turn', req, signal);
 
-export const synthesizeSpeech = (text: string, language: string, signal?: AbortSignal) =>
-  call<{ data: string; mimeType: 'audio/wav' }>('/v1/talk/speech', { text, language }, signal);
+export type VoiceGender = 'female' | 'male';
+
+export const synthesizeSpeech = (text: string, language: string, voice: VoiceGender | undefined, signal?: AbortSignal) =>
+  call<{ data: string; mimeType: 'audio/wav' }>('/v1/talk/speech', { text, language, voice }, signal);
 
 export type TextTranslation = {
   detected: string;

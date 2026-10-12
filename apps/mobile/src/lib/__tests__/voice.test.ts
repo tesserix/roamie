@@ -27,6 +27,25 @@ describe('pickVoice', () => {
     expect(pickVoice(voices, lang, region)).toBe(want);
   });
 
+  it('prefers the chosen gender over a higher-quality voice of the other', () => {
+    const mixed = [
+      v('com.apple.voice.premium.en-US.Evan', 'en-US', 'Enhanced'),
+      v('com.apple.voice.compact.en-US.Samantha', 'en-US'),
+    ] as never[];
+    expect(pickVoice(mixed, 'en', undefined, 'female')).toBe('com.apple.voice.compact.en-US.Samantha');
+    expect(pickVoice(mixed, 'en', undefined, 'male')).toBe('com.apple.voice.premium.en-US.Evan');
+    expect(pickVoice(mixed, 'en')).toBe('com.apple.voice.premium.en-US.Evan');
+  });
+
+  it('recognises gender-labelled Siri voices', () => {
+    const siri = [v('com.apple.ttsbundle.siri_female_en-US_premium', 'en-US', 'Enhanced'), v('com.apple.ttsbundle.siri_male_en-US_compact', 'en-US')] as never[];
+    expect(pickVoice(siri, 'en', undefined, 'male')).toBe('com.apple.ttsbundle.siri_male_en-US_compact');
+  });
+
+  it('keeps the best device voice when none matches the preferred gender', () => {
+    expect(pickVoice(voices, 'th', undefined, 'male')).toBe('com.apple.voice.enhanced.th-TH.Kanya');
+  });
+
   it('never picks novelty eloquence voices over a real one', () => {
     const only = [v('com.apple.eloquence.en-US.Rocko', 'en-US'), v('com.apple.voice.compact.en-US.Samantha', 'en-US')] as never[];
     expect(pickVoice(only, 'en')).toBe('com.apple.voice.compact.en-US.Samantha');
