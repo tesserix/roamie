@@ -58,6 +58,17 @@ class NearbyProvider:
         if planning:
             path = "/internal/v1/travel/planning"
             params = {"destination": str(request["destination"])}
+            preferences = request.get("preferences")
+            interests = "; ".join(
+                item
+                for item in [
+                    request.get("prompt"),
+                    *(preferences if isinstance(preferences, list) else []),
+                ]
+                if isinstance(item, str) and item.strip()
+            )
+            if interests:
+                params["interests"] = " ".join(interests.split())[:500]
         else:
             if not isinstance(origin, dict):
                 return {"status": "unavailable", "facts": []}
