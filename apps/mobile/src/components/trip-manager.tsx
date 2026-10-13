@@ -4,6 +4,7 @@ import { Button, Card, Chip } from './ui';
 import { font, useColors } from '@/constants/theme';
 import { decimals, format, toMinor } from '@/lib/money';
 import { askTripManager, buildManagerRequest, initialPreferences, loadTravelProfile, saveTravelProfile, SPECIALISTS, planTotal, type Advice, type SavedTravelProfile, type Specialist, type TripOption, type TravelPreferences, type ChosenPlan } from '@/lib/trip-manager';
+import {cancelPlanning, loadPlanningJob, resumePlanning, startPlanning} from '@/lib/planning-jobs';
 import type { Trip } from '@/lib/trips';
 
 export function TripManager({trip, language, choose}: {trip:Trip;language:string;choose:(plan:ChosenPlan)=>Promise<void>}) {
@@ -17,12 +18,24 @@ export function TripManager({trip, language, choose}: {trip:Trip;language:string
   const [advice,setAdvice] = useState<Advice|null>(null);
   const [ready,setReady] = useState(false), [busy,setBusy] = useState(''), [error,setError] = useState(''), [attempt,setAttempt] = useState(0);
   const controller=useRef<AbortController|null>(null);
+  const planningJob=useRef<string|null>(null);
+  const [cancellable,setCancellable]=useState(false);
   useEffect(()=>{
     const task=new AbortController(); controller.current=task;
-    loadTravelProfile(trip.id,task.signal).then(saved=>{
-      if (!task.signal.aborted) { setProfile(saved); setPreferences(saved?.preferences ?? initialPreferences(trip,language)); setReady(true); }
+    loadTravelProfile(trip.id,task.signal).then(async saved=>{
+      if(task.signal.aborted)return;
+      setProfile(saved); setPreferences(saved?.preferences ?? initialPreferences(trip,language)); setReady(true);
+      if(saved) {
+        setCancellable(true);setBusy('Checking your saved planning request…');
+        const job=await loadPlanningJob(trip.id,task.signal);
+        if(job && ['queued','running','completed'].includes(job.status)) {
+          setPrompt(job.input.request.prompt);
+          const result=await resumePlanning(saved,job,task.signal,setBusy,id=>{planningJob.current=id;});
+          if(!task.signal.aborted)setAdvice(result);
+        }
+      }
     }).catch(e=>{if(!task.signal.aborted)setError(e instanceof Error?e.message:'Could not load preferences.');})
-      .finally(()=>{if(controller.current===task)controller.current=null;});
+      .finally(()=>{if(controller.current===task){controller.current=null;planningJob.current=null;if(!task.signal.aborted){setBusy('');setCancellable(false);}}});
     return ()=>task.abort();
   },[trip,language,attempt]);
   useEffect(()=>()=>controller.current?.abort(),[]);
@@ -31,7 +44,7 @@ export function TripManager({trip, language, choose}: {trip:Trip;language:string
   };
   async function ask() {
     if(controller.current || !ready)return;
-    const task=new AbortController(); controller.current=task; setBusy('Saving your preferences…'); setError(''); setAdvice(null);
+    const task=new AbortController(); controller.current=task; setCancellable(true);setBusy('Saving your preferences…'); setError(''); setAdvice(null);
     try {
       if(!prompt.trim())throw new Error('Tell your trip manager what you would like.');
       let exchange: {exchange_amount_minor:number;exchange_destination_currency:string}|undefined;
@@ -51,10 +64,12 @@ export function TripManager({trip, language, choose}: {trip:Trip;language:string
       setProfile(saved); setBusy(specialist==='trip-planner'?'Creating and reviewing three trip options…':'Your manager is reviewing your request…');
       const request=await buildManagerRequest(trip,prompt,specialist,task.signal);
       Object.assign(request,exchange);
-      const result=await askTripManager(saved,specialist,request,task.signal);
+      const result=specialist==='trip-planner'
+        ? await startPlanning(saved,request,task.signal,setBusy,id=>{planningJob.current=id;})
+        : await askTripManager(saved,specialist,request,task.signal);
       if(!task.signal.aborted)setAdvice(result);
     } catch(e) {if(!task.signal.aborted)setError(e instanceof Error?e.message:'Could not complete your request.');}
-    finally {if(controller.current===task){controller.current=null;setBusy('');}}
+    finally {if(controller.current===task){controller.current=null;planningJob.current=null;setCancellable(false);setBusy('');}}
   }
   const field=(label:string,value:string,onChangeText:(value:string)=>void,multiline=false,keyboardType:'default'|'decimal-pad'='default')=><View style={{gap:6}}><Text style={[font.caption,{color:c.muted}]}>{label}</Text><TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} editable={ready&&!busy} multiline={multiline} keyboardType={keyboardType} maxLength={multiline?2000:400} style={{minHeight:48,padding:12,borderWidth:1,borderColor:c.border,borderRadius:12,color:c.text,backgroundColor:c.surface}} /></View>;
   return <View style={{gap:18}}>
@@ -75,7 +90,14 @@ export function TripManager({trip, language, choose}: {trip:Trip;language:string
       {field('Tell your trip manager',prompt,value=>{setPrompt(value);setAdvice(null);},true)}
       <Button label={specialist==='trip-planner'?'Compare three trip options':'Ask my trip manager'} disabled={!!busy} onPress={()=>void ask()}/>
     </>:null}
-    {busy?<Card><ActivityIndicator accessibilityLabel="Reviewing your trip"/><Text style={{color:c.text}}>{busy}</Text><Button label="Cancel request" kind="secondary" onPress={()=>{controller.current?.abort();controller.current=null;setBusy('');setError('Cancelled. Your selected plan is unchanged.');}}/></Card>:null}
+    {busy?<Card><ActivityIndicator accessibilityLabel="Reviewing your trip"/><Text style={{color:c.text}}>{busy}</Text>{cancellable?<Button label="Cancel request" kind="secondary" onPress={()=>{
+      const job=planningJob.current;
+      controller.current?.abort();controller.current=null;planningJob.current=null;setCancellable(false);setBusy('');
+      if(job) {
+        setError('Cancelling your saved request…');
+        void cancelPlanning(trip.id,job).then(()=>setError('Cancelled. Your selected plan is unchanged.')).catch(()=>setError('We could not confirm cancellation. Reopen this trip to check your saved request.'));
+      } else setError('Stopped waiting. Reopen this trip to check any saved planning request.');
+    }}/>:null}</Card>:null}
     {error?<View style={{gap:10}}><Text accessibilityRole="alert" style={{color:c.danger}}>{error}</Text><Button label="Reload saved preferences" kind="secondary" onPress={()=>{setReady(false);setAdvice(null);setError('');setAttempt(n=>n+1);}}/></View>:null}
     {advice?<>
       <Text style={[font.caption,{color:c.muted}]}>Reviewed for your saved travel preferences.</Text>

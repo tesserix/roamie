@@ -5,6 +5,8 @@ use serde_json::json;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("not found")]
+    NotFound,
     #[error("profile changed")]
     ProfileChanged,
     #[error("account conflict")]
@@ -34,6 +36,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, code, message) = match &self {
+            Error::NotFound => (StatusCode::NOT_FOUND, "not_found", "Not found.".into()),
             Error::ProfileChanged => (
                 StatusCode::CONFLICT,
                 "profile_changed",
@@ -52,7 +55,7 @@ impl IntoResponse for Error {
             Error::Busy => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "busy",
-                "Roamie is making memories. Please try again shortly.".into(),
+                "Roamie is busy. Please try again shortly.".into(),
             ),
             Error::Invalid(m) => (StatusCode::BAD_REQUEST, "invalid", m.clone()),
             Error::NoSpeech => (

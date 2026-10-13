@@ -7,7 +7,7 @@ export class ApiError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) { super(message); }
 }
 
-export async function apiRequest<T>(path: string, payload: unknown, read: (response: Response) => Promise<T>, milliseconds: number, signal?: AbortSignal, method: 'GET' | 'PUT' | 'POST' = 'POST'): Promise<T> {
+export async function apiRequest<T>(path: string, payload: unknown, read: (response: Response) => Promise<T>, milliseconds: number, signal?: AbortSignal, method: 'GET' | 'PUT' | 'POST' | 'DELETE' = 'POST'): Promise<T> {
   if (!__DEV__ && !API_BASE.startsWith('https://')) throw new Error('A secure connection is required.');
   const controller = new AbortController();
   const abort = () => controller.abort();
