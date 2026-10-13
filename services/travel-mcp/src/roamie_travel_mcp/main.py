@@ -68,7 +68,7 @@ async def serve() -> None:
     )
     async with httpx.AsyncClient(
         base_url=os.environ["ROAMIE_MCP_API_ORIGIN"],
-        timeout=5,
+        timeout=12,
         trust_env=False,
         follow_redirects=False,
         headers={"Authorization": "Bearer " + os.environ["ROAMIE_MCP_API_TOKEN"]},
