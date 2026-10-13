@@ -128,7 +128,25 @@ async def test_real_roamie_nearby_contract_preserves_unknown_prices():
             await application.stop()
 
 
-async def test_trip_planning_searches_destination_without_current_location():
+@pytest.mark.parametrize(
+    ("prompt", "preferences", "interests"),
+    [
+        ("Culture and gardens", ["relaxed pace"], "Culture and gardens; relaxed pace"),
+        (
+            "Plan Hanoi for 2 travellers. Culture and gardens",
+            ["Party: 2 travellers; 2 adults; children 0; luggage 0", "Culture and gardens"],
+            "Culture and gardens",
+        ),
+        (
+            "Plan Hanoi for 1 traveller.  Culture and gardens",
+            ["culture and gardens"],
+            "Culture and gardens",
+        ),
+    ],
+)
+async def test_trip_planning_searches_destination_without_current_location(
+    prompt, preferences, interests
+):
     import httpx
 
     from roamie_travel_mcp.nearby import NearbyProvider
@@ -136,7 +154,7 @@ async def test_trip_planning_searches_destination_without_current_location():
     def reply(request):
         assert request.url.path == "/internal/v1/travel/planning"
         assert request.url.params["destination"] == "Hanoi"
-        assert request.url.params["interests"] == "Culture and gardens; relaxed pace"
+        assert request.url.params["interests"] == interests
         return httpx.Response(
             200,
             json={
@@ -165,8 +183,8 @@ async def test_trip_planning_searches_destination_without_current_location():
                 {
                     "specialist": "trip-planner",
                     "request": {
-                        "prompt": "Culture and gardens",
-                        "preferences": ["relaxed pace"],
+                        "prompt": prompt,
+                        "preferences": preferences,
                         "destination": "Hanoi",
                         "plan_options": True,
                     },
