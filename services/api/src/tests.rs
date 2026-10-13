@@ -1940,3 +1940,69 @@ async fn planning_preserves_provider_relevance_order_when_selecting_places() {
         assert_eq!(ids, expected);
     }
 }
+
+#[tokio::test]
+async fn planning_searches_requested_interests_before_generic_attractions() {
+    let app = axum::Router::new().fallback(|axum::Json(body): axum::Json<Value>| async move {
+        let query = body["textQuery"].as_str().expect("query");
+        let id = if query.contains("Culture and gardens") {
+            "garden"
+        } else {
+            "generic"
+        };
+        axum::Json(json!({"places":[{"id":id,"displayName":{"text":id},
+            "location":{"latitude":35.0,"longitude":139.0},
+            "googleMapsUri":format!("https://maps.google.com/{id}")}]}))
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("address"));
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+    let mut s = state("http://unused", "http://unused", Some(&base));
+    Arc::get_mut(&mut s).expect("owner").travel_mcp_key = Some("k".repeat(32));
+    let response = router(s).oneshot(Request::builder()
+        .uri("/internal/v1/travel/planning?destination=Tokyo&interests=Culture%20and%20gardens")
+        .header("authorization", format!("Bearer {}", "k".repeat(32)))
+        .body(Body::empty()).expect("request")).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let data: Value = serde_json::from_slice(
+        &response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes(),
+    )
+    .expect("json");
+    let ids: Vec<_> = data["places"]
+        .as_array()
+        .expect("places")
+        .iter()
+        .filter(|p| p["kind"] == "activities")
+        .map(|p| p["id"].as_str().expect("id"))
+        .collect();
+    assert_eq!(ids, ["garden", "generic"]);
+    server.abort();
+}
+
+#[tokio::test]
+async fn planning_rejects_oversized_or_control_character_interests() {
+    for interests in ["x".repeat(501), "gardens%0Ahotels".to_owned()] {
+        let mut s = state("http://unused", "http://unused", None);
+        Arc::get_mut(&mut s).expect("owner").travel_mcp_key = Some("k".repeat(32));
+        let response = router(s)
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/internal/v1/travel/planning?destination=Tokyo&interests={interests}"
+                    ))
+                    .header("authorization", format!("Bearer {}", "k".repeat(32)))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+}

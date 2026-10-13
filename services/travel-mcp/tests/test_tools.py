@@ -136,6 +136,7 @@ async def test_trip_planning_searches_destination_without_current_location():
     def reply(request):
         assert request.url.path == "/internal/v1/travel/planning"
         assert request.url.params["destination"] == "Hanoi"
+        assert request.url.params["interests"] == "Culture and gardens; relaxed pace"
         return httpx.Response(
             200,
             json={
@@ -164,7 +165,8 @@ async def test_trip_planning_searches_destination_without_current_location():
                 {
                     "specialist": "trip-planner",
                     "request": {
-                        "prompt": "Three options",
+                        "prompt": "Culture and gardens",
+                        "preferences": ["relaxed pace"],
                         "destination": "Hanoi",
                         "plan_options": True,
                     },
