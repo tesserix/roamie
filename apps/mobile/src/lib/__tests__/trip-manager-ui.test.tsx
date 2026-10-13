@@ -3,9 +3,11 @@ import { expect, jest, test } from '@jest/globals';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { TripManager } from '../../components/trip-manager';
 import { initialPreferences, loadTravelProfile, saveTravelProfile, askTripManager, type Advice } from '../trip-manager';
+import {startPlanning, loadPlanningJob, resumePlanning, cancelPlanning} from '../planning-jobs';
 import { createTrip } from '../trips';
 jest.mock('@react-native-async-storage/async-storage',()=>({getItem:jest.fn(async()=>null),setItem:jest.fn(async()=>{})}));
 jest.mock('react-native-safe-area-context',()=>({useSafeAreaInsets:()=>({top:0,bottom:0,left:0,right:0})}));
+jest.mock('../planning-jobs',()=>({startPlanning:jest.fn(),loadPlanningJob:jest.fn(async()=>null),resumePlanning:jest.fn(),cancelPlanning:jest.fn()}));
 jest.mock('../trip-manager',()=>({
   ...jest.requireActual<typeof import('../trip-manager')>('../trip-manager'),
   loadTravelProfile:jest.fn(), saveTravelProfile:jest.fn(), askTripManager:jest.fn(),
@@ -17,14 +19,14 @@ const result:Advice={manager_id:'trip-manager-alice',profile_revision:'r1',revie
 test('saves preferences, compares three reviewed plans and chooses without auto-booking',async()=>{
   jest.mocked(loadTravelProfile).mockResolvedValueOnce(saved).mockResolvedValueOnce({...saved,revision:'r2'});
   jest.mocked(saveTravelProfile).mockResolvedValueOnce({...saved,revision:'r2'});
-  jest.mocked(askTripManager).mockResolvedValueOnce({...result,profile_revision:'r2'});
+  jest.mocked(startPlanning).mockResolvedValueOnce({...result,profile_revision:'r2'});
   const choose=jest.fn(async()=>{});
   await render(<TripManager trip={trip} language="en" choose={choose}/>);
   await fireEvent.changeText(await screen.findByLabelText('Allergies (comma separated)'),'Peanuts, shellfish');
   await fireEvent.press(screen.getByRole('button',{name:'Compare three trip options'}));
   expect(await screen.findByRole('button',{name:'Choose balanced trip'})).toBeTruthy();
   expect(saveTravelProfile).toHaveBeenCalledWith(trip.id,expect.objectContaining({allergies:['Peanuts','shellfish']}),'r1',expect.any(AbortSignal));
-  expect(askTripManager).toHaveBeenCalledWith(expect.objectContaining({revision:'r2'}),'trip-planner',expect.objectContaining({plan_options:true,destination:'Hanoi',travellers:1}),expect.any(AbortSignal));
+  expect(startPlanning).toHaveBeenCalledWith(expect.objectContaining({revision:'r2'}),expect.objectContaining({plan_options:true,destination:'Hanoi',travellers:1}),expect.any(AbortSignal),expect.any(Function),expect.any(Function));
   expect(screen.getAllByText(/not a live quote/)).toHaveLength(3);
   expect(choose).not.toHaveBeenCalled();
   expect(screen.queryByText('Confirm opening hours')).toBeNull();
@@ -40,4 +42,30 @@ test('does not request advice when preferences cannot be loaded',async()=>{
   expect(await screen.findByText('Profile service unavailable')).toBeTruthy();
   expect(screen.queryByRole('button',{name:'Compare three trip options'})).toBeNull();
   expect(jest.mocked(askTripManager).mock.calls.length).toBe(calls);
+});
+
+test('reopening a trip resumes its saved job without generating another plan',async()=>{
+ jest.mocked(loadTravelProfile).mockResolvedValueOnce(saved);
+ jest.mocked(loadPlanningJob).mockResolvedValueOnce({id:'job-1',profile_revision:'r1',status:'running',attempts:1,result:null,error_code:null,input:{request:{prompt:'Keep my garden request',plan_options:true}}});
+ jest.mocked(resumePlanning).mockResolvedValueOnce(result);
+ const before=jest.mocked(startPlanning).mock.calls.length;
+ await render(<TripManager trip={trip} language="en" choose={async()=>{}}/>);
+ expect(await screen.findByRole('button',{name:'Choose balanced trip'})).toBeTruthy();
+ expect(startPlanning).toHaveBeenCalledTimes(before);
+ expect(resumePlanning).toHaveBeenCalledWith(saved,expect.objectContaining({id:'job-1'}),expect.any(AbortSignal),expect.any(Function),expect.any(Function));
+});
+
+
+test('explicit cancellation cancels the exact saved job',async()=>{
+ jest.mocked(loadTravelProfile).mockResolvedValueOnce(saved);
+ jest.mocked(loadPlanningJob).mockResolvedValueOnce({id:'job-cancel',profile_revision:'r1',status:'running',attempts:1,result:null,error_code:null,input:{request:{prompt:'Gardens',plan_options:true}}});
+ jest.mocked(cancelPlanning).mockResolvedValueOnce();
+ jest.mocked(resumePlanning).mockImplementationOnce(async(_profile,job,signal,progress,started)=>{
+   started?.(job.id);progress('Working on your saved request');
+   return new Promise<Advice>((_resolve,reject)=>signal.addEventListener('abort',()=>reject(new Error('cancelled')),{once:true}));
+ });
+ await render(<TripManager trip={trip} language="en" choose={async()=>{}}/>);
+ await fireEvent.press(await screen.findByRole('button',{name:'Cancel request'}));
+ expect(cancelPlanning).toHaveBeenCalledWith(trip.id,'job-cancel');
+ expect(await screen.findByText('Cancelled. Your selected plan is unchanged.')).toBeTruthy();
 });

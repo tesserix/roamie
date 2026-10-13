@@ -45,6 +45,9 @@ jobs:
       rust_enabled: true
       rust_toolchain: "1.97"
       rust_coverage_min_lines: 70
+      rust_database_enabled: true
+      rust_database_setup_script: scripts/ci/setup-rust-coverage-db.sh
+      rust_database_environment_prefix: ROAMIE_TEST_
       expo_enabled: true
       expo_working_directory: apps/mobile
       expo_install_directory: apps/mobile

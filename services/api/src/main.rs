@@ -17,6 +17,7 @@ mod memories;
 mod money;
 mod nearby;
 mod ocr;
+mod planning_jobs;
 mod privacy;
 mod receipts;
 mod signs;
@@ -158,9 +159,16 @@ async fn main() -> anyhow::Result<()> {
     let addr = format!("{host}:{}", env_or("PORT", "8080"));
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(%addr, "roamie-api listening");
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown())
-        .await?;
+    let (jobs_stop, jobs_shutdown) = tokio::sync::watch::channel(false);
+    let jobs = tokio::spawn(planning_jobs::run(state.clone(), jobs_shutdown));
+    let served = axum::serve(listener, router(state))
+        .with_graceful_shutdown(async move {
+            shutdown().await;
+            let _ = jobs_stop.send(true);
+        })
+        .await;
+    jobs.await?;
+    served?;
     Ok(())
 }
 
@@ -170,6 +178,13 @@ fn timeout(seconds: u64) -> TimeoutLayer {
 
 fn router(state: Arc<AppState>) -> Router {
     let v1 = Router::new()
+        .route(
+            "/trips/{trip}/planning",
+            get(planning_jobs::get)
+                .post(planning_jobs::start)
+                .delete(planning_jobs::cancel)
+                .layer(RequestBodyLimitLayer::new(32768)),
+        )
         .route(
             "/trips/{trip}/profile",
             get(travel_profiles::get)
