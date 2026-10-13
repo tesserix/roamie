@@ -45,7 +45,7 @@ class NearbyProvider:
                             item
                             for item in items
                             if isinstance(item, dict) and item.get("category") == kind
-                        ][:3]
+                        ][: 8 if len(stays) == 1 else 3]
                     )
             return {
                 "status": "ok",

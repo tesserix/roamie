@@ -70,17 +70,24 @@ pub async fn planning(
     {
         return Err(crate::Error::Invalid("Choose a valid destination.".into()).into_response());
     }
+    let queries = [
+        format!("tourist attractions in {}", query.destination),
+        format!("restaurants in {}", query.destination),
+        format!("hotels in {}", query.destination),
+    ];
+    let (activities, food, accommodation) = tokio::try_join!(
+        crate::trips::search_places_ranked(&state, &queries[0]),
+        crate::trips::search_places_ranked(&state, &queries[1]),
+        crate::trips::search_places_ranked(&state, &queries[2]),
+    )
+    .map_err(IntoResponse::into_response)?;
     let mut places = Vec::new();
-    for (kind, search) in [
-        ("activities", "tourist attractions"),
-        ("food", "restaurants"),
-        ("accommodation", "hotels"),
+    for (kind, found) in [
+        ("activities", activities),
+        ("food", food),
+        ("accommodation", accommodation),
     ] {
-        let found =
-            crate::trips::search_places(&state, &format!("{search} in {}", query.destination))
-                .await
-                .map_err(IntoResponse::into_response)?;
-        for place in found.into_values() {
+        for place in found.into_iter() {
             places.push(serde_json::json!({"id":place.id,"name":place.name,"mapsUri":place.maps_uri,"lat":place.lat,"lng":place.lng,"kind":kind}));
         }
     }

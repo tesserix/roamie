@@ -1,3 +1,4 @@
+import pytest
 from tesserix_mcp_runtime import AuthenticatedIdentity, CallContext
 from tesserix_mcp_runtime.adapters.in_process import InProcessTransport
 
@@ -186,3 +187,57 @@ async def test_trip_planning_searches_destination_without_current_location():
         finally:
             await application.drain()
             await application.stop()
+
+
+@pytest.mark.parametrize("cities, per_category", [(1, 8), (2, 3), (3, 3), (4, 3)])
+async def test_stays_preserve_place_variety_within_the_evidence_limit(cities, per_category):
+    import httpx
+
+    from roamie_travel_mcp.nearby import NearbyProvider
+
+    places = [
+        {
+            "id": f"{kind}-{index}",
+            "name": f"{kind} {index}",
+            "mapsUri": f"https://maps.google.com/{kind}-{index}",
+            "lat": 35.0,
+            "lng": 139.0,
+            "kind": kind,
+        }
+        for kind in ("activities", "accommodation", "food")
+        for index in range(8)
+    ]
+    async with httpx.AsyncClient(
+        base_url="https://roamie.example.org",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"places": places})),
+    ) as client:
+        result = await NearbyProvider(client).search(
+            {
+                "specialist": "trip-planner",
+                "request": {
+                    "destination": "Tokyo",
+                    "stays": [{"destination": f"City {i}", "days": 2} for i in range(cities)],
+                },
+            },
+            context=CallContext(
+                identity=AuthenticatedIdentity(
+                    tenant="roamie",
+                    subject="manager",
+                    issuer="https://identity.example.org",
+                    scopes=("roamie:travel:read",),
+                ),
+                request_id="test",
+                run_id="test",
+            ),
+        )
+    assert result["status"] == "ok"
+    assert len(result["facts"]) == cities * per_category * 3
+    assert len(result["facts"]) <= 40
+    assert (
+        len([fact for fact in result["facts"] if fact["category"] == "activities"])
+        == cities * per_category
+    )
+    for i in range(cities):
+        assert (
+            len([f for f in result["facts"] if f["destination"] == f"City {i}"]) == per_category * 3
+        )

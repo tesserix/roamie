@@ -1856,3 +1856,87 @@ async fn privacy_resources_are_public_and_offer_account_deletion_without_login()
         assert!(!html.contains("<script"));
     }
 }
+
+#[tokio::test]
+async fn planning_searches_all_place_categories_concurrently() {
+    let ready = Arc::new(tokio::sync::Barrier::new(3));
+    let app = axum::Router::new().fallback(move || {
+        let ready = ready.clone();
+        async move {
+            ready.wait().await;
+            axum::Json(json!({"places": []}))
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("address"));
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+    let mut s = state("http://unused", "http://unused", Some(&base));
+    Arc::get_mut(&mut s).expect("owner").travel_mcp_key = Some("k".repeat(32));
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        router(s).oneshot(
+            Request::builder()
+                .uri("/internal/v1/travel/planning?destination=Tokyo")
+                .header("authorization", format!("Bearer {}", "k".repeat(32)))
+                .body(Body::empty())
+                .expect("request"),
+        ),
+    )
+    .await;
+    server.abort();
+    assert_eq!(
+        response
+            .expect("all searches must start before any finishes")
+            .expect("response")
+            .status(),
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn planning_preserves_provider_relevance_order_when_selecting_places() {
+    let places: Vec<_> = (0..10)
+        .map(|i| {
+            json!({"id":format!("place-{i}"),
+        "displayName":{"text":format!("Place {i}")},
+        "location":{"latitude":35.0,"longitude":139.0},
+        "googleMapsUri":format!("https://maps.google.com/place-{i}")})
+        })
+        .collect();
+    let (base, _) = upstream(StatusCode::OK, json!({"places":places})).await;
+    let mut s = state("http://unused", "http://unused", Some(&base));
+    Arc::get_mut(&mut s).expect("owner").travel_mcp_key = Some("k".repeat(32));
+    let response = router(s)
+        .oneshot(
+            Request::builder()
+                .uri("/internal/v1/travel/planning?destination=Tokyo")
+                .header("authorization", format!("Bearer {}", "k".repeat(32)))
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let data: Value = serde_json::from_slice(
+        &response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes(),
+    )
+    .expect("json");
+    let expected: Vec<_> = (0..10).map(|i| format!("place-{i}")).collect();
+    for category in ["activities", "food", "accommodation"] {
+        let ids: Vec<_> = data["places"]
+            .as_array()
+            .expect("places")
+            .iter()
+            .filter(|p| p["kind"] == category)
+            .map(|p| p["id"].as_str().expect("id").to_owned())
+            .collect();
+        assert_eq!(ids, expected);
+    }
+}

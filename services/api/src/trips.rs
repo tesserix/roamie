@@ -353,11 +353,19 @@ pub(crate) async fn search_places(
     state: &AppState,
     query: &str,
 ) -> Result<HashMap<String, TripPlace>> {
+    Ok(search_places_ranked(state, query)
+        .await?
+        .into_iter()
+        .map(|place| (place.id.clone(), place))
+        .collect())
+}
+
+pub(crate) async fn search_places_ranked(state: &AppState, query: &str) -> Result<Vec<TripPlace>> {
     let config = state
         .places
         .as_ref()
         .ok_or(Error::Unavailable("Trip evidence"))?;
-    let mut out = HashMap::new();
+    let mut out = Vec::new();
     let response=state.http.post(format!("{}/places:searchText",config.base)).timeout(std::time::Duration::from_secs(10)).header("X-Goog-Api-Key",&config.key).header("X-Goog-FieldMask","places.id,places.displayName,places.formattedAddress,places.location,places.googleMapsUri").json(&json!({"textQuery":query,"pageSize":10})).send().await?;
     if !response.status().is_success() {
         return Err(Error::Upstream("trip places unavailable".into()));
@@ -390,22 +398,19 @@ pub(crate) async fn search_places(
             })
             .map(|u| u.to_string())
             .unwrap_or_default();
-        out.insert(
-            id.into(),
-            TripPlace {
-                id: id.into(),
-                name: name.into(),
-                address: raw["formattedAddress"]
-                    .as_str()
-                    .unwrap_or("")
-                    .chars()
-                    .take(400)
-                    .collect(),
-                maps_uri: maps,
-                lat,
-                lng,
-            },
-        );
+        out.push(TripPlace {
+            id: id.into(),
+            name: name.into(),
+            address: raw["formattedAddress"]
+                .as_str()
+                .unwrap_or("")
+                .chars()
+                .take(400)
+                .collect(),
+            maps_uri: maps,
+            lat,
+            lng,
+        });
     }
     Ok(out)
 }
