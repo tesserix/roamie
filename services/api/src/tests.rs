@@ -2119,6 +2119,22 @@ async fn migrated() -> sqlx::PgPool {
 }
 
 /// The phrasebook writes in the background, so wait briefly for the entry to land.
+async fn reaches_uses(pool: &sqlx::PgPool, source: &str, uses: i64) {
+    for _ in 0..100 {
+        let now: Option<i64> =
+            sqlx::query_scalar("SELECT max(uses) FROM phrasebook WHERE source_text=$1")
+                .bind(source)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        if now == Some(uses) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("phrase never reached {uses} uses");
+}
+
 async fn kept(pool: &sqlx::PgPool, source: &str) -> Vec<(String, String, String, String, String)> {
     for _ in 0..100 {
         let rows: Vec<(String, String, String, String, String)> = sqlx::query_as("SELECT surface,source_lang,target_lang,translation,model FROM phrasebook WHERE source_text=$1")
@@ -2165,16 +2181,23 @@ async fn another_traveller_is_answered_from_the_phrasebook_without_the_model() {
     let pool = migrated().await;
     let source = unique_phrase("Where is the toilet");
     let (model, hits) = upstream(StatusCode::OK, model_reply(json!({"language":"en","translation":"ห้องน้ำอยู่ที่ไหน","romanized":"hong nam yu thi nai","source_romanized":"","alternatives":[]}))).await;
-    let first = with_phrasebook(state(&model, "http://unused", None), pool.clone());
-    let (status, body) = call(
-        first,
-        "POST",
-        "/v1/translate/text",
-        Some(json!({"text":source,"from":"en","to":"th"})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    for traveller in 1..=3 {
+        let s = with_phrasebook(state(&model, "http://unused", None), pool.clone());
+        let (status, body) = call(
+            s,
+            "POST",
+            "/v1/translate/text",
+            Some(json!({"text":source,"from":"en","to":"th"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            traveller,
+            "uncommon phrases are not shared"
+        );
+        reaches_uses(&pool, &source, traveller as i64).await;
+    }
     assert_eq!(
         kept(&pool, &source).await,
         [(

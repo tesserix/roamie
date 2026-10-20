@@ -17,18 +17,21 @@ repeat increments `uses` and `last_seen`; a different answer for the same source
 is a separate variant, so the most-used variant is the settled translation.
 Surfaces are `talk` (spoken and typed turns), `text` and `sign` (photo lines).
 Same-language turns, empty results, recent context, audio and images are never
-stored, and no row references a customer. Text that looks like a card, phone or
-account number (a run of nine or more digits) or an email address is skipped.
+stored, and no row references a customer. An entry is skipped when any field
+looks like a card, phone or account number (nine or more digits, allowing
+spaces, dots, dashes, slashes, brackets and plus) or an email address.
 
 Writes never delay or fail a translation: each is a detached task, at most two
 in flight per pod (of its ten connections), dropped when that limit is reached
 or the database errors. Lookups serve text translation only, after the in-memory
 cache misses and the source is known, within 150 ms, otherwise the model
-answers. Only the most-used variant from the current `PROMPT_VERSION` without a
-review flag is served. Conversation turns are not served from the phrasebook:
-speech must be heard first, and a turn depends on recent context and speaker
-direction. Bump `PROMPT_VERSION` whenever a translation prompt changes; older
-variants remain but are no longer served.
+answers. Only the most-used variant from the current `PROMPT_VERSION`, without a
+review flag and used at least three times, is served, so a one-off sentence
+never reaches another traveller. A faster answer still shows that a phrase was
+translated before, but never by whom. Conversation turns are not served from
+the phrasebook: speech must be heard first, and a turn depends on recent context
+and speaker direction. Bump `PROMPT_VERSION` whenever a translation prompt
+changes; older variants remain but are no longer served.
 
 The runtime role may select, insert and update, but not delete or alter, the
 table. No endpoint lists the phrasebook; a traveller only receives the answer to

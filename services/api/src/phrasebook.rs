@@ -31,6 +31,8 @@ impl Surface {
 
 const RECALL_BUDGET: Duration = Duration::from_millis(150);
 const WRITES_IN_FLIGHT: usize = 2;
+/// A variant answers other travellers only once it is this common, never a one-off sentence.
+const SHARED_AFTER_USES: i64 = 3;
 
 /// Every translation Roamie gives, kept without the traveller who asked (ADR-0016).
 pub struct Phrasebook {
@@ -112,7 +114,7 @@ fn sensitive(text: &str) -> bool {
         if c.is_numeric() {
             run += 1;
             longest = longest.max(run);
-        } else if run == 0 || !matches!(c, ' ' | '-') {
+        } else if run == 0 || !matches!(c, ' ' | '-' | '.' | '/' | '(' | ')' | '+') {
             run = 0;
         }
     }
@@ -131,8 +133,11 @@ async fn save(pool: &PgPool, model: &str, entry: &Entry) -> Result<bool> {
         || translation.is_empty()
         || entry.from == entry.to
         || !fits
-        || sensitive(&source)
-        || sensitive(translation)
+        || [translation, &entry.romanized, &entry.source_romanized]
+            .into_iter()
+            .chain(entry.alternatives.iter().map(String::as_str))
+            .chain([source.as_str()])
+            .any(sensitive)
     {
         return Ok(false);
     }
@@ -157,11 +162,12 @@ async fn save(pool: &PgPool, model: &str, entry: &Entry) -> Result<bool> {
 }
 
 async fn lookup(pool: &PgPool, from: &Lang, to: &Lang, text: &str) -> Result<Option<TextResponse>> {
-    let row: Option<(String, String, String, Vec<String>)> = sqlx::query_as("SELECT translation,romanized,source_romanized,alternatives FROM phrasebook WHERE source_digest=$1 AND source_lang=$2 AND target_lang=$3 AND surface='text' AND prompt_version=$4 AND NOT review_required ORDER BY uses DESC,last_seen DESC LIMIT 1")
+    let row: Option<(String, String, String, Vec<String>)> = sqlx::query_as("SELECT translation,romanized,source_romanized,alternatives FROM phrasebook WHERE source_digest=$1 AND source_lang=$2 AND target_lang=$3 AND surface='text' AND prompt_version=$4 AND NOT review_required AND uses>=$5 ORDER BY uses DESC,last_seen DESC LIMIT 1")
         .bind(digest(&normalise(text)))
         .bind(from.as_str())
         .bind(to.as_str())
         .bind(PROMPT_VERSION)
+        .bind(SHARED_AFTER_USES)
         .fetch_optional(pool)
         .await?;
     Ok(row.map(
@@ -203,6 +209,9 @@ mod tests {
             ("Call me on 0412-345-678", true),
             ("मेरा नंबर ९८७६५४३२१० है", true),
             ("Booking 123456789", true),
+            ("Call +61 (412) 345.678", true),
+            ("Ring 04.12.34.56.78", true),
+            ("Bus 12/13 at gate 4", false),
             ("Email me at traveller@example.com", true),
             ("That is 1.500.000 dong", false),
             ("Room 402, two nights", false),
@@ -252,6 +261,12 @@ mod tests {
         format!("Where is the toilet {unique}?")
     }
 
+    async fn settle(pool: &PgPool, entry: &Entry) {
+        for _ in 0..SHARED_AFTER_USES {
+            save(pool, "m", entry).await.unwrap();
+        }
+    }
+
     async fn served(pool: &PgPool, source: &str) -> Option<String> {
         lookup(pool, &lang("en"), &lang("th"), source)
             .await
@@ -265,9 +280,7 @@ mod tests {
         let pool = owner().await;
         let source = phrase();
         assert_eq!(served(&pool, &source).await, None);
-        assert!(save(&pool, "m", &entry(Surface::Text, &source, "A"))
-            .await
-            .unwrap());
+        settle(&pool, &entry(Surface::Text, &source, "A")).await;
         let answer = lookup(&pool, &lang("en"), &lang("th"), &source)
             .await
             .unwrap()
@@ -276,9 +289,7 @@ mod tests {
         assert_eq!(answer.translation, "A");
         assert_eq!(answer.romanized, "hong nam yu thi nai");
         assert_eq!(answer.alternatives, ["ห้องน้ำอยู่ตรงไหน"]);
-        save(&pool, "m", &entry(Surface::Text, &source, "B"))
-            .await
-            .unwrap();
+        settle(&pool, &entry(Surface::Text, &source, "B")).await;
         save(
             &pool,
             "m",
@@ -297,7 +308,24 @@ mod tests {
         .fetch_all(&pool)
         .await
         .unwrap();
-        assert_eq!(variants, [("A".into(), 1), ("B".into(), 2)]);
+        assert_eq!(variants, [("A".into(), 3), ("B".into(), 4)]);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires isolated ROAMIE_TEST_DATABASE_URL"]
+    async fn a_phrase_is_shared_only_after_repeated_use() {
+        let pool = owner().await;
+        let source = phrase();
+        for _ in 1..SHARED_AFTER_USES {
+            save(&pool, "m", &entry(Surface::Text, &source, "A"))
+                .await
+                .unwrap();
+            assert_eq!(served(&pool, &source).await, None);
+        }
+        save(&pool, "m", &entry(Surface::Text, &source, "A"))
+            .await
+            .unwrap();
+        assert_eq!(served(&pool, &source).await.as_deref(), Some("A"));
     }
 
     #[tokio::test]
@@ -305,26 +333,20 @@ mod tests {
     async fn only_unreviewed_text_answers_from_the_current_prompt_are_served() {
         let pool = owner().await;
         let spoken = phrase();
-        save(&pool, "m", &entry(Surface::Talk, &spoken, "spoken"))
-            .await
-            .unwrap();
+        settle(&pool, &entry(Surface::Talk, &spoken, "spoken")).await;
         assert_eq!(served(&pool, &spoken).await, None, "conversation turns");
         let flagged = phrase();
         let mut review = entry(Surface::Text, &flagged, "flagged");
         review.review_required = true;
         save(&pool, "m", &review).await.unwrap();
-        save(&pool, "m", &entry(Surface::Text, &flagged, "flagged"))
-            .await
-            .unwrap();
+        settle(&pool, &entry(Surface::Text, &flagged, "flagged")).await;
         assert_eq!(
             served(&pool, &flagged).await,
             None,
             "flagged once stays flagged"
         );
         let elsewhere = phrase();
-        save(&pool, "m", &entry(Surface::Text, &elsewhere, "Thai"))
-            .await
-            .unwrap();
+        settle(&pool, &entry(Surface::Text, &elsewhere, "Thai")).await;
         let other_target = lookup(&pool, &lang("en"), &lang("lo"), &elsewhere)
             .await
             .unwrap();
@@ -348,6 +370,10 @@ mod tests {
         let card = format!("{} card 4111 1111 1111 1111", phrase());
         let mut same = entry(Surface::Talk, &phrase(), "same");
         same.to = lang("en");
+        let mut alternative = entry(Surface::Text, &phrase(), "โทรหาฉัน");
+        alternative.alternatives = vec!["โทร +66 (81) 234.5678".into()];
+        let mut spoken = entry(Surface::Talk, &phrase(), "โทรหาฉัน");
+        spoken.romanized = "thor 081 234 5678".into();
         let cases = [
             ("card number", entry(Surface::Talk, &card, "บัตร")),
             (
@@ -357,6 +383,8 @@ mod tests {
             ("empty translation", entry(Surface::Text, &phrase(), "  ")),
             ("empty source", entry(Surface::Sign, " ", "ป้าย")),
             ("same language", same),
+            ("phone in an alternative", alternative),
+            ("phone in romanization", spoken),
         ];
         for (name, case) in cases {
             assert!(!save(&pool, "m", &case).await.unwrap(), "case {name}");
