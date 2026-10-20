@@ -4,6 +4,7 @@ mod audit_tests;
 mod auth;
 #[cfg(test)]
 mod auth_tests;
+mod cache;
 mod database;
 mod decisions;
 mod destinations;
@@ -35,7 +36,7 @@ mod trips;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{Query, State};
+use axum::extract::{Extension, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -59,6 +60,8 @@ struct AppState {
     ocr: Option<ocr::Ocr>,
     jev: Option<decisions::Jev>,
     memories: memories::Renderer,
+    talk_turns: cache::Recent<talk::TurnResponse>,
+    text_translations: cache::Recent<translate::TextResponse>,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -149,6 +152,8 @@ async fn main() -> anyhow::Result<()> {
         fx: fx::Fx::new(fx::FX_BASE),
         places,
         memories: memories::Renderer::new(),
+        talk_turns: cache::Recent::default(),
+        text_translations: cache::Recent::default(),
     });
 
     let host = if development_auth_disabled {
@@ -309,18 +314,34 @@ async fn shutdown() {
 
 async fn talk_turn(
     State(s): State<Arc<AppState>>,
+    Extension(customer): Extension<auth::Customer>,
     Json(req): Json<talk::TurnRequest>,
 ) -> Result<Json<talk::TurnResponse>> {
     let ai = s.ai.as_ref().ok_or(Error::Unavailable("Translation"))?;
-    Ok(Json(talk::interpret(ai, s.jev.as_ref(), &req).await?))
+    let key = req.cache_key().map(|k| cache::key(&customer.sub, &k));
+    if let Some(hit) = key.as_ref().and_then(|k| s.talk_turns.get(k)) {
+        return Ok(Json(hit));
+    }
+    let turn = talk::interpret(ai, s.jev.as_ref(), &req).await?;
+    if let Some(key) = key {
+        s.talk_turns.put(key, turn.clone());
+    }
+    Ok(Json(turn))
 }
 
 async fn translate_text(
     State(s): State<Arc<AppState>>,
+    Extension(customer): Extension<auth::Customer>,
     Json(req): Json<translate::TextRequest>,
 ) -> Result<Json<translate::TextResponse>> {
     let ai = s.ai.as_ref().ok_or(Error::Unavailable("Translation"))?;
-    Ok(Json(translate::text(ai, &req).await?))
+    let key = cache::key(&customer.sub, &req.cache_key());
+    if let Some(hit) = s.text_translations.get(&key) {
+        return Ok(Json(hit));
+    }
+    let translated = translate::text(ai, &req).await?;
+    s.text_translations.put(key, translated.clone());
+    Ok(Json(translated))
 }
 
 async fn sign_translate(

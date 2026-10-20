@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::error::{Error, Result};
 use crate::gemini::Gemini;
@@ -15,7 +15,13 @@ pub struct TextRequest {
     pub to: Lang,
 }
 
-#[derive(Debug, Serialize)]
+impl TextRequest {
+    pub fn cache_key(&self) -> Value {
+        json!({"text":self.text.trim(),"from":self.from,"to":self.to})
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextResponse {
     pub detected: Lang,
