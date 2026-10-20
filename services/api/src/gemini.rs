@@ -214,7 +214,8 @@ async fn gateway_json<T: DeserializeOwned>(
             json!({"type":"image_url", "image_url":{"url":format!("data:{};base64,{}", media["mimeType"].as_str().unwrap_or_default(), media["data"].as_str().unwrap_or_default())}})
         }
     }).collect();
-    let body = json!({"model":"roamie-structured", "messages":[{"role":"system","content":system},{"role":"user","content":content}], "temperature":0.2, "response_format":{"type":"json_schema", "json_schema":{"name":"roamie_response", "schema":schema}}});
+    // agentgateway forwards only this camelCase form; reasoning_effort "none" still lets Gemini 2.5 think.
+    let body = json!({"model":"roamie-structured", "messages":[{"role":"system","content":system},{"role":"user","content":content}], "temperature":0.2, "thinking_config":{"thinkingBudget":0}, "response_format":{"type":"json_schema", "json_schema":{"name":"roamie_response", "schema":schema}}});
     let mut response = gateway
         .post(
             "/v1/chat/completions",
@@ -306,6 +307,35 @@ mod tests {
         let client = Gemini::with_gateway(gateway);
         let answer: Value = crate::gateway::scope("verified-customer".into(), "talk/turn".into(), client.json("translate", vec![Gemini::text("bonjour"), Gemini::inline("audio/mp4", "YQ==")], json!({"type":"OBJECT","properties":{"translation":{"type":"STRING"}},"required":["translation"]}))).await.unwrap();
         assert_eq!(answer["translation"], "hello");
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn gateway_requests_disable_hidden_thinking() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let gateway =
+            crate::gateway::Gateway::for_test(format!("http://{}", listener.local_addr().unwrap()));
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(|Json(body): Json<Value>| async move {
+                Json(json!({"choices":[{"message":{"content":body["thinking_config"].to_string()}}]}))
+            }),
+        );
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client = Gemini::with_gateway(gateway);
+        let sent: Value = crate::gateway::scope(
+            "verified-customer".into(),
+            "talk/turn".into(),
+            client.json(
+                "translate",
+                vec![Gemini::text("bonjour")],
+                json!({"type":"OBJECT"}),
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(sent, json!({"thinkingBudget": 0}));
         server.abort();
         let _ = server.await;
     }
