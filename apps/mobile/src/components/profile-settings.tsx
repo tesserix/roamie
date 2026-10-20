@@ -1,5 +1,4 @@
-import { PrivacyLinks } from './privacy-links';
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Modal, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
@@ -8,9 +7,12 @@ import { font, space, useColors } from '@/constants/theme';
 import { CommunicationCards } from './communication-cards';
 import { signalFeedback } from '@/lib/feedback';
 import { stopSpeaking } from '@/lib/voice';
+import { session } from '@/lib/auth-client';
+import { PrivacyLinks } from './privacy-links';
 
 export function ProfileSettings() {
   const [open, setOpen] = useState(false);
+  const customer = useSyncExternalStore(session.subscribe, session.current);
   const settings = useAccessibility(), c = useColors(), insets = useSafeAreaInsets();
   return <>
     <Pressable accessibilityRole="button" accessibilityLabel="Profile settings" onPress={() => setOpen(true)} style={({ pressed }) => ({ minWidth: 48, minHeight: 48, borderRadius: 24, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
@@ -66,7 +68,7 @@ export function ProfileSettings() {
             <Text style={[font.body, { color: c.muted }]}>In Translate, you can type, read replies or show a large message. With a screen reader, double-tap to start recording and again to finish.</Text>
           </View>
           <CommunicationCards />
-          <PrivacyLinks />
+          {customer && <PrivacyLinks />}
           {settings.error ? <Text accessibilityRole="alert" style={{ color: c.danger }}>{settings.error}</Text> : null}
         </ScrollView>
       </View>

@@ -1,8 +1,13 @@
-import { apiRequest } from './trip-api';
+import { ApiError as RequestError, apiRequest } from './trip-api';
 import type { StatementLine } from './statement';
 const OFFLINE = "Can't reach Roamie. Check your connection and try again.";
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  constructor(message: string, public readonly status?: number, public readonly code?: string) { super(message); }
+  get retryable() {
+    return this.status === undefined ? this.code === 'network' || this.code === 'timeout' : [408, 502, 503, 504].includes(this.status);
+  }
+}
 
 async function call<T>(path: string, payload?: unknown, signal?: AbortSignal, milliseconds = 65000): Promise<T> {
   try {
@@ -12,7 +17,14 @@ async function call<T>(path: string, payload?: unknown, signal?: AbortSignal, mi
       return body as T;
     }, milliseconds, signal, payload === undefined ? 'GET' : 'POST');
   } catch (error) {
-    throw new ApiError(error instanceof TypeError ? OFFLINE : error instanceof Error ? error.message : OFFLINE);
+    if (signal?.aborted) throw new ApiError('Request cancelled.', undefined, 'cancelled');
+    if (error instanceof ApiError) throw error;
+    if (error instanceof RequestError) throw new ApiError(error.message, error.status, error.code);
+    if (error instanceof TypeError) throw new ApiError(OFFLINE, undefined, 'network');
+    if (error instanceof Error && (error.name === 'AbortError' || error.message === 'Request cancelled or timed out.')) {
+      throw new ApiError('This request took too long. Please try again.', 408, 'timeout');
+    }
+    throw new ApiError(error instanceof Error ? error.message : OFFLINE);
   }
 }
 
@@ -37,14 +49,32 @@ export type TurnRequest = {
   mine: string;
   partner: string;
   autoMine?: boolean;
+  partnerLocked?: boolean;
   expectedSpeaker?: 'mine' | 'partner';
   audio?: { data: string; mimeType: string };
   text?: string;
   history: { original: string; translation: string }[];
 };
 
-export const talkTurn = (req: TurnRequest, signal?: AbortSignal) =>
-  call<TurnResponse>('/v1/talk/turn', req, signal);
+export async function talkTurn(req: TurnRequest, signal?: AbortSignal, onRetry?: () => void): Promise<TurnResponse> {
+  const input = req.audio ? { ...req, history: [] } : req;
+  const deadline = Date.now() + 90000;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await call<TurnResponse>('/v1/talk/turn', input, signal, Math.min(65000, Math.max(1, deadline - Date.now())));
+    } catch (error) {
+      const temporary = error instanceof ApiError && error.retryable;
+      if (!temporary || attempt >= 1 || signal?.aborted || Date.now() >= deadline) throw error;
+      onRetry?.();
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(new ApiError('Request cancelled.', undefined, 'cancelled')); };
+        const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, 1000 + Math.random() * 400);
+        signal?.addEventListener('abort', abort, { once: true });
+        if (signal?.aborted) abort();
+      });
+    }
+  }
+}
 
 export type VoiceGender = 'female' | 'male';
 

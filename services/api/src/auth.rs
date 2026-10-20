@@ -305,13 +305,16 @@ pub async fn require_customer(
         });
         return Ok(private_response(next.run(request).await));
     }
-    let token = request
-        .headers()
-        .get(header::AUTHORIZATION)
+    let mut credentials = request.headers().get_all(header::AUTHORIZATION).iter();
+    let token = credentials
+        .next()
         .and_then(|h| h.to_str().ok())
         .and_then(|h| h.strip_prefix("Bearer "))
         .filter(|t| !t.is_empty())
         .ok_or(AuthError::Required)?;
+    if credentials.next().is_some() {
+        return Err(AuthError::Required);
+    }
     let customer = state
         .auth
         .as_ref()

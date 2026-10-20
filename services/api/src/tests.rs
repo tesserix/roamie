@@ -68,6 +68,7 @@ pub(crate) fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc
         ocr: None,
         jev: None,
         memories: crate::memories::Renderer::new(),
+        audio: crate::audio::Gate::new(),
         talk_turns: crate::cache::Recent::default(),
         text_translations: crate::cache::Recent::default(),
         phrasebook: None,
@@ -157,9 +158,9 @@ async fn partner_speech_is_translated_into_my_language() {
 }
 
 #[tokio::test]
+#[cfg(media_tests)]
 async fn translation_voice_follows_the_speakers_voice_register() {
-    let spoken =
-        json!({ "mine": "en", "partner": "th", "audio": {"mimeType":"audio/mp4","data":"AAAA"} });
+    let spoken = json!({ "mine": "en", "partner": "th", "audio": {"mimeType":"audio/mp4","data":base64::Engine::encode(&base64::engine::general_purpose::STANDARD, include_bytes!("../testdata/speech-th.m4a"))} });
     let typed = json!({ "mine": "en", "partner": "th", "text": "สวัสดี" });
     for (register, request, want) in [
         (json!("lower"), &spoken, json!("male")),
@@ -1804,6 +1805,7 @@ async fn conversation_remembers_both_languages_and_tracks_language_switches() {
 }
 
 #[tokio::test]
+#[cfg(media_tests)]
 async fn automatic_conversation_hears_and_translates_in_one_gateway_call_then_jev() {
     use axum::{http::HeaderMap, routing::post, Json, Router};
     let hits = Arc::new(AtomicUsize::new(0));
@@ -1839,7 +1841,7 @@ async fn automatic_conversation_hears_and_translates_in_one_gateway_call_then_je
     mutable.jev = Some(crate::decisions::Jev::with_gateway(gateway));
     for turn in [
         json!({"mine":"en","partner":"or","autoMine":true,"expectedSpeaker":"mine","text":"आप कैसे हैं?","history":[{"original":"नमस्ते","translation":"ନମସ୍କାର"}]}),
-        json!({"mine":"en","partner":"or","autoMine":true,"expectedSpeaker":"mine","audio":{"mimeType":"audio/mp4","data":"AAAA"},"history":[{"original":"नमस्ते","translation":"ନମସ୍କାର"}]}),
+        json!({"mine":"en","partner":"or","autoMine":true,"expectedSpeaker":"mine","audio":{"mimeType":"audio/mp4","data":base64::Engine::encode(&base64::engine::general_purpose::STANDARD, include_bytes!("../testdata/speech-th.m4a"))},"history":[{"original":"नमस्ते","translation":"ନମସ୍କାର"}]}),
     ] {
         let before = hits.load(Ordering::SeqCst);
         let (status, body) = crate::gateway::scope(
@@ -2056,6 +2058,7 @@ async fn planning_rejects_oversized_or_control_character_interests() {
 }
 
 #[tokio::test]
+#[cfg(media_tests)]
 async fn repeated_typed_requests_reuse_the_answer_but_new_context_or_recordings_do_not() {
     let (model, hits) = upstream(StatusCode::OK, model_reply(json!({"language":"en","confidence":0.99,"transcript":"Where is the toilet?","to_mine":"Where is the toilet?","to_partner":"ห้องน้ำอยู่ที่ไหน","translation":"ห้องน้ำอยู่ที่ไหน","romanized":"hong nam yu thi nai"}))).await;
     let s = state(&model, "http://unused", None);
@@ -2083,13 +2086,13 @@ async fn repeated_typed_requests_reuse_the_answer_but_new_context_or_recordings_
         (
             "recording",
             "/v1/talk/turn",
-            json!({"mine":"en","partner":"th","audio":{"mimeType":"audio/mp4","data":"AAAA"}}),
+            json!({"mine":"en","partner":"th","audio":{"mimeType":"audio/mp4","data":base64::Engine::encode(&base64::engine::general_purpose::STANDARD, include_bytes!("../testdata/speech-th.m4a"))}}),
             1,
         ),
         (
             "same recording",
             "/v1/talk/turn",
-            json!({"mine":"en","partner":"th","audio":{"mimeType":"audio/mp4","data":"AAAA"}}),
+            json!({"mine":"en","partner":"th","audio":{"mimeType":"audio/mp4","data":base64::Engine::encode(&base64::engine::general_purpose::STANDARD, include_bytes!("../testdata/speech-th.m4a"))}}),
             1,
         ),
         (
@@ -2325,4 +2328,95 @@ async fn conversation_turns_and_sign_lines_are_kept_in_the_phrasebook() {
             "test-model".into()
         )]
     );
+}
+
+#[tokio::test]
+async fn locked_partner_preserves_bengali_reply_target_and_allows_source_language_changes() {
+    for (detected, expected, from_me) in [("ja", "bn", false), ("hi", "ja", true)] {
+        let (ai, _) = upstream(StatusCode::OK, model_reply(json!({"language":detected,"confidence":0.99,"transcript":"test","to_mine":"Bengali reply","to_partner":"Japanese reply"}))).await;
+        let (status, body) = call(state(&ai,"http://unused",None),"POST","/v1/talk/turn",Some(json!({"mine":"bn","partner":"ja","partnerLocked":true,"autoMine":true,"expectedSpeaker":"partner","text":"test"}))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["target"], expected);
+        assert_eq!(body["partner"], "ja");
+        assert_eq!(body["fromMe"], from_me);
+        assert_eq!(body["mine"], if from_me { detected } else { "bn" });
+    }
+}
+
+#[tokio::test]
+#[cfg(media_tests)]
+async fn real_multilingual_audio_reaches_translation_after_speech_detection() {
+    use base64::Engine;
+    for audio in [
+        include_bytes!("../testdata/speech-en.m4a").as_slice(),
+        include_bytes!("../testdata/speech-ja.m4a").as_slice(),
+        include_bytes!("../testdata/speech-hi.m4a").as_slice(),
+        include_bytes!("../testdata/speech-th.m4a").as_slice(),
+        include_bytes!("../testdata/short-en.m4a").as_slice(),
+        include_bytes!("../testdata/short-ja.m4a").as_slice(),
+        include_bytes!("../testdata/short-hi.m4a").as_slice(),
+        include_bytes!("../testdata/short-th.m4a").as_slice(),
+    ] {
+        let (ai, hits) = upstream(StatusCode::OK, model_reply(json!({"language":"en","confidence":0.99,"transcript":"Hello","to_mine":"Hello","to_partner":"こんにちは"}))).await;
+        let (status, body) = call(state(&ai,"http://unused",None), "POST", "/v1/talk/turn", Some(json!({"mine":"en","partner":"ja","audio":{"mimeType":"audio/mp4","data":base64::engine::general_purpose::STANDARD.encode(audio)}}))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["transcript"], "Hello");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[tokio::test]
+#[cfg(media_tests)]
+async fn quiet_audio_cannot_become_a_new_turn_even_when_history_contains_a_phrase() {
+    use base64::Engine;
+    let mut pcm = vec![0_i16; 32000];
+    for sample in &mut pcm[16000..16080] {
+        *sample = 12000;
+    }
+    let mut wav = b"RIFF".to_vec();
+    wav.extend_from_slice(&(36 + pcm.len() as u32 * 2).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16_u32.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&16000_u32.to_le_bytes());
+    wav.extend_from_slice(&32000_u32.to_le_bytes());
+    wav.extend_from_slice(&2_u16.to_le_bytes());
+    wav.extend_from_slice(&16_u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(pcm.len() as u32 * 2).to_le_bytes());
+    wav.extend(pcm.iter().flat_map(|sample| sample.to_le_bytes()));
+    let (ai, hits) = upstream(
+        StatusCode::OK,
+        model_reply(json!({"language":"en","confidence":0.99,"transcript":"Water and a receipt, please.","to_mine":"Water and a receipt, please.","to_partner":"水と領収書をお願いします。"})),
+    ).await;
+    let (status, body) = call(
+        state(&ai, "http://unused", None), "POST", "/v1/talk/turn",
+        Some(json!({"mine":"en","partner":"ja","audio":{"mimeType":"audio/wav","data":base64::engine::general_purpose::STANDARD.encode(wav)},"history":[{"original":"Water and a receipt, please.","translation":"水と領収書をお願いします。"}]})),
+    ).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["error"], "no_speech");
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+#[cfg(media_tests)]
+async fn malformed_audio_is_rejected_without_contacting_translation() {
+    let (ai, hits) = upstream(StatusCode::OK, json!({})).await;
+    for data in [
+        "not-base64".to_owned(),
+        "AAAA".to_owned(),
+        "A".repeat(3 * 1024 * 1024),
+    ] {
+        let (status, body) = call(
+            state(&ai, "http://unused", None),
+            "POST",
+            "/v1/talk/turn",
+            Some(json!({"mine":"en","partner":"ja","audio":{"mimeType":"audio/mp4","data":data}})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["error"], "invalid");
+    }
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
 }

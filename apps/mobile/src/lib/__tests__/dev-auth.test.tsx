@@ -5,11 +5,16 @@ import * as SecureStore from 'expo-secure-store';
 import { AuthProvider, useAuth } from '../auth';
 import { session } from '../auth-client';
 
+jest.mock('../auth-client', () => {
+  process.env.EXPO_PUBLIC_API_URL = 'http://127.0.0.1:8085';
+  return jest.requireActual('../auth-client');
+});
 jest.mock('expo-auth-session', () => ({}));
 jest.mock('expo-web-browser', () => ({ maybeCompleteAuthSession: jest.fn() }));
 jest.mock('expo-secure-store', () => ({ getItemAsync: jest.fn(), deleteItemAsync: jest.fn(), setItemAsync: jest.fn() }));
+const previousUrl = process.env.EXPO_PUBLIC_API_URL;
 const previous = process.env.EXPO_PUBLIC_AUTH_ENABLED;
-afterEach(() => { process.env.EXPO_PUBLIC_AUTH_ENABLED = previous; Object.defineProperty(globalThis, '__DEV__', { value: true, writable: true }); jest.clearAllMocks(); });
+afterEach(() => { process.env.EXPO_PUBLIC_AUTH_ENABLED = previous; process.env.EXPO_PUBLIC_API_URL = previousUrl; Object.defineProperty(globalThis, '__DEV__', { value: true, writable: true }); jest.clearAllMocks(); });
 function Identity() {
  const auth = useAuth();
  return <Text>{auth.ready ? auth.customer?.sub ?? 'signed-out' : 'loading'}</Text>;

@@ -26,7 +26,7 @@ jobs:
       - run: rustup toolchain install 1.97 --profile minimal && rustup default 1.97
       - run: bash scripts/ci/check-rsa-dependency.sh
 
-  memory-video:
+  media:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -34,7 +34,7 @@ jobs:
           persist-credentials: false
       - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg fonts-dejavu-core
       - run: rustup toolchain install 1.97 --profile minimal && rustup default 1.97
-      - run: cargo test --locked -p roamie-api real_mp4
+      - run: cargo test --locked -p roamie-api
         env:
           RUSTFLAGS: --cfg media_tests
 

@@ -1,4 +1,5 @@
 mod accounts;
+mod audio;
 #[cfg(test)]
 mod audit_tests;
 mod auth;
@@ -61,6 +62,7 @@ struct AppState {
     ocr: Option<ocr::Ocr>,
     jev: Option<decisions::Jev>,
     memories: memories::Renderer,
+    audio: audio::Gate,
     talk_turns: cache::Recent<talk::TurnResponse>,
     text_translations: cache::Recent<translate::TextResponse>,
     phrasebook: Option<phrasebook::Phrasebook>,
@@ -148,6 +150,7 @@ async fn main() -> anyhow::Result<()> {
     let phrasebook = database
         .as_ref()
         .map(|db| phrasebook::Phrasebook::new(db.pool.clone(), &model));
+    audio::check_runtime().expect("speech detection runtime must initialize");
     let state = Arc::new(AppState {
         trip_manager: trip_manager::Manager::from_env()?,
         travel_mcp_key: std::env::var("TRAVEL_MCP_API_KEY").ok(),
@@ -161,6 +164,7 @@ async fn main() -> anyhow::Result<()> {
         fx: fx::Fx::new(fx::FX_BASE),
         places,
         memories: memories::Renderer::new(),
+        audio: audio::Gate::new(),
         talk_turns: cache::Recent::default(),
         text_translations: cache::Recent::default(),
         phrasebook,
@@ -327,6 +331,10 @@ async fn talk_turn(
     Extension(customer): Extension<auth::Customer>,
     Json(req): Json<talk::TurnRequest>,
 ) -> Result<Json<talk::TurnResponse>> {
+    req.utterance()?;
+    if let Some(audio) = &req.audio {
+        s.audio.verify(audio).await?;
+    }
     let ai = s.ai.as_ref().ok_or(Error::Unavailable("Translation"))?;
     let key = req.cache_key().map(|k| cache::key(&customer.sub, &k));
     if let Some(hit) = key.as_ref().and_then(|k| s.talk_turns.get(k)) {

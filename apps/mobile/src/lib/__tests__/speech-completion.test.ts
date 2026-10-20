@@ -25,6 +25,29 @@ test('stopping speech releases the waiting conversation without reporting succes
   for (let i = 0; i < 10; i++) await Promise.resolve();
   stopSpeaking();
   expect(await playback).toBe(false);
+  expect(synthesizeSpeech).not.toHaveBeenCalled();
+});
+
+test('an unusable installed device voice falls back to generated speech and waits for playback', async () => {
+  jest.mocked(synthesizeSpeech).mockResolvedValue({ data: 'UklGRg==', mimeType: 'audio/wav' });
+  let finish!: (status: { didJustFinish: boolean }) => void;
+  const player = { addListener: jest.fn((_event: string, callback: typeof finish) => { finish = callback; return { remove: jest.fn() }; }), play: jest.fn(), pause: jest.fn(), remove: jest.fn() };
+  jest.mocked(createAudioPlayer).mockReturnValue(player as never);
+  let completed = false;
+  const playback = speak('Hello', 'en').then(result => { completed = true; return result; });
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  const native = jest.mocked(Speech.speak).mock.calls[0][1];
+  native?.onError?.(new Error('Voice data unavailable'));
+  native?.onError?.(new Error('Duplicate native failure'));
+  native?.onStopped?.();
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  expect(synthesizeSpeech).toHaveBeenCalledTimes(1);
+  expect(synthesizeSpeech).toHaveBeenCalledWith('Hello', 'en', undefined, expect.any(AbortSignal));
+  expect(player.play).toHaveBeenCalledTimes(1);
+  expect(completed).toBe(false);
+  finish({ didJustFinish: true });
+  expect(await playback).toBe(true);
+  expect(player.remove).toHaveBeenCalledTimes(1);
 });
 
 test('Odia without a device voice uses generated audio and waits for the listener to hear it', async () => {

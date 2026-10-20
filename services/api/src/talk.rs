@@ -34,6 +34,8 @@ pub struct TurnRequest {
     pub history: Vec<HistoryTurn>,
     #[serde(default)]
     pub auto_mine: bool,
+    #[serde(default)]
+    pub partner_locked: bool,
     pub expected_speaker: Option<Speaker>,
 }
 
@@ -93,7 +95,7 @@ impl TurnRequest {
             .map(|turn| [&turn.original, &turn.translation])
             .collect();
         Some(
-            json!({"mine":self.mine,"partner":self.partner,"autoMine":self.auto_mine,"expectedSpeaker":self.expected_speaker,"text":self.text.as_deref()?.trim(),"history":history}),
+            json!({"mine":self.mine,"partner":self.partner,"autoMine":self.auto_mine,"partnerLocked":self.partner_locked,"expectedSpeaker":self.expected_speaker,"text":self.text.as_deref()?.trim(),"history":history}),
         )
     }
 }
@@ -203,9 +205,13 @@ pub async fn interpret(
     }
     let detected = Lang::parse(&heard.language)
         .ok_or_else(|| Error::Upstream(format!("unknown language {:?}", heard.language)))?;
+    if req.partner_locked && !req.auto_mine && detected != req.mine && detected != req.partner {
+        return Err(Error::Invalid("This speech does not match the chosen languages. Choose a language above and try again.".into()));
+    }
     let from_me = detected == req.mine
         || (req.auto_mine
-            && (req.expected_speaker == Some(Speaker::Mine)
+            && (req.partner_locked
+                || req.expected_speaker == Some(Speaker::Mine)
                 || (req.expected_speaker.is_none()
                     && req.history.is_empty()
                     && req.partner != req.mine))
@@ -218,6 +224,11 @@ pub async fn interpret(
     let direction = if from_me {
         Direction {
             target: req.partner.clone(),
+            partner: req.partner.clone(),
+        }
+    } else if req.partner_locked {
+        Direction {
+            target: mine.clone(),
             partner: req.partner.clone(),
         }
     } else {
@@ -383,6 +394,7 @@ mod tests {
     fn request(audio: Option<(&str, &str)>, text: Option<&str>) -> TurnRequest {
         TurnRequest {
             auto_mine: false,
+            partner_locked: false,
             expected_speaker: None,
             mine: l("en"),
             partner: l("th"),

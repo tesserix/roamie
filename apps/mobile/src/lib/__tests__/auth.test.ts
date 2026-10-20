@@ -61,12 +61,15 @@ test('logout finishes locally when remote revocation never responds', async () =
   jest.useFakeTimers();
   try {
     await session.accept({ accessToken: 'access', refreshToken: 'refresh', expiresIn: 600 }, user, config, 'ios');
-    jest.mocked(AuthSession.revokeAsync).mockImplementation(() => new Promise<boolean>(() => {}));
+    global.fetch = jest.fn<typeof global.fetch>().mockImplementation((_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
+    }));
     let outcome: boolean | undefined;
     const pending = session.logout().then(value => { outcome = value; });
     await jest.advanceTimersByTimeAsync(15_001);
     expect(session.current()).toBeNull();
-    expect(AuthSession.revokeAsync).toHaveBeenCalledTimes(1);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(global.fetch).mock.calls[0][1]?.signal?.aborted).toBe(true);
     expect(outcome).toBe(false);
     await pending;
   } finally { jest.useRealTimers(); }

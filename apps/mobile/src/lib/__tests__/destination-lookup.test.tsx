@@ -2,6 +2,10 @@ import { afterEach, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { fetch } from 'expo/fetch';
 import { DestinationLookup } from '../../components/destination-lookup';
+jest.mock('../auth-client', () => {
+  process.env.EXPO_PUBLIC_API_URL = 'http://127.0.0.1:8085';
+  return jest.requireActual('../auth-client');
+});
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}) }));
 const previous = process.env.EXPO_PUBLIC_AUTH_ENABLED;

@@ -67,6 +67,34 @@ export function speak(text: string, lang: string, key = text, gender?: VoiceGend
     };
     let timeout = setTimeout(() => { stopSpeaking(); done(false); }, 60000);
     finishSpeech = done;
+    let generated = false;
+    const playGenerated = async () => {
+      if (finished || revision !== speechRevision || generated) return;
+      generated = true;
+      clearTimeout(timeout);
+      timeout = setTimeout(() => { stopSpeaking(); done(false); }, 120000);
+      const controller = new AbortController();
+      cleanup = () => controller.abort();
+      const audio = await synthesizeSpeech(text, lang, gender, controller.signal);
+      if (finished || revision !== speechRevision) return;
+      const file = new File(Paths.cache, `roamie-speech-${Date.now()}-${revision}.wav`);
+      cleanup = () => { controller.abort(); if (file.exists) file.delete(); };
+      file.write(audio.data, { encoding: 'base64' });
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      if (finished || revision !== speechRevision) { cleanup(); return; }
+      const player = createAudioPlayer(file.uri);
+      const subscription = player.addListener('playbackStatusUpdate', status => {
+        if (status.didJustFinish) done(true);
+      });
+      cleanup = () => {
+        controller.abort();
+        subscription.remove();
+        player.pause();
+        player.remove();
+        if (file.exists) file.delete();
+      };
+      player.play();
+    };
     const play = async () => {
       voices ??= Speech.getAvailableVoicesAsync().catch(() => []);
       const region = lang === getLocales()[0]?.languageCode ? (getLocales()[0]?.regionCode ?? undefined) : undefined;
@@ -74,32 +102,10 @@ export function speak(text: string, lang: string, key = text, gender?: VoiceGend
       if (finished || revision !== speechRevision) return;
       setCurrent(key);
       if (!voice) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => { stopSpeaking(); done(false); }, 120000);
-        const controller = new AbortController();
-        cleanup = () => controller.abort();
-        const audio = await synthesizeSpeech(text, lang, gender, controller.signal);
-        if (finished || revision !== speechRevision) return;
-        const file = new File(Paths.cache, `roamie-speech-${Date.now()}-${revision}.wav`);
-        cleanup = () => { controller.abort(); if (file.exists) file.delete(); };
-        file.write(audio.data, { encoding: 'base64' });
-        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
-        if (finished || revision !== speechRevision) { cleanup(); return; }
-        const player = createAudioPlayer(file.uri);
-        const subscription = player.addListener('playbackStatusUpdate', status => {
-          if (status.didJustFinish) done(true);
-        });
-        cleanup = () => {
-          controller.abort();
-          subscription.remove();
-          player.pause();
-          player.remove();
-          if (file.exists) file.delete();
-        };
-        player.play();
+        await playGenerated();
         return;
       }
-      Speech.speak(text, { language: lang, voice, rate: RATE, onDone: () => done(true), onStopped: () => done(false), onError: () => done(false) });
+      Speech.speak(text, { language: lang, voice, rate: RATE, onDone: () => done(true), onStopped: () => { if (!generated) done(false); }, onError: () => { void playGenerated().catch(() => done(false)); } });
     };
     void play().catch(() => done(false));
   });

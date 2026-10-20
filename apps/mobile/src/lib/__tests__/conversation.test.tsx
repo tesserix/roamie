@@ -1,7 +1,7 @@
 import { afterEach, expect, jest, test } from '@jest/globals';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { requestRecordingPermissionsAsync, useAudioRecorder } from 'expo-audio';
+import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync, useAudioRecorder } from 'expo-audio';
 import { AppState } from 'react-native';
 import * as Speech from 'expo-speech';
 import Talk from '../../app/index';
@@ -15,27 +15,38 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 jest.mock('expo-location', () => ({ getForegroundPermissionsAsync: jest.fn(async () => ({ granted: false })) }));
 jest.mock('expo-audio', () => {
   const recorder = { uri: 'file:///turn.m4a', prepareToRecordAsync: async () => {}, record: jest.fn(), stop: async () => {}, getStatus: () => ({ isRecording: true, durationMillis: 0, metering: -60, mediaServicesDidReset: false }) };
-  return { RecordingPresets: { HIGH_QUALITY: {} }, requestRecordingPermissionsAsync: jest.fn(async () => ({ granted: true })), setAudioModeAsync: jest.fn(async () => {}), useAudioRecorder: () => recorder };
+  return { RecordingPresets: { HIGH_QUALITY: {} }, getRecordingPermissionsAsync: jest.fn(async () => ({ granted: true })), requestRecordingPermissionsAsync: jest.fn(async () => ({ granted: true })), setAudioModeAsync: jest.fn(async () => {}), useAudioRecorder: () => recorder };
 });
 jest.mock('expo/fetch', () => ({ fetch: (...args: Parameters<typeof global.fetch>) => global.fetch(...args) }));
 jest.mock('expo-file-system', () => ({ File: class { exists = true; async base64() { return 'YXVkaW8='; } delete() {} } }));
-jest.mock('expo-speech', () => ({ VoiceQuality: { Default: 'Default', Enhanced: 'Enhanced' }, stop: jest.fn(), speak: jest.fn(), getAvailableVoicesAsync: jest.fn(async () => [{ identifier: 'english', language: 'en-US' }, { identifier: 'com.apple.voice.compact.en-US.Samantha', language: 'en-US' }, { identifier: 'com.apple.voice.compact.en-GB.Daniel', language: 'en-GB' }, { identifier: 'hindi', language: 'hi-IN' }, { identifier: 'odia-test', language: 'or-IN' }]) }));
+jest.mock('expo-speech', () => ({ VoiceQuality: { Default: 'Default', Enhanced: 'Enhanced' }, stop: jest.fn(), speak: jest.fn(), getAvailableVoicesAsync: jest.fn(async () => [{ identifier: 'english', language: 'en-US' }, { identifier: 'com.apple.voice.compact.en-US.Samantha', language: 'en-US' }, { identifier: 'com.apple.voice.compact.en-GB.Daniel', language: 'en-GB' }, { identifier: 'hindi', language: 'hi-IN' }, { identifier: 'odia-test', language: 'or-IN' }, { identifier: 'ja-test', language: 'ja-JP' }, { identifier: 'bn-test', language: 'bn-IN' }]) }));
 jest.mock('expo-notifications', () => ({ cancelAllScheduledNotificationsAsync: jest.fn(async () => {}) }));
 
 function ReadyTalk() { return useStore().ready ? <Talk /> : null; }
 async function open(talkLanguage?: string | null) {
+  AppState.currentState = 'active';
   jest.spyOn(session, 'current').mockReturnValue({ sub: 'conversation-test', name: 'Test traveller', email: 'test@example.invalid' });
   jest.mocked(AsyncStorage.getItem).mockResolvedValue(JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, partner: null, talkLanguage, expenses: [] }));
   await render(<StoreProvider accountId="conversation-test"><ReadyTalk /></StoreProvider>);
 }
 const originalFetch = global.fetch;
-afterEach(() => { jest.restoreAllMocks(); global.fetch = originalFetch; });
+const originalAppState = AppState.currentState;
+afterEach(() => { jest.restoreAllMocks(); global.fetch = originalFetch; AppState.currentState = originalAppState; });
 
 test('microphone starts without a partner language or location permission', async () => {
+  jest.mocked(getRecordingPermissionsAsync).mockResolvedValueOnce({ granted: false } as never);
   await open();
   await fireEvent.press(await screen.findByRole('button', { name: 'Start recording' }));
   expect(requestRecordingPermissionsAsync).toHaveBeenCalled();
   expect(await screen.findByRole('button', { name: 'Finish and translate' })).toBeTruthy();
+});
+
+test('manual capture with granted permission does not open another Android permission request', async () => {
+  await open();
+  jest.mocked(requestRecordingPermissionsAsync).mockClear();
+  await fireEvent.press(screen.getByRole('button', { name: 'Start recording' }));
+  expect(getRecordingPermissionsAsync).toHaveBeenCalled();
+  expect(requestRecordingPermissionsAsync).not.toHaveBeenCalled();
 });
 
 test('Hindi is detected first and an English reply uses the remembered Hindi target', async () => {
@@ -101,6 +112,32 @@ test.each([
   expect(within(enlarged).getByText(reply.translation).props.accessibilityLanguage).toBe(reply.target);
   if (reply.romanized) expect(within(enlarged).getByText(reply.romanized)).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+});
+
+test('a selected partner language stays fixed and a Japanese reply targets the last detected Bengali', async () => {
+  jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
+  jest.mocked(Speech.speak).mockImplementationOnce((_text, options) => { options?.onDone?.(); }).mockImplementationOnce((_text, options) => { options?.onDone?.(); });
+  const replies = [
+    { detected: 'bn', mine: 'bn', fromMe: true, partner: 'ja', target: 'ja', transcript: 'স্টেশনে কীভাবে যাব?', translation: '駅にはどう行けばいいですか。', sameLanguage: false },
+    { detected: 'ja', mine: 'bn', fromMe: false, partner: 'ja', target: 'bn', transcript: 'まっすぐ行ってください。', translation: 'সোজা যান।', sameLanguage: false },
+  ];
+  const fetch = jest.fn<typeof global.fetch>().mockImplementation(async () => ({ ok: true, status: 200, json: async () => replies.shift() }) as Response);
+  global.fetch = fetch;
+  await open();
+  await fireEvent.press(screen.getByRole('button', { name: 'Their language: Auto-detect. Choose manually' }));
+  await fireEvent.changeText(screen.getByLabelText('Search languages'), 'Japanese');
+  await fireEvent.press(screen.getByRole('button', { name: 'Japanese' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Type instead' }));
+  for (const text of ['স্টেশনে কীভাবে যাব?', 'まっすぐ行ってください。']) {
+    await fireEvent.changeText(screen.getByLabelText('Type something to translate'), text);
+    await fireEvent.press(screen.getByRole('button', { name: 'Translate' }));
+    await waitFor(() => expect(screen.queryByText('Finding the words…')).toBeNull());
+  }
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(JSON.parse(fetch.mock.calls[1][1]?.body as string)).toMatchObject({ mine: 'bn', partner: 'ja', partnerLocked: true, expectedSpeaker: 'mine' });
+  expect(screen.getByRole('button', { name: 'Their language: Japanese. Change' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Your language: Auto-detect (Bengali). Change' })).toBeTruthy();
+  expect(screen.getByText('সোজা যান।')).toBeTruthy();
 });
 
 test('speaking the preferred language first does not invent a partner language', async () => {
@@ -209,6 +246,62 @@ test('backgrounding the app ends hands-free capture without restarting on foregr
   expect(screen.queryByRole('button', { name: 'Stop hands-free conversation' })).toBeNull();
 });
 
+test('backgrounding cancels manual capture and returns ready without sending partial audio', async () => {
+  const subscribe = jest.spyOn(AppState, 'addEventListener');
+  const recorder = useAudioRecorder({} as never);
+  const stop = jest.spyOn(recorder, 'stop');
+  const fetch = jest.fn<typeof global.fetch>();
+  global.fetch = fetch;
+  await open();
+  stop.mockClear();
+  jest.mocked(recorder.record).mockClear();
+  await fireEvent.press(screen.getByRole('button', { name: 'Start recording' }));
+  expect(recorder.record).toHaveBeenCalledTimes(1);
+  const listeners = subscribe.mock.calls.filter(([event]) => event === 'change').map(([, listener]) => listener);
+  await act(async () => { AppState.currentState = 'background'; listeners.forEach(listener => listener('background')); });
+  expect(stop).toHaveBeenCalledTimes(1);
+  await act(async () => { AppState.currentState = 'active'; listeners.forEach(listener => listener('active')); });
+  expect(screen.getByRole('button', { name: 'Start recording' }).props.accessibilityState.disabled).toBe(false);
+  expect(recorder.record).toHaveBeenCalledTimes(1);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+test('returning from background cannot start a microphone that was still preparing', async () => {
+  const subscribe = jest.spyOn(AppState, 'addEventListener');
+  const recorder = useAudioRecorder({} as never);
+  let prepare!: () => void;
+  const preparing = jest.spyOn(recorder, 'prepareToRecordAsync').mockImplementationOnce(() => new Promise(resolve => { prepare = resolve; }));
+  await open();
+  preparing.mockClear();
+  jest.mocked(recorder.record).mockClear();
+  await fireEvent.press(screen.getByRole('button', { name: 'Start recording' }));
+  await waitFor(() => expect(preparing).toHaveBeenCalledTimes(1));
+  const listeners = subscribe.mock.calls.filter(([event]) => event === 'change').map(([, listener]) => listener);
+  await act(async () => { AppState.currentState = 'background'; listeners.forEach(listener => listener('background')); });
+  await act(async () => { AppState.currentState = 'active'; listeners.forEach(listener => listener('active')); prepare(); });
+  expect(recorder.record).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Start recording' }).props.accessibilityState.disabled).toBe(false);
+});
+
+test('backgrounding while finishing capture does not stop the native recorder twice or send stale audio', async () => {
+  const subscribe = jest.spyOn(AppState, 'addEventListener');
+  const recorder = useAudioRecorder({} as never);
+  let finish!: () => void;
+  const stop = jest.spyOn(recorder, 'stop').mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const fetch = jest.fn<typeof global.fetch>();
+  global.fetch = fetch;
+  await open();
+  stop.mockClear();
+  await fireEvent.press(screen.getByRole('button', { name: 'Start recording' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Finish and translate' }));
+  const listeners = subscribe.mock.calls.filter(([event]) => event === 'change').map(([, listener]) => listener);
+  await act(async () => { AppState.currentState = 'background'; listeners.forEach(listener => listener('background')); });
+  expect(stop).toHaveBeenCalledTimes(1);
+  await act(async () => { AppState.currentState = 'active'; listeners.forEach(listener => listener('active')); finish(); });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Start recording' }).props.accessibilityState.disabled).toBe(false);
+});
+
 test('stopping hands-free discards a late translation without speaking or restarting', async () => {
   jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
   let finish!: (response: Response) => void;
@@ -241,7 +334,7 @@ test('stopping hands-free discards a late translation without speaking or restar
 
 test('a speech failure keeps the translated turn and tells the traveller how to retry playback', async () => {
   jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
-  global.fetch = jest.fn<typeof global.fetch>().mockResolvedValue({ ok: true, status: 200, json: async () => ({ detected: 'hi', partner: 'hi', target: 'en', transcript: 'नमस्ते', translation: 'Hello', sameLanguage: false }) } as Response);
+  global.fetch = jest.fn<typeof global.fetch>().mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ detected: 'hi', partner: 'hi', target: 'en', transcript: 'नमस्ते', translation: 'Hello', sameLanguage: false }) } as Response).mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({ error: 'unavailable', message: 'Speech unavailable.' }) } as Response);
   jest.mocked(Speech.speak).mockClear();
   await open();
   await fireEvent.press(await screen.findByRole('button', { name: 'Type instead' }));
@@ -251,7 +344,8 @@ test('a speech failure keeps the translated turn and tells the traveller how to 
   await act(async () => { jest.mocked(Speech.speak).mock.calls[0][1]?.onError?.(new Error('unavailable')); });
   expect(await screen.findByText('The translation is ready, but speech could not play. Tap Read aloud to retry or use Show them.')).toBeTruthy();
   expect(screen.getByText('Hello')).toBeTruthy();
-  expect(global.fetch).toHaveBeenCalledTimes(1);
+  expect(global.fetch).toHaveBeenCalledTimes(2);
+  expect(jest.mocked(global.fetch).mock.calls[1][0]).toContain('/v1/talk/speech');
 });
 
 test('a JEV review turn stays visible without speaking or remembering an uncertain new language', async () => {
@@ -371,6 +465,7 @@ test('clearing a conversation stops an active manual recording', async () => {
 });
 
 test('clearing while microphone permission is pending prevents a late recording', async () => {
+  jest.mocked(getRecordingPermissionsAsync).mockResolvedValueOnce({ granted: false } as never);
   jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
   global.fetch = jest.fn<typeof global.fetch>().mockResolvedValue({ ok: true, status: 200, json: async () => ({ detected: 'en', partner: 'en', target: 'en', transcript: 'Hello', translation: 'Hello', sameLanguage: true }) } as Response);
   await open();
@@ -388,4 +483,197 @@ test('clearing while microphone permission is pending prevents a late recording'
   await act(async () => allow({ granted: true } as never));
   expect(record).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'Start recording' })).toBeTruthy();
+});
+
+test('clearing while manual capture prepares cannot overlap a hands-free recorder', async () => {
+  jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
+  global.fetch = jest.fn<typeof global.fetch>().mockResolvedValue({ ok: true, status: 200, json: async () => ({ detected: 'en', partner: 'en', target: 'en', transcript: 'Hello', translation: 'Hello', sameLanguage: true }) } as Response);
+  await open();
+  await fireEvent.press(screen.getByRole('button', { name: 'Type instead' }));
+  await fireEvent.changeText(screen.getByLabelText('Type something to translate'), 'Hello');
+  await fireEvent.press(screen.getByRole('button', { name: 'Translate' }));
+  await screen.findByText('Hello');
+  await fireEvent.press(screen.getByRole('button', { name: 'Close keyboard' }));
+  const recorder = useAudioRecorder({} as never);
+  let prepare!: () => void;
+  const preparing = jest.spyOn(recorder, 'prepareToRecordAsync').mockImplementationOnce(() => new Promise(resolve => { prepare = resolve; }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Start recording' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Clear conversation' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Start hands-free conversation' }));
+  expect(preparing).toHaveBeenCalledTimes(1);
+  await act(async () => prepare());
+  await fireEvent.press(screen.getByRole('button', { name: 'Start hands-free conversation' }));
+  await waitFor(() => expect(preparing).toHaveBeenCalledTimes(2));
+  await fireEvent.press(screen.getByRole('button', { name: 'Stop hands-free conversation' }));
+});
+
+test('first manual permission waits for the iOS foreground transition before recording', async () => {
+  const subscribe = jest.spyOn(AppState, 'addEventListener');
+  jest.mocked(getRecordingPermissionsAsync).mockResolvedValueOnce({ granted: false } as never);
+  jest.mocked(requestRecordingPermissionsAsync).mockImplementationOnce(async () => {
+    const listeners = subscribe.mock.calls.filter(([event]) => event === 'change').map(([, listener]) => listener);
+    AppState.currentState = 'inactive';
+    listeners.forEach(listener => listener('inactive'));
+    setTimeout(() => { AppState.currentState = 'active'; listeners.forEach(listener => listener('active')); }, 500);
+    return { granted: true } as never;
+  });
+  try {
+    await open();
+    const recorder = useAudioRecorder({} as never);
+    jest.mocked(recorder.record).mockClear();
+    jest.useFakeTimers();
+    await fireEvent.press(screen.getByRole('button', { name: 'Start recording' }));
+    await act(async () => { await jest.advanceTimersByTimeAsync(200); });
+    expect(recorder.record).not.toHaveBeenCalled();
+    await act(async () => { await jest.advanceTimersByTimeAsync(500); });
+    expect(recorder.record).toHaveBeenCalledTimes(1);
+    const listeners = subscribe.mock.calls.filter(([event]) => event === 'change').map(([, listener]) => listener);
+    await act(async () => { AppState.currentState = 'background'; listeners.forEach(listener => listener('background')); });
+  } finally { jest.useRealTimers(); }
+});
+
+test('first hands-free permission activity returns to listening without a second tap', async () => {
+  const subscribe = jest.spyOn(AppState, 'addEventListener');
+  AppState.currentState = 'active';
+  jest.mocked(getRecordingPermissionsAsync).mockResolvedValueOnce({ granted: false } as never);
+  jest.mocked(requestRecordingPermissionsAsync).mockImplementationOnce(async () => {
+    const listeners = subscribe.mock.calls.filter(([event]) => event === 'change').map(([, listener]) => listener);
+    listeners.forEach(listener => listener('background'));
+    listeners.forEach(listener => listener('active'));
+    return { granted: true } as never;
+  });
+  await open();
+  await fireEvent.press(screen.getByRole('button', { name: 'Start hands-free conversation' }));
+  expect(await screen.findByText('Listening · pause to translate')).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Stop hands-free conversation' }));
+  expect(await screen.findByRole('button', { name: 'Start hands-free conversation' })).toBeTruthy();
+});
+
+async function startMeteredConversation(recorder: ReturnType<typeof useAudioRecorder>) {
+  jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
+  await open();
+  let level = -60;
+  jest.spyOn(recorder, 'getStatus').mockImplementation(() => ({ isRecording: true, canRecord: true, durationMillis: 0, metering: level, mediaServicesDidReset: false, url: recorder.uri }));
+  jest.mocked(recorder.record).mockClear();
+  jest.useFakeTimers();
+  await fireEvent.press(screen.getByRole('button', { name: 'Start hands-free conversation' }));
+  return (next: number) => { level = next; };
+}
+
+async function finishRecordedPhrase(level: (next: number) => void) {
+  level(-20);
+  await act(async () => { await jest.advanceTimersByTimeAsync(500); });
+  level(-60);
+  await act(async () => { await jest.advanceTimersByTimeAsync(1300); });
+}
+
+test('unclear hands-free speech asks for repetition and resumes without a stuck request', async () => {
+  global.fetch = jest.fn<typeof global.fetch>().mockResolvedValueOnce({ ok: false, status: 422, json: async () => ({ error: 'no_speech', message: "Didn't catch that." }) } as Response);
+  try {
+    const level = await startMeteredConversation(useAudioRecorder({} as never));
+    await finishRecordedPhrase(level);
+    await act(async () => { await jest.advanceTimersByTimeAsync(400); });
+    expect(screen.getByRole('button', { name: 'Stop hands-free conversation' })).toBeTruthy();
+    expect(screen.getByText('Still listening. Please repeat a little closer.')).toBeTruthy();
+    expect(useAudioRecorder({} as never).record).toHaveBeenCalledTimes(2);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByRole('button', { name: 'Stop hands-free conversation' }));
+  } finally { jest.useRealTimers(); }
+});
+
+test('a forbidden hands-free response stops safely and releases the busy controls', async () => {
+  global.fetch = jest.fn<typeof global.fetch>().mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: 'forbidden', message: 'Access denied.' }) } as Response);
+  try {
+    const level = await startMeteredConversation(useAudioRecorder({} as never));
+    await finishRecordedPhrase(level);
+    expect(screen.getByRole('button', { name: 'Start hands-free conversation' }).props.accessibilityState.disabled).toBe(false);
+    expect(screen.getByText('Access denied.')).toBeTruthy();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  } finally { jest.useRealTimers(); }
+});
+
+test('unavailable speech playback keeps the translation visible and resumes hands-free', async () => {
+  global.fetch = jest.fn<typeof global.fetch>().mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ detected: 'ja', partner: 'ja', target: 'en', transcript: 'こんにちは', translation: 'Hello', sameLanguage: false }) } as Response);
+  try {
+    const level = await startMeteredConversation(useAudioRecorder({} as never));
+    await finishRecordedPhrase(level);
+    await act(async () => { jest.mocked(Speech.speak).mock.calls.at(-1)![1]?.onError?.(new Error('voice unavailable')); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(400); });
+    expect(screen.getByText('Hello')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Stop hands-free conversation' })).toBeTruthy();
+    expect(screen.getByText('Translation is on screen. Still listening.')).toBeTruthy();
+    expect(useAudioRecorder({} as never).record).toHaveBeenCalledTimes(2);
+    await fireEvent.press(screen.getByRole('button', { name: 'Stop hands-free conversation' }));
+  } finally { jest.useRealTimers(); }
+});
+
+test('repeated unclear speech stays hands-free and accepts the next clear phrase after a cooldown', async () => {
+  const unclear = { ok: false, status: 422, json: async () => ({ error: 'no_speech', message: "Didn't catch that." }) } as Response;
+  global.fetch = jest.fn<typeof global.fetch>().mockResolvedValueOnce(unclear).mockResolvedValueOnce(unclear).mockResolvedValueOnce(unclear).mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ detected: 'en', partner: 'ja', target: 'en', transcript: 'Please bring water.', translation: 'Please bring water.', sameLanguage: true }) } as Response);
+  try {
+    const level = await startMeteredConversation(useAudioRecorder({} as never));
+    for (let i = 0; i < 3; i++) {
+      await finishRecordedPhrase(level);
+      await act(async () => { await jest.advanceTimersByTimeAsync(400); });
+    }
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole('button', { name: 'Stop hands-free conversation' })).toBeTruthy();
+    expect(useAudioRecorder({} as never).record).toHaveBeenCalledTimes(3);
+    await act(async () => { await jest.advanceTimersByTimeAsync(3000); });
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+    expect(useAudioRecorder({} as never).record).toHaveBeenCalledTimes(4);
+    await finishRecordedPhrase(level);
+    await act(async () => { await jest.advanceTimersByTimeAsync(400); });
+    expect(screen.getAllByText('Please bring water.').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Stop hands-free conversation' })).toBeTruthy();
+    expect(global.fetch).toHaveBeenCalledTimes(4);
+    await fireEvent.press(screen.getByRole('button', { name: 'Stop hands-free conversation' }));
+  } finally { jest.useRealTimers(); }
+});
+
+test('stop during unclear-speech cooldown prevents a late microphone restart', async () => {
+  global.fetch = jest.fn<typeof global.fetch>().mockResolvedValue({ ok: false, status: 422, json: async () => ({ error: 'no_speech', message: "Didn't catch that." }) } as Response);
+  try {
+    const level = await startMeteredConversation(useAudioRecorder({} as never));
+    for (let i = 0; i < 3; i++) {
+      await finishRecordedPhrase(level);
+      await act(async () => { await jest.advanceTimersByTimeAsync(400); });
+    }
+    expect(screen.getByText('Speech wasn’t clear. Please wait a moment…')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Stop hands-free conversation' }));
+    await act(async () => { await jest.advanceTimersByTimeAsync(5000); });
+    expect(useAudioRecorder({} as never).record).toHaveBeenCalledTimes(3);
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole('button', { name: 'Start recording' }).props.accessibilityState.disabled).toBe(false);
+  } finally { jest.useRealTimers(); }
+});
+
+test('repeated service failures stop gracefully rather than looping requests indefinitely', async () => {
+  global.fetch = jest.fn<typeof global.fetch>().mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: 'unavailable', message: 'Temporarily unavailable.' }) } as Response);
+  try {
+    const level = await startMeteredConversation(useAudioRecorder({} as never));
+    for (let i = 0; i < 3; i++) {
+      await finishRecordedPhrase(level);
+      await act(async () => { await jest.advanceTimersByTimeAsync(2400); });
+    }
+    expect(global.fetch).toHaveBeenCalledTimes(6);
+    expect(screen.getByRole('button', { name: 'Start hands-free conversation' }).props.accessibilityState.disabled).toBe(false);
+    expect(screen.getByText('Conversation paused after several attempts. Check your microphone or connection, then try again or use Type.')).toBeTruthy();
+  } finally { jest.useRealTimers(); }
+});
+
+test('a pending permission preflight cannot start recording after leaving and returning', async () => {
+  const subscribe = jest.spyOn(AppState, 'addEventListener');
+  let finish!: (permission: Awaited<ReturnType<typeof getRecordingPermissionsAsync>>) => void;
+  jest.mocked(getRecordingPermissionsAsync).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  await open();
+  const recorder = useAudioRecorder({} as never);
+  jest.mocked(recorder.record).mockClear();
+  await fireEvent.press(screen.getByRole('button', { name: 'Start recording' }));
+  expect(recorder.record).not.toHaveBeenCalled();
+  const listeners = subscribe.mock.calls.filter(([event]) => event === 'change').map(([, listener]) => listener);
+  await act(async () => { AppState.currentState = 'background'; listeners.forEach(listener => listener('background')); });
+  await act(async () => { AppState.currentState = 'active'; listeners.forEach(listener => listener('active')); finish({ granted: true } as never); });
+  expect(recorder.record).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Start recording' }).props.accessibilityState.disabled).toBe(false);
 });

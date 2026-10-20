@@ -379,7 +379,7 @@ impl Ocr {
         );
         let mut req = self
             .http
-            .request(method, format!("{base}{path}"))
+            .request(method.clone(), format!("{base}{path}"))
             .header("X-OCR-Key-Id", &self.key_id)
             .header("X-OCR-Tenant-Id", &self.tenant)
             .header("X-OCR-Timestamp", ts.to_string())
@@ -393,6 +393,12 @@ impl Ocr {
         let res = req.send().await?;
         let status = res.status();
         if !status.is_success() {
+            tracing::warn!(
+                status = status.as_u16(),
+                method = method.as_str(),
+                path,
+                "OCR request rejected"
+            );
             return Err(Error::Unavailable("Photo reading"));
         }
         let mut res = res;
@@ -403,7 +409,10 @@ impl Ocr {
             }
             bytes.extend_from_slice(&chunk);
         }
-        serde_json::from_slice(&bytes).map_err(|_| Error::Unavailable("Photo reading"))
+        serde_json::from_slice(&bytes).map_err(|error| {
+            tracing::warn!(category = ?error.classify(), method = method.as_str(), path, "OCR response invalid");
+            Error::Unavailable("Photo reading")
+        })
     }
 }
 

@@ -15,6 +15,10 @@ jest.mock('react-native-view-shot', () => ({ captureRef: jest.fn() }));
 jest.mock('expo-media-library', () => ({}));
 jest.mock('expo-file-system', () => ({ Paths: { document: 'file:///test' }, Directory: class { uri = 'file:///test'; }, File: class {} }));
 jest.mock('expo-video', () => ({ useVideoPlayer: jest.fn(() => ({pause:jest.fn(),replaceAsync:jest.fn(async () => {})})), VideoView: () => null }));
+jest.mock('../auth-client', () => {
+  process.env.EXPO_PUBLIC_API_URL = 'http://127.0.0.1:8085';
+  return jest.requireActual('../auth-client');
+});
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
 const previousAuth = process.env.EXPO_PUBLIC_AUTH_ENABLED;
 afterEach(() => { process.env.EXPO_PUBLIC_AUTH_ENABLED = previousAuth; jest.restoreAllMocks(); });

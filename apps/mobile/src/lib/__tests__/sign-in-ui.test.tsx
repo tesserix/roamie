@@ -6,9 +6,9 @@ import SignIn from '../../components/sign-in';
 import { AuthProvider } from '../auth';
 import { session } from '../auth-client';
 jest.mock('@react-native-async-storage/async-storage',()=>({getItem:jest.fn(async()=>null),setItem:jest.fn(async()=>{})}));
-jest.mock('expo-secure-store',()=>({getItemAsync:jest.fn(async()=>null),deleteItemAsync:jest.fn(),setItemAsync:jest.fn()}));
+jest.mock('expo-secure-store',()=>({getItemAsync:jest.fn(async()=>null),deleteItemAsync:jest.fn(async()=>{}),setItemAsync:jest.fn(async()=>{})}));
 jest.mock('expo-web-browser',()=>({maybeCompleteAuthSession:jest.fn()}));
-jest.mock('expo-auth-session',()=>({fetchDiscoveryAsync:jest.fn(async()=>({})),AuthRequest:jest.fn(()=>({promptAsync:jest.fn(async()=>({type:'cancel'}))})),ResponseType:{Code:'code'},Prompt:{Login:'login'}}));
+jest.mock('expo-auth-session',()=>({fetchDiscoveryAsync:jest.fn(async()=>({})),AuthRequest:jest.fn(()=>({state:'state',codeVerifier:'verifier',makeAuthUrlAsync:jest.fn(async()=>'https://auth.tesserix.app/oauth/v2/authorize'),promptAsync:jest.fn(async()=>({type:'cancel'}))})),ResponseType:{Code:'code'},Prompt:{Login:'login'}}));
 jest.mock('expo-router',()=>({useIsFocused:()=>false}));
 jest.mock('react-native-safe-area-context',()=>({useSafeAreaInsets:()=>({top:0,bottom:0,left:0,right:0})}));
 jest.mock('@expo/vector-icons/FontAwesome',()=>({__esModule:true,default:()=>null}));
@@ -29,6 +29,15 @@ test.each<typeof Platform.OS>(['ios', 'android'])('%s shows only supported socia
 });
 
 afterEach(() => { jest.restoreAllMocks(); });
+test.each<typeof Platform.OS>(['ios', 'android'])('%s keeps account privacy actions out of sign-in', async platform => {
+ jest.replaceProperty(Platform, 'OS', platform);
+ await session.clear();
+ global.fetch = jest.fn<typeof fetch>().mockResolvedValue({ok:true,json:async()=>({issuer:'https://auth.tesserix.app',organizationId:'org',projectId:'project',clientIds:{ios:'ios',android:'android'},providers:{google:'g',apple:'a'}})} as Response);
+ await render(<AuthProvider><SignIn /></AuthProvider>);
+ await screen.findByRole('button', {name:'Continue with email'});
+ expect(screen.queryByRole('link', {name:'Privacy policy'})).toBeNull();
+ expect(screen.queryByRole('link', {name:'Delete my account'})).toBeNull();
+});
 test.each<[typeof Platform.OS, string, string]>([
  ['ios','google','g'], ['ios','apple','a'], ['android','google','g'],
 ])('%s %s selects the provider directly with PKCE and the registered callback',async(platform,provider,id)=>{
@@ -38,7 +47,7 @@ test.each<[typeof Platform.OS, string, string]>([
  await render(<AuthProvider><SignIn/></AuthProvider>);
  await fireEvent.press(await screen.findByRole('button',{name:'Continue with '+provider[0].toUpperCase()+provider.slice(1)}));
  const request=jest.mocked(AuthSession.AuthRequest).mock.results.at(-1)?.value as {promptAsync:ReturnType<typeof jest.fn>};
- expect(request.promptAsync).toHaveBeenCalledWith(expect.objectContaining({authorizationEndpoint:'https://auth.tesserix.app/oauth/v2/authorize',tokenEndpoint:'https://auth.tesserix.app/oauth/v2/token'}));
+ expect(request.promptAsync).toHaveBeenCalledWith(expect.objectContaining({authorizationEndpoint:'https://auth.tesserix.app/oauth/v2/authorize',tokenEndpoint:'https://auth.tesserix.app/oauth/v2/token'}),{url:'https://auth.tesserix.app/oauth/v2/authorize'});
  expect(AuthSession.AuthRequest).toHaveBeenCalledWith(expect.objectContaining({clientId:platform,usePKCE:true,redirectUri:'roamie:/auth/callback',responseType:'code',scopes:expect.arrayContaining(['urn:zitadel:iam:org:id:org','urn:zitadel:iam:org:project:id:project:aud','urn:zitadel:iam:org:idp:id:'+id])}));
  const options=jest.mocked(AuthSession.AuthRequest).mock.calls.at(-1)?.[0];
  expect(options?.prompt).toBeUndefined();

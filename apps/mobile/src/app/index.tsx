@@ -1,7 +1,7 @@
 import { useIsFocused } from 'expo-router';
 import type { SFSymbol } from 'expo-symbols';
 import {
-  RecordingPresets,
+  getRecordingPermissionsAsync,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   useAudioRecorder,
@@ -25,6 +25,8 @@ import {
 } from 'react-native';
 import { CommunicationCards } from '@/components/communication-cards';
 import { HandsFreeConversation } from '@/lib/hands-free';
+import { waitForMicrophoneForeground } from '@/lib/microphone';
+import { SPEECH_RECORDING } from '@/lib/recording';
 import { signalFeedback } from '@/lib/feedback';
 import { ProfileSettings } from '@/components/profile-settings';
 import { RecordButton, type RecordingPhase } from '@/components/record-button';
@@ -63,13 +65,6 @@ const MODES: { value: Mode; label: string; icon: SFSymbol }[] = [
 ];
 
 const MIN_HOLD_MS = 400;
-const SPEECH_RECORDING = {
-  ...RecordingPresets.HIGH_QUALITY,
-  isMeteringEnabled: true,
-  numberOfChannels: 1,
-  bitRate: 64000,
-  web: { ...RecordingPresets.HIGH_QUALITY.web, bitsPerSecond: 64000 },
-};
 
 
 export default function Talk() {
@@ -86,8 +81,9 @@ export default function Talk() {
   const [mine, setMine] = useState(talkLanguage ?? profile!.language);
   const [autoMine, setAutoMine] = useState(!talkLanguage);
   const partner = saved;
-  const languages = useRef({ mine, partner, autoMine });
-  languages.current = { mine, partner, autoMine };
+  const [autoPartner, setAutoPartner] = useState(!saved);
+  const languages = useRef({ mine, partner, autoMine, autoPartner });
+  languages.current = { mine, partner, autoMine, autoPartner };
   const expectedSpeaker = useRef<TurnRequest['expectedSpeaker']>(undefined);
 
   const recorder = useAudioRecorder(SPEECH_RECORDING);
@@ -95,18 +91,22 @@ export default function Talk() {
   const recording = useRef(false);
   const captureRevision = useRef(0);
   const recordingLock = useRef(false);
+  const requestingPermission = useRef(false);
   const sending = useRef(false);
   const request = useRef<AbortController | null>(null);
   const automaticRequest = useRef(false);
   const playbackCanceled = useRef(false);
   const playbackRevision = useRef(0);
   const history = useRef<TurnRequest['history']>([]);
+  const failedTurns = useRef(0);
+  const unclearTurns = useRef(0);
   const list = useRef<FlatList<Turn>>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [turns, setTurns] = useState<Turn[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<Pick<TurnRequest, 'text'> | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
   const [picking, setPicking] = useState<'mine' | 'partner' | null>(null);
   const [typing, setTyping] = useState(false);
   const [keyboard, setKeyboard] = useState(false);
@@ -119,9 +119,11 @@ export default function Talk() {
   useEffect(() => { sendRef.current = send; });
   useEffect(() => {
     const loop = new HandsFreeConversation(recorder, {
-      onActive: setHandsFree,
+      onActive: active => { setHandsFree(active); if (!active) setRecoveryNotice(null); },
+      isForeground: () => focusedRef.current && AppState.currentState === 'active',
       onPhase: setPhase,
       onError: setError,
+      onRecovery: setRecoveryNotice,
       onTurn: async (uri, active) => {
         const data = await new File(uri).base64();
         if (active()) await sendRef.current({ audio: { data, mimeType: 'audio/mp4' } }, active);
@@ -130,7 +132,14 @@ export default function Talk() {
     conversation.current = loop;
     const subscription = AppState.addEventListener('change', state => {
       if (state !== 'active') {
-        loop.stop();
+        loop.onAppBackground();
+        if (!requestingPermission.current) captureRevision.current++;
+        if (recording.current) {
+          recording.current = false;
+          recordingLock.current = true;
+          void recorder.stop().catch(() => {}).then(() => setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }))
+            .catch(() => {}).finally(() => { recordingLock.current = false; setPhase('idle'); });
+        }
         if (automaticRequest.current) request.current?.abort();
       }
     });
@@ -162,14 +171,20 @@ export default function Talk() {
     setPhase('thinking');
     setError(null);
     setNotice(null);
+    setRecoveryNotice(null);
     try {
       const current = languages.current;
-      const res = await talkTurn({ mine: current.mine, partner: current.partner ?? current.mine, autoMine: current.autoMine, expectedSpeaker: expectedSpeaker.current, history: history.current, ...input }, controller.signal);
+      const res = await talkTurn({ mine: current.mine, partner: current.partner ?? current.mine, autoMine: current.autoMine, partnerLocked: !current.autoPartner, expectedSpeaker: current.autoPartner ? expectedSpeaker.current : 'mine', history: history.current, ...input }, controller.signal, () => setRecoveryNotice('Connection interrupted. Retrying…'));
       if (controller.signal.aborted || (automatic && !automatic())) return;
+      const fromMe = !current.autoPartner && current.autoMine ? res.detected !== current.partner : res.fromMe ?? res.detected === current.mine;
+      const turnMine = current.autoMine && fromMe ? res.detected : current.mine;
+      if (!current.autoPartner && (res.partner !== current.partner || res.target !== (fromMe ? current.partner : turnMine))) {
+        throw new ApiError('The translation did not match the chosen languages. Please try again or check the languages above.', 422, 'language_mismatch');
+      }
+      failedTurns.current = 0; unclearTurns.current = 0;
+      setRecoveryNotice(null);
       setPending(null);
       if (!res.reviewRequired) history.current = [...history.current, { original: res.transcript, translation: res.translation }].slice(-6);
-      const fromMe = res.fromMe ?? res.detected === current.mine;
-      const turnMine = res.mine ?? current.mine;
       setTurns((t) => [
         ...t,
         {
@@ -192,7 +207,7 @@ export default function Talk() {
       }
       if (focusedRef.current) signalFeedback(accessibilityRef.current.vibration);
       if (current.autoMine && fromMe) { languages.current.mine = turnMine; setMine(turnMine); }
-      if (!fromMe) { languages.current.partner = res.partner; setPartner(res.partner); }
+      if (!fromMe && current.autoPartner) { languages.current.partner = res.partner; setPartner(res.partner); }
       expectedSpeaker.current = fromMe ? 'partner' : 'mine';
       if (!current.partner && fromMe) setNotice('Let the other person speak once so we can detect their language, or choose it above.');
       if (focusedRef.current && !res.sameLanguage && !accessibilityRef.current.quiet && (!accessibilityRef.current.screenReader || automatic)) {
@@ -200,7 +215,7 @@ export default function Talk() {
         setPhase('speaking');
         const playback = speak(res.translation, res.target, undefined, playbackVoice(accessibilityRef.current.voice, res.voice));
         const played = await playback;
-        if (!played && automatic?.()) throw new Error('Playback stopped. Start hands-free again, or use quiet mode.');
+        if (!played && automatic?.()) setRecoveryNotice('Translation is on screen. Still listening.');
         if (!played && !automatic && focusedRef.current && !playbackCanceled.current) {
           setNotice('The translation is ready, but speech could not play. Tap Read aloud to retry or use Show them.');
         }
@@ -208,7 +223,32 @@ export default function Talk() {
       if (accessibilityRef.current.screenReader && !automatic) AccessibilityInfo.announceForAccessibility('Translation ready.');
     } catch (e) {
       if (controller.signal.aborted) return;
-      if (automatic) { if (automatic()) throw e; return; }
+      if (automatic) {
+        if (!automatic()) return;
+        const unclear = e instanceof ApiError && e.status === 422 && e.code === 'no_speech';
+        if (unclear) {
+          unclearTurns.current++;
+          if (unclearTurns.current >= 3) {
+            setRecoveryNotice('Speech wasn’t clear. Please wait a moment…');
+            await new Promise<void>(resolve => {
+              const finish = () => { clearTimeout(timer); controller.signal.removeEventListener('abort', finish); resolve(); };
+              const timer = setTimeout(finish, 3000);
+              controller.signal.addEventListener('abort', finish, { once: true });
+              if (controller.signal.aborted) finish();
+            });
+            if (!automatic()) return;
+          }
+          setRecoveryNotice('Still listening. Please repeat a little closer.');
+          return;
+        }
+        if (e instanceof ApiError && e.retryable) {
+          failedTurns.current++;
+          if (failedTurns.current >= 3) throw new Error('Conversation paused after several attempts. Check your microphone or connection, then try again or use Type.');
+          setRecoveryNotice('Connection interrupted. Still listening. Please repeat when connected.');
+          return;
+        }
+        throw e;
+      }
       if (input.text) setDraft(current => current || input.text!);
       setError(e instanceof ApiError ? e.message : 'Something went wrong. Please try again.');
     } finally {
@@ -241,13 +281,23 @@ export default function Talk() {
     setPhase('starting');
     setError(null);
     try {
-      const permission = await requestRecordingPermissionsAsync();
+      let permission = await getRecordingPermissionsAsync();
+      if (revision !== captureRevision.current) return;
+      if (!permission.granted) {
+        requestingPermission.current = true;
+        try {
+          permission = await requestRecordingPermissionsAsync();
+          if (permission.granted) await waitForMicrophoneForeground(() => revision === captureRevision.current && focusedRef.current, () => AppState.currentState === 'active');
+        }
+        finally { requestingPermission.current = false; }
+      }
       if (revision !== captureRevision.current) return;
       if (!focusedRef.current) { setPhase('idle'); return; }
       if (!permission.granted) throw new Error('Allow microphone access in Settings, or choose Type instead.');
+      if (AppState.currentState !== 'active') throw new Error('Return to Roamie, then start recording again.');
       stopSpeaking();
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
+      await recorder.prepareToRecordAsync(SPEECH_RECORDING);
       if (revision !== captureRevision.current) {
         await recorder.stop().catch(() => {});
         await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
@@ -263,7 +313,10 @@ export default function Talk() {
       if (revision !== captureRevision.current) return;
       setError(error instanceof Error ? error.message : 'Could not open the microphone. Type instead.');
       setPhase('idle');
-    } finally { recordingLock.current = false; }
+    } finally {
+      recordingLock.current = false;
+      if (revision !== captureRevision.current) setPhase('idle');
+    }
   }
 
   async function stopListening() {
@@ -271,9 +324,9 @@ export default function Talk() {
     recordingLock.current = true;
     const revision = captureRevision.current;
     setPhase('thinking');
+    recording.current = false;
     try {
       await recorder.stop();
-      recording.current = false;
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       if (Date.now() - startedAt.current < MIN_HOLD_MS || !recorder.uri) throw new Error('No speech recorded. Tap the microphone and try again, or type instead.');
       const data = await new File(recorder.uri).base64();
@@ -283,11 +336,15 @@ export default function Talk() {
       if (revision !== captureRevision.current) return;
       setError(error instanceof Error ? error.message : 'Could not finish recording. Try again.');
       setPhase('idle');
-    } finally { recordingLock.current = false; }
+    } finally {
+      recordingLock.current = false;
+      if (revision !== captureRevision.current) setPhase('idle');
+    }
   }
 
   useEffect(() => {
     if (focused) return;
+    captureRevision.current++;
     stopSpeaking();
     if (recording.current) {
       recording.current = false;
@@ -315,6 +372,7 @@ export default function Talk() {
   const busy = phase !== 'idle' || pending !== null;
   const status =
     error ??
+    recoveryNotice ??
     (pending && phase === 'idle' ? 'Finishing the previous request…' : phase === 'speaking' ? 'Speaking…' : phase === 'listening' ? (handsFree ? 'Listening · pause to translate' : 'Listening…') : phase === 'thinking' ? 'Translating…' : notice ? notice : typing ? null : accessibility.quiet ? 'Quiet mode · both sides stay on screen.' : null);
 
   useEffect(() => {
@@ -343,16 +401,18 @@ export default function Talk() {
                 recordingLock.current = true;
                 void recorder.stop().then(() => setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }))
                   .catch(() => setError('Could not stop the microphone. Leave this screen and try again.'))
-                  .finally(() => { recordingLock.current = false; });
+                  .finally(() => { recordingLock.current = false; setPhase('idle'); });
               }
               request.current?.abort();
               request.current = null;
               sending.current = false;
               playbackCanceled.current = true;
               setPending(null);
-              setPhase('idle');
+              setPhase(recordingLock.current ? 'starting' : 'idle');
               setError(null);
               setNotice(null);
+              setRecoveryNotice(null);
+              failedTurns.current = 0; unclearTurns.current = 0;
               setTurns([]);
               history.current = [];
               expectedSpeaker.current = undefined;
@@ -411,7 +471,7 @@ export default function Talk() {
           disabled={busy}
           onPress={() => setPicking('partner')}
           style={({ pressed }) => [styles.langSide, { minHeight: 48, justifyContent: 'center', alignItems: 'flex-end', opacity: pressed ? 0.6 : 1 }]}>
-          <Text maxFontSizeMultiplier={2} style={[font.overline, { color: c.muted }]}>Them · auto</Text>
+          <Text maxFontSizeMultiplier={2} style={[font.overline, { color: c.muted }]}>{autoPartner ? 'Them · auto' : 'Them'}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <Text maxFontSizeMultiplier={2} style={[font.headline, { color: partner ? c.text : c.accent, flexShrink: 1 }]} >
               {partner ? languageName(partner) : 'Auto-detect'}
@@ -515,7 +575,7 @@ export default function Talk() {
               <Pressable accessibilityRole="button" accessibilityLabel="Start hands-free conversation"
                 accessibilityHint="Listens for pauses, translates, and speaks each reply. Stop at any time."
                 disabled={busy} accessibilityState={{ disabled: busy }}
-                onPress={() => { if (!sending.current && !recording.current) { setError(null); setNotice(null); void conversation.current?.start(); } }}
+                onPress={() => { if (!sending.current && !recording.current && !recordingLock.current) { setError(null); setNotice(null); setRecoveryNotice(null); failedTurns.current = 0; unclearTurns.current = 0; void conversation.current?.start(); } }}
                 style={({ pressed }) => [styles.sideAction, { opacity: busy ? 0.4 : pressed ? 0.7 : 1 }]}>
                 <View style={[styles.sideIcon, { backgroundColor: c.accentSoft }]}><Icon name="waveform" size={22} color={c.accent} /></View>
                 <Text maxFontSizeMultiplier={2} style={[font.caption, { color: c.accent, fontWeight: '600', textAlign: 'center' }]}>Hands-free</Text>
@@ -533,14 +593,14 @@ export default function Talk() {
         visible={picking !== null}
         allowAuto
         title={picking === 'mine' ? 'Your language' : 'Their language'}
-        selected={picking === 'mine' ? (autoMine ? '' : mine) : partner ?? ''}
+        selected={picking === 'mine' ? (autoMine ? '' : mine) : autoPartner ? '' : partner ?? ''}
         onPick={code => {
           if (picking === 'mine') {
             languages.current.autoMine = !code;
             setAutoMine(!code);
             setTalkLanguage(code || null);
             if (code) { languages.current.mine = code; setMine(code); }
-          } else { languages.current.partner = code || null; setPartner(code || null); }
+          } else { languages.current.partner = code || null; languages.current.autoPartner = !code; setAutoPartner(!code); setPartner(code || null); }
           expectedSpeaker.current = undefined;
           history.current = [];
         }}

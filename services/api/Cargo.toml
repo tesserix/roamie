@@ -4,6 +4,7 @@ version = "0.1.3"
 edition = "2021"
 
 [dependencies]
+ort.workspace = true
 time.workspace = true
 ts-rs.workspace = true
 image.workspace = true

@@ -15,7 +15,7 @@ type Tokens = { accessToken: string; refreshToken?: string; expiresIn?: number; 
 type SavedSession = { refreshToken: string; customer: Customer; config: AuthConfig; platform: NativePlatform };
 type Session = SavedSession & { accessToken: string; expiresAt: number };
 
-export const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? (__DEV__ ? 'http://localhost:8080' : 'https://roamie-api.tesserix.app');
+export const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://roamie-api.tesserix.app';
 export function developmentAuthDisabled(): boolean {
   if (!__DEV__ || process.env.EXPO_PUBLIC_AUTH_ENABLED !== 'false') return false;
   const url = new URL(API_BASE);
@@ -52,6 +52,26 @@ function persist(value: Session, expected: number): Promise<void> {
 }
 
 function notify() { listeners.forEach(listener => listener()); }
+
+const PENDING_KEY = 'roamie.auth.pending.v1';
+const PENDING_TTL_MS = 30 * 60_000;
+type PendingSignIn = { state: string; codeVerifier: string; clientId: string; expiresAt: number };
+
+// Android may kill the app while the sign-in browser is open; the redirect then cold-starts it.
+export const pendingSignIn = {
+  save: (state: string, codeVerifier: string, clientId: string) => SecureStore.setItemAsync(PENDING_KEY,
+    JSON.stringify({ state, codeVerifier, clientId, expiresAt: Date.now() + PENDING_TTL_MS }), { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
+  clear: () => SecureStore.deleteItemAsync(PENDING_KEY),
+  async take(): Promise<PendingSignIn | null> {
+    const raw = await SecureStore.getItemAsync(PENDING_KEY);
+    if (!raw) return null;
+    await SecureStore.deleteItemAsync(PENDING_KEY);
+    try {
+      const pending = JSON.parse(raw) as PendingSignIn;
+      return pending.expiresAt > Date.now() ? pending : null;
+    } catch { return null; }
+  },
+};
 
 export async function authDeadline<T>(request: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -174,8 +194,16 @@ export const session = {
     const previous = active;
     await session.clear();
     if (!previous) return true;
+    const controller = new AbortController();
     try {
-      return await authDeadline(AuthSession.revokeAsync({ clientId: previous.config.clientIds[previous.platform], token: previous.refreshToken, tokenTypeHint: AuthSession.TokenTypeHint.RefreshToken }, { revocationEndpoint: `${previous.config.issuer}/oauth/v2/revoke` }));
+      const response = await authDeadline(fetch(`${previous.config.issuer}/oauth/v2/revoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ client_id: previous.config.clientIds[previous.platform], token: previous.refreshToken, token_type_hint: 'refresh_token' }).toString(),
+        signal: controller.signal,
+      }));
+      return response.ok;
     } catch { return false; }
+    finally { controller.abort(); }
   },
 };
