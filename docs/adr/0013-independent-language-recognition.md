@@ -118,3 +118,17 @@ quality, background-noise robustness or production latency SLOs.
 Rollback should revert the GitOps API digest and relevant gateway policy as an
 approved Git change. No database schema changes were introduced. Open-Meteo
 primary/Google weather fallback configuration was preserved.
+
+## Superseded in part — 2026-10-20
+
+Separate recognition doubled serial model time: gateway p50 was about 4.1 s
+per call, so a turn took 7–9 s. Roamie #148 returns to one call per turn that
+recognizes, transcribes and translates into both requested languages. The
+prompt now states that requested languages say nothing about the source, and
+JEV still reviews every turn before playback. With thinking disabled (#147),
+direct Vertex runs (prompt identical to the release) identified every sample:
+Hindi and Vietnamese speech against misleading target pairs, the October 12
+case (English speech with Hindi requested) in 15 of 15 runs, and romanized
+Hindi text as Hindi in 2 of 2, at 3.1–4.7 s per call. Typed input stays
+authoritative. Re-run that case before any prompt change. Rollback: revert
+#148; it changes no API or schema.
