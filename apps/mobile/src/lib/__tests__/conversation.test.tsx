@@ -422,6 +422,67 @@ test('clearing cancels a pending reply and forgets recent context and detected p
   expect(JSON.parse(fetch.mock.calls[2][1]?.body as string)).toMatchObject({ mine: 'en', partner: 'en', history: [] });
 });
 
+test('reopening after a detected Vietnamese reply keeps their language on auto-detect', async () => {
+  jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
+  jest.mocked(Speech.speak).mockImplementation((_text, options) => { options?.onDone?.(); });
+  const fetch = jest.fn<typeof global.fetch>().mockResolvedValue({ ok: true, status: 200, json: async () => ({ detected: 'vi', partner: 'vi', target: 'en', transcript: 'Xin chào', translation: 'Hello', sameLanguage: false }) } as Response);
+  global.fetch = fetch;
+  await open();
+  await fireEvent.press(screen.getByRole('button', { name: 'Type instead' }));
+  await fireEvent.changeText(screen.getByLabelText('Type something to translate'), 'Xin chào');
+  await fireEvent.press(screen.getByRole('button', { name: 'Translate' }));
+  await screen.findByText('Hello');
+  await waitFor(() => expect(AsyncStorage.setItem).toHaveBeenCalled());
+  const saved = jest.mocked(AsyncStorage.setItem).mock.calls.at(-1)![1];
+  await screen.unmount();
+  jest.mocked(AsyncStorage.getItem).mockResolvedValue(saved);
+  await render(<StoreProvider accountId="conversation-test"><ReadyTalk /></StoreProvider>);
+  expect(await screen.findByRole('button', { name: 'Their language: Auto-detect. Choose manually' })).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Type instead' }));
+  await fireEvent.changeText(screen.getByLabelText('Type something to translate'), 'Cảm ơn');
+  await fireEvent.press(screen.getByRole('button', { name: 'Translate' }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(fetch.mock.calls[1][1]?.body as string)).toMatchObject({ partnerLocked: false });
+  await waitFor(() => expect(screen.queryByText('Finding the words…')).toBeNull());
+  expect(screen.queryByText(/did not match/)).toBeNull();
+});
+
+test('clearing keeps a manually chosen partner language locked', async () => {
+  jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
+  jest.mocked(Speech.speak).mockImplementation((_text, options) => { options?.onDone?.(); });
+  const fetch = jest.fn<typeof global.fetch>().mockResolvedValue({ ok: true, status: 200, json: async () => ({ detected: 'ja', partner: 'ja', target: 'en', transcript: 'こんにちは', translation: 'Hello', sameLanguage: false }) } as Response);
+  global.fetch = fetch;
+  await open();
+  await fireEvent.press(screen.getByRole('button', { name: 'Their language: Auto-detect. Choose manually' }));
+  await fireEvent.changeText(screen.getByLabelText('Search languages'), 'Japanese');
+  await fireEvent.press(screen.getByRole('button', { name: 'Japanese' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Type instead' }));
+  await fireEvent.changeText(screen.getByLabelText('Type something to translate'), 'こんにちは');
+  await fireEvent.press(screen.getByRole('button', { name: 'Translate' }));
+  await screen.findByText('Hello');
+  await fireEvent.press(screen.getByRole('button', { name: 'Clear conversation' }));
+  expect(screen.getByRole('button', { name: 'Their language: Japanese. Change' })).toBeTruthy();
+  await fireEvent.changeText(screen.getByLabelText('Type something to translate'), 'こんにちは');
+  await fireEvent.press(screen.getByRole('button', { name: 'Translate' }));
+  await screen.findByText('Hello');
+  expect(JSON.parse(fetch.mock.calls[1][1]?.body as string)).toMatchObject({ mine: 'en', partner: 'ja', partnerLocked: true });
+});
+
+test('a partner saved by an older version opens on auto-detect', async () => {
+  AppState.currentState = 'active';
+  jest.spyOn(session, 'current').mockReturnValue({ sub: 'conversation-test', name: 'Test traveller', email: 'test@example.invalid' });
+  jest.mocked(AsyncStorage.getItem).mockResolvedValue(JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, partner: 'or', talkLanguage: null, expenses: [] }));
+  await render(<StoreProvider accountId="conversation-test"><ReadyTalk /></StoreProvider>);
+  expect(await screen.findByRole('button', { name: 'Their language: Auto-detect. Choose manually' })).toBeTruthy();
+});
+
+test('an explicit partner language remains fixed after reopening the app', async () => {
+  await open();
+  await fireEvent.press(screen.getByRole('button', { name: 'Their language: Auto-detect. Choose manually' }));
+  await fireEvent.changeText(screen.getByLabelText('Search languages'), 'Japanese');
+  await fireEvent.press(screen.getByRole('button', { name: 'Japanese' }));
+  await waitFor(() => expect(JSON.parse(jest.mocked(AsyncStorage.setItem).mock.calls.at(-1)![1]).talkPartner).toBe('ja'));
+});
 
 test('an explicit You language remains fixed after reopening the app', async () => {
   await open('fr');

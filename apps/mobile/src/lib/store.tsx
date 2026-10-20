@@ -23,7 +23,7 @@ export type Expense = {
 type State = {
   profile: Profile | null;
   expenses: Expense[];
-  partner: string | null;
+  talkPartner: string | null;
   talkLanguage: string | null;
 };
 
@@ -34,13 +34,13 @@ type Store = State & {
   saveProfile: (p: Profile) => void;
   addExpense: (e: Omit<Expense, 'id' | 'at'> & { at?: string }) => void;
   removeExpense: (id: string) => void;
-  setPartner: (lang: string | null) => void;
+  setTalkPartner: (lang: string | null) => void;
   setTalkLanguage: (lang: string | null) => void;
   clearAll: () => Promise<void>;
 };
 
 export const accountStorageKey = (accountId: string) => `roamie.v2.auth.tesserix.app.${encodeURIComponent(accountId)}`;
-const EMPTY: State = { profile: null, expenses: [], partner: null, talkLanguage: null };
+const EMPTY: State = { profile: null, expenses: [], talkPartner: null, talkLanguage: null };
 const Ctx = createContext<Store | null>(null);
 
 export function StoreProvider({ children, accountId }: { children: ReactNode; accountId: string }) {
@@ -57,7 +57,7 @@ export function StoreProvider({ children, accountId }: { children: ReactNode; ac
       .then(raw => {
         const saved: State = raw ? JSON.parse(raw) : EMPTY;
         if (!saved || !Array.isArray(saved.expenses) || saved.expenses.some(e => !e || typeof e.id !== 'string' || typeof e.note !== 'string') || (saved.profile !== null && (typeof saved.profile !== 'object' || !saved.profile || typeof saved.profile.homeCurrency !== 'string' || typeof saved.profile.language !== 'string' || !Number.isSafeInteger(saved.profile.budgetMinor) || saved.profile.budgetMinor < 0))) throw new Error('Invalid wallet');
-        if (saved.talkLanguage != null && (typeof saved.talkLanguage !== 'string' || !/^[a-z]{2,3}$/.test(saved.talkLanguage))) throw new Error('Invalid language');
+        if ([saved.talkLanguage, saved.talkPartner].some(lang => lang != null && (typeof lang !== 'string' || !/^[a-z]{2,3}$/.test(lang)))) throw new Error('Invalid language');
         if (mounted) { setState({ ...EMPTY, ...saved }); setReady(true); }
       })
       .catch(() => { if (mounted) setError('We could not open your saved wallet. Your data has not been changed.'); });
@@ -92,7 +92,7 @@ export function StoreProvider({ children, accountId }: { children: ReactNode; ac
     (id: string) => setState((s) => ({ ...s, expenses: s.expenses.filter((e) => e.id !== id) })),
     [],
   );
-  const setPartner = useCallback((partner: string | null) => setState((s) => ({ ...s, partner })), []);
+  const setTalkPartner = useCallback((talkPartner: string | null) => setState((s) => ({ ...s, talkPartner })), []);
   const setTalkLanguage = useCallback((talkLanguage: string | null) => setState((s) => ({ ...s, talkLanguage })), []);
   const clearAll = useCallback(async () => {
     await writes.current;
@@ -101,8 +101,8 @@ export function StoreProvider({ children, accountId }: { children: ReactNode; ac
   }, [key]);
 
   const value = useMemo(
-    () => ({ ...state, ready, error, retry, saveProfile, addExpense, removeExpense, setPartner, setTalkLanguage, clearAll }),
-    [state, ready, error, retry, saveProfile, addExpense, removeExpense, setPartner, setTalkLanguage, clearAll],
+    () => ({ ...state, ready, error, retry, saveProfile, addExpense, removeExpense, setTalkPartner, setTalkLanguage, clearAll }),
+    [state, ready, error, retry, saveProfile, addExpense, removeExpense, setTalkPartner, setTalkLanguage, clearAll],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
