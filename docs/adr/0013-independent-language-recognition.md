@@ -127,7 +127,8 @@ recognizes, transcribes and translates into both requested languages. The
 prompt now states that requested languages say nothing about the source, and
 JEV still reviews every turn before playback. With thinking disabled (#147),
 direct Vertex runs (prompt identical to the release) identified every sample:
-Hindi and Vietnamese speech against misleading target pairs, and the October 12
-case — English speech and text with Hindi requested — in 17 of 17 runs, at
-1.7–4.7 s. Typed input stays authoritative. Re-run that case before any prompt
-change. Rollback: revert #148; it changes no API or schema.
+Hindi and Vietnamese speech against misleading target pairs, the October 12
+case (English speech with Hindi requested) in 15 of 15 runs, and romanized
+Hindi text as Hindi in 2 of 2, at 3.1–4.7 s per call. Typed input stays
+authoritative. Re-run that case before any prompt change. Rollback: revert
+#148; it changes no API or schema.
