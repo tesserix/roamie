@@ -7,6 +7,7 @@ use crate::error::{Error, Result};
 use crate::gemini::Gemini;
 use crate::lang::Lang;
 use crate::ocr::{Line, Ocr, Rect};
+use crate::phrasebook::{Entry, Surface};
 use crate::translate::{pronunciation, STYLE};
 
 const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
@@ -143,6 +144,28 @@ pub async fn translate(
         ocr_job_id: extraction.job_id,
         review,
     })
+}
+
+impl SignResponse {
+    /// Lines the model left untranslated are not phrases.
+    pub fn phrases(&self, to: &Lang) -> Vec<Entry> {
+        self.lines
+            .iter()
+            .filter(|line| line.translation != line.original)
+            .map(|line| Entry {
+                surface: Surface::Sign,
+                from: self.detected.clone(),
+                to: to.clone(),
+                source: line.original.clone(),
+                translation: line.translation.clone(),
+                romanized: String::new(),
+                source_romanized: line.romanized.clone(),
+                alternatives: Vec::new(),
+                confidence: None,
+                review_required: self.review_required,
+            })
+            .collect()
+    }
 }
 
 /// Pairs each OCR line with its translation by index; a line the model skipped keeps its original text.

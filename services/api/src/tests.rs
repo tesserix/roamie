@@ -70,6 +70,7 @@ pub(crate) fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc
         memories: crate::memories::Renderer::new(),
         talk_turns: crate::cache::Recent::default(),
         text_translations: crate::cache::Recent::default(),
+        phrasebook: None,
         http,
     })
 }
@@ -2090,4 +2091,161 @@ async fn failed_answers_are_not_reused() {
         assert_ne!(status, StatusCode::OK);
     }
     assert_eq!(hits.load(Ordering::SeqCst), 2);
+}
+
+fn with_phrasebook(state: Arc<AppState>, pool: sqlx::PgPool) -> Arc<AppState> {
+    let mut s = Arc::into_inner(state).expect("sole owner");
+    s.phrasebook = Some(crate::phrasebook::Phrasebook::new(pool, "test-model"));
+    Arc::new(s)
+}
+
+/// Letters only, so the phrasebook never mistakes it for an account number.
+fn unique_phrase(prefix: &str) -> String {
+    let unique: String = uuid::Uuid::now_v7()
+        .simple()
+        .to_string()
+        .chars()
+        .map(|c| c.to_digit(10).map_or(c, |d| char::from(b'g' + d as u8)))
+        .collect();
+    format!("{prefix} {unique}")
+}
+
+async fn migrated() -> sqlx::PgPool {
+    let pool = sqlx::PgPool::connect(&std::env::var("ROAMIE_TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    pool
+}
+
+/// The phrasebook writes in the background, so wait briefly for the entry to land.
+async fn kept(pool: &sqlx::PgPool, source: &str) -> Vec<(String, String, String, String, String)> {
+    for _ in 0..100 {
+        let rows: Vec<(String, String, String, String, String)> = sqlx::query_as("SELECT surface,source_lang,target_lang,translation,model FROM phrasebook WHERE source_text=$1")
+            .bind(source)
+            .fetch_all(pool)
+            .await
+            .unwrap();
+        if !rows.is_empty() {
+            return rows;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    Vec::new()
+}
+
+#[tokio::test]
+async fn an_unreachable_phrasebook_never_fails_a_translation() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_millis(100))
+        .connect_lazy("postgres://roamie@127.0.0.1:9/roamie")
+        .unwrap();
+    let (model, hits) = upstream(StatusCode::OK, model_reply(json!({"language":"en","confidence":0.95,"transcript":"Where is the toilet?","to_mine":"Where is the toilet?","to_partner":"ห้องน้ำอยู่ที่ไหน","to_mine_romanized":"","to_partner_romanized":"hong nam","translation":"ห้องน้ำอยู่ที่ไหน","romanized":"hong nam","source_romanized":"","alternatives":[]}))).await;
+    let s = with_phrasebook(state(&model, "http://unused", None), pool);
+    for (uri, request) in [
+        (
+            "/v1/translate/text",
+            json!({"text":"Where is the toilet?","from":"en","to":"th"}),
+        ),
+        (
+            "/v1/talk/turn",
+            json!({"mine":"en","partner":"th","text":"Where is the toilet?"}),
+        ),
+    ] {
+        let (status, body) = call(s.clone(), "POST", uri, Some(request)).await;
+        assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+        assert_eq!(body["translation"], "ห้องน้ำอยู่ที่ไหน", "{uri}");
+    }
+    assert_eq!(hits.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+#[ignore = "requires isolated ROAMIE_TEST_DATABASE_URL"]
+async fn another_traveller_is_answered_from_the_phrasebook_without_the_model() {
+    let pool = migrated().await;
+    let source = unique_phrase("Where is the toilet");
+    let (model, hits) = upstream(StatusCode::OK, model_reply(json!({"language":"en","translation":"ห้องน้ำอยู่ที่ไหน","romanized":"hong nam yu thi nai","source_romanized":"","alternatives":[]}))).await;
+    let first = with_phrasebook(state(&model, "http://unused", None), pool.clone());
+    let (status, body) = call(
+        first,
+        "POST",
+        "/v1/translate/text",
+        Some(json!({"text":source,"from":"en","to":"th"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        kept(&pool, &source).await,
+        [(
+            "text".into(),
+            "en".into(),
+            "th".into(),
+            "ห้องน้ำอยู่ที่ไหน".into(),
+            "test-model".into()
+        )]
+    );
+    let cases = [
+        (
+            "known source",
+            json!({"text":format!(" {source}  "),"from":"en","to":"th"}),
+            0,
+        ),
+        ("detected source", json!({"text":source,"to":"th"}), 1),
+    ];
+    for (name, request, model_calls) in cases {
+        let other = with_phrasebook(state(&model, "http://unused", None), pool.clone());
+        let before = hits.load(Ordering::SeqCst);
+        let (status, body) = call(other, "POST", "/v1/translate/text", Some(request)).await;
+        assert_eq!(status, StatusCode::OK, "{name}: {body}");
+        assert_eq!(body["translation"], "ห้องน้ำอยู่ที่ไหน", "{name}");
+        assert_eq!(body["romanized"], "hong nam yu thi nai", "{name}");
+        assert_eq!(hits.load(Ordering::SeqCst) - before, model_calls, "{name}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires isolated ROAMIE_TEST_DATABASE_URL"]
+async fn conversation_turns_and_sign_lines_are_kept_in_the_phrasebook() {
+    let pool = migrated().await;
+    let spoken = unique_phrase("Where is the toilet");
+    let (model, _) = upstream(StatusCode::OK, model_reply(json!({"language":"en","confidence":0.95,"transcript":spoken,"to_mine":spoken,"to_partner":"ห้องน้ำอยู่ที่ไหน","to_mine_romanized":"","to_partner_romanized":"hong nam"}))).await;
+    let s = with_phrasebook(state(&model, "http://unused", None), pool.clone());
+    let (status, body) = call(
+        s,
+        "POST",
+        "/v1/talk/turn",
+        Some(json!({"mine":"en","partner":"th","text":spoken})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        kept(&pool, &spoken).await,
+        [(
+            "talk".into(),
+            "en".into(),
+            "th".into(),
+            "ห้องน้ำอยู่ที่ไหน".into(),
+            "test-model".into()
+        )]
+    );
+    let sign = unique_phrase("出口");
+    let ocr = ocr_service("accepted", json!([observation(&sign, 0)])).await;
+    let (model, _) = upstream(StatusCode::OK, model_reply(json!({"language":"ja", "gist":"Exit", "lines":[{"index":0,"translation":"Exit","romanized":"deguchi"}]}))).await;
+    let s = with_phrasebook(
+        with_ocr(state(&model, "http://unused", None), &ocr),
+        pool.clone(),
+    );
+    let (status, body) = call(s, "POST", "/v1/signs/translate", Some(sign_photo())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        kept(&pool, &sign).await,
+        [(
+            "sign".into(),
+            "ja".into(),
+            "en".into(),
+            "Exit".into(),
+            "test-model".into()
+        )]
+    );
 }
