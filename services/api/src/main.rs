@@ -18,6 +18,7 @@ mod memories;
 mod money;
 mod nearby;
 mod ocr;
+mod phrasebook;
 mod planning_jobs;
 mod privacy;
 mod receipts;
@@ -62,6 +63,7 @@ struct AppState {
     memories: memories::Renderer,
     talk_turns: cache::Recent<talk::TurnResponse>,
     text_translations: cache::Recent<translate::TextResponse>,
+    phrasebook: Option<phrasebook::Phrasebook>,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -106,6 +108,10 @@ async fn main() -> anyhow::Result<()> {
         cfg!(debug_assertions) || gateway.is_some(),
         "AI_GATEWAY_ORIGIN required in release builds"
     );
+    let model = match &gateway {
+        Some(_) => gemini::GATEWAY_MODEL.to_owned(),
+        None => env_or("GEMINI_MODEL", "gemini-2.5-flash"),
+    };
     let ai = if let Some(gateway) = gateway.clone() {
         Some(gemini::Gemini::with_gateway(gateway))
     } else {
@@ -113,7 +119,7 @@ async fn main() -> anyhow::Result<()> {
             http.clone(),
             &env_or("GCP_PROJECT", "tesseracthub-480811"),
             &env_or("VERTEX_LOCATION", "global"),
-            &env_or("GEMINI_MODEL", "gemini-2.5-flash"),
+            &model,
         )
         .await
         .inspect_err(|_| tracing::warn!("development model credentials unavailable"))
@@ -139,6 +145,9 @@ async fn main() -> anyhow::Result<()> {
         ocr.is_none() || jev.is_some(),
         "AI_GATEWAY_ORIGIN required when OCR is configured"
     );
+    let phrasebook = database
+        .as_ref()
+        .map(|db| phrasebook::Phrasebook::new(db.pool.clone(), &model));
     let state = Arc::new(AppState {
         trip_manager: trip_manager::Manager::from_env()?,
         travel_mcp_key: std::env::var("TRAVEL_MCP_API_KEY").ok(),
@@ -154,6 +163,7 @@ async fn main() -> anyhow::Result<()> {
         memories: memories::Renderer::new(),
         talk_turns: cache::Recent::default(),
         text_translations: cache::Recent::default(),
+        phrasebook,
     });
 
     let host = if development_auth_disabled {
@@ -323,6 +333,9 @@ async fn talk_turn(
         return Ok(Json(hit));
     }
     let turn = talk::interpret(ai, s.jev.as_ref(), &req).await?;
+    if let Some(book) = &s.phrasebook {
+        book.remember(vec![turn.phrase()]);
+    }
     if let Some(key) = key {
         s.talk_turns.put(key, turn.clone());
     }
@@ -339,7 +352,7 @@ async fn translate_text(
     if let Some(hit) = s.text_translations.get(&key) {
         return Ok(Json(hit));
     }
-    let translated = translate::text(ai, &req).await?;
+    let translated = translate::text(ai, s.phrasebook.as_ref(), &req).await?;
     s.text_translations.put(key, translated.clone());
     Ok(Json(translated))
 }
@@ -351,7 +364,11 @@ async fn sign_translate(
     let (Some(ocr), Some(jev), Some(ai)) = (s.ocr.as_ref(), s.jev.as_ref(), s.ai.as_ref()) else {
         return Err(Error::Unavailable("Photo translation"));
     };
-    Ok(Json(signs::translate(ocr, jev, ai, &req).await?))
+    let translated = signs::translate(ocr, jev, ai, &req).await?;
+    if let Some(book) = &s.phrasebook {
+        book.remember(translated.phrases(&req.to));
+    }
+    Ok(Json(translated))
 }
 
 async fn receipt_extract(

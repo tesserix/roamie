@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use crate::error::{Error, Result};
 use crate::gemini::Gemini;
 use crate::lang::Lang;
+use crate::phrasebook::{Entry, Phrasebook, Surface};
 
 pub const MAX_TEXT_CHARS: usize = 5000;
 
@@ -84,7 +85,11 @@ fn alternatives(translation: &str, candidates: Vec<String>) -> Vec<String> {
     kept
 }
 
-pub async fn text(ai: &Gemini, req: &TextRequest) -> Result<TextResponse> {
+pub async fn text(
+    ai: &Gemini,
+    phrasebook: Option<&Phrasebook>,
+    req: &TextRequest,
+) -> Result<TextResponse> {
     let body = req.text.trim();
     if body.is_empty() {
         return Err(Error::Invalid("text is empty".into()));
@@ -108,6 +113,11 @@ pub async fn text(ai: &Gemini, req: &TextRequest) -> Result<TextResponse> {
                 .ok_or_else(|| Error::Upstream("unrecognized source language".into()))?
         }
     };
+    if let Some(book) = phrasebook {
+        if let Some(found) = book.recall(&detected, &req.to, body).await {
+            return Ok(found);
+        }
+    }
     let source = detected.as_str();
     let schema = json!({
         "type": "OBJECT",
@@ -137,13 +147,28 @@ pub async fn text(ai: &Gemini, req: &TextRequest) -> Result<TextResponse> {
     } else {
         a.translation
     };
-    Ok(TextResponse {
+    let answer = TextResponse {
         romanized: pronunciation(&translation, &a.romanized),
         source_romanized: pronunciation(body, &a.source_romanized),
         alternatives: alternatives(&translation, a.alternatives),
         translation,
         detected,
-    })
+    };
+    if let Some(book) = phrasebook {
+        book.remember(vec![Entry {
+            surface: Surface::Text,
+            from: answer.detected.clone(),
+            to: req.to.clone(),
+            source: body.into(),
+            translation: answer.translation.clone(),
+            romanized: answer.romanized.clone(),
+            source_romanized: answer.source_romanized.clone(),
+            alternatives: answer.alternatives.clone(),
+            confidence: None,
+            review_required: false,
+        }]);
+    }
+    Ok(answer)
 }
 
 #[cfg(test)]

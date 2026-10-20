@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use crate::error::{Error, Result};
 use crate::gemini::Gemini;
 use crate::lang::Lang;
+use crate::phrasebook::{Entry, Surface};
 use crate::translate::pronunciation;
 
 const MAX_TEXT_CHARS: usize = 1000;
@@ -280,6 +281,23 @@ pub async fn interpret(
         detected,
         voice,
     })
+}
+
+impl TurnResponse {
+    pub fn phrase(&self) -> Entry {
+        Entry {
+            surface: Surface::Talk,
+            from: self.detected.clone(),
+            to: self.target.clone(),
+            source: self.transcript.clone(),
+            translation: self.translation.clone(),
+            romanized: self.romanized.clone(),
+            source_romanized: String::new(),
+            alternatives: Vec::new(),
+            confidence: Some(self.confidence),
+            review_required: self.review_required,
+        }
+    }
 }
 
 /// Where one utterance goes, decided from its detected language alone.

@@ -9,6 +9,9 @@ use crate::error::{Error, Result};
 
 const SCOPES: &[&str] = &["https://www.googleapis.com/auth/cloud-platform"];
 
+/// The gateway route that pins Roamie's structured model.
+pub const GATEWAY_MODEL: &str = "roamie-structured";
+
 /// Gemini on Vertex AI. Every model call in Roamie goes through here.
 pub struct Gemini {
     transport: Transport,
@@ -215,7 +218,7 @@ async fn gateway_json<T: DeserializeOwned>(
         }
     }).collect();
     // agentgateway forwards only this camelCase form; reasoning_effort "none" still lets Gemini 2.5 think.
-    let body = json!({"model":"roamie-structured", "messages":[{"role":"system","content":system},{"role":"user","content":content}], "temperature":0.2, "thinking_config":{"thinkingBudget":0}, "response_format":{"type":"json_schema", "json_schema":{"name":"roamie_response", "schema":schema}}});
+    let body = json!({"model":GATEWAY_MODEL, "messages":[{"role":"system","content":system},{"role":"user","content":content}], "temperature":0.2, "thinking_config":{"thinkingBudget":0}, "response_format":{"type":"json_schema", "json_schema":{"name":"roamie_response", "schema":schema}}});
     let mut response = gateway
         .post(
             "/v1/chat/completions",
