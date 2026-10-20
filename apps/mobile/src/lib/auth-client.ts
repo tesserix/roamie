@@ -193,6 +193,7 @@ export const session = {
   async logout(): Promise<boolean> {
     const previous = active;
     await session.clear();
+    await pendingSignIn.clear();
     if (!previous) return true;
     const controller = new AbortController();
     try {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, jest, test } from '@jest/globals';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import * as AuthSession from 'expo-auth-session';
 import { Linking, Platform, Text } from 'react-native';
 import SignIn from '../../components/sign-in';
@@ -32,13 +32,14 @@ beforeEach(async () => {
   jest.clearAllMocks();
   jest.mocked(AuthSession.exchangeCodeAsync).mockResolvedValue({ accessToken: 'access', refreshToken: 'refresh', expiresIn: 600, issuedAt: Date.now() / 1000 } as AuthSession.TokenResponse);
   jest.replaceProperty(Platform, 'OS', 'android');
+  jest.spyOn(Linking, 'getInitialURL').mockResolvedValue(null);
   mockStore.clear();
   await session.clear();
   global.fetch = jest.fn<typeof fetch>(async input => String(input).endsWith('/v1/auth/me')
     ? { ok: true, status: 200, json: async () => ({ sub: 'traveller', email: 'traveller@example.com', name: 'Traveller' }) } as Response
     : { ok: true, status: 200, json: async () => config } as Response);
 });
-afterEach(() => { mockBrowsers.splice(0).forEach(close => close()); jest.restoreAllMocks(); });
+afterEach(async () => { await act(async () => { mockBrowsers.splice(0).forEach(close => close()); }); jest.restoreAllMocks(); });
 
 async function startSignInThenLoseProcess() {
   const first = await render(<AuthProvider><SignIn /></AuthProvider>);
@@ -96,6 +97,29 @@ test('a sign-in the traveller closes leaves nothing to resume', async () => {
 test.each(['roamie:/auth/callback-extra', 'roamie://other/auth/callback', 'https://example.com/auth/callback'])('a callback to a different redirect URI is ignored: %s', async prefix => {
   await startSignInThenLoseProcess();
   jest.spyOn(Linking, 'getInitialURL').mockResolvedValue(`${prefix}?code=code-1&state=state-1`);
+  await render(<AuthProvider><Who /></AuthProvider>);
+  expect(await screen.findByText('signed out')).toBeTruthy();
+  expect(AuthSession.exchangeCodeAsync).not.toHaveBeenCalled();
+});
+
+
+test('signing out while the cold-start redirect is loading prevents session revival', async () => {
+  await startSignInThenLoseProcess();
+  let redirect!: (url: string) => void;
+  const initialURL = jest.spyOn(Linking, 'getInitialURL').mockImplementation(() => new Promise(resolve => { redirect = resolve; }));
+  await render(<AuthProvider><Who /></AuthProvider>);
+  await waitFor(() => expect(initialURL).toHaveBeenCalled());
+  await act(async () => { await session.logout(); });
+  await act(async () => { redirect('roamie:/auth/callback?code=code-1&state=state-1'); });
+  expect(await screen.findByText('signed out')).toBeTruthy();
+  expect(AuthSession.exchangeCodeAsync).not.toHaveBeenCalled();
+});
+
+
+test('signing out discards a pending sign-in before a later cold-start redirect', async () => {
+  await startSignInThenLoseProcess();
+  await session.logout();
+  jest.spyOn(Linking, 'getInitialURL').mockResolvedValue('roamie:/auth/callback?code=code-1&state=state-1');
   await render(<AuthProvider><Who /></AuthProvider>);
   expect(await screen.findByText('signed out')).toBeTruthy();
   expect(AuthSession.exchangeCodeAsync).not.toHaveBeenCalled();

@@ -17,14 +17,15 @@ async function completeSignIn(config: AuthConfig, platform: NativePlatform, code
 }
 
 async function resumeSignIn(config: AuthConfig, platform: NativePlatform) {
+  const expected = session.revision();
   const [pending, url] = await Promise.all([pendingSignIn.take(), Linking.getInitialURL()]);
-  if (!pending || !url || session.current() || pending.clientId !== config.clientIds[platform]) return;
+  if (expected !== session.revision() || !pending || !url || session.current() || pending.clientId !== config.clientIds[platform]) return;
   const callback = new URL(url);
   if (`${callback.protocol}${callback.host ? `//${callback.host}` : ''}${callback.pathname}` !== REDIRECT_URI) return;
   const params = callback.searchParams;
   const code = params.get('code');
   if (!code || params.get('state') !== pending.state) return;
-  await completeSignIn(config, platform, code, pending.codeVerifier, session.revision());
+  await completeSignIn(config, platform, code, pending.codeVerifier, expected);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

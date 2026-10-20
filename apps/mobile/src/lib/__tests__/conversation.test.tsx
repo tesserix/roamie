@@ -19,7 +19,7 @@ jest.mock('expo-audio', () => {
 });
 jest.mock('expo/fetch', () => ({ fetch: (...args: Parameters<typeof global.fetch>) => global.fetch(...args) }));
 jest.mock('expo-file-system', () => ({ File: class { exists = true; async base64() { return 'YXVkaW8='; } delete() {} } }));
-jest.mock('expo-speech', () => ({ VoiceQuality: { Default: 'Default', Enhanced: 'Enhanced' }, stop: jest.fn(), speak: jest.fn(), getAvailableVoicesAsync: jest.fn(async () => [{ identifier: 'english', language: 'en-US' }, { identifier: 'com.apple.voice.compact.en-US.Samantha', language: 'en-US' }, { identifier: 'com.apple.voice.compact.en-GB.Daniel', language: 'en-GB' }, { identifier: 'hindi', language: 'hi-IN' }, { identifier: 'odia-test', language: 'or-IN' }, { identifier: 'ja-test', language: 'ja-JP' }, { identifier: 'bn-test', language: 'bn-IN' }]) }));
+jest.mock('expo-speech', () => ({ VoiceQuality: { Default: 'Default', Enhanced: 'Enhanced' }, stop: jest.fn(), speak: jest.fn(), getAvailableVoicesAsync: jest.fn(async () => [{ identifier: 'english', language: 'en-US' }, { identifier: 'com.apple.voice.compact.en-US.Samantha', language: 'en-US' }, { identifier: 'com.apple.voice.compact.en-GB.Daniel', language: 'en-GB' }, { identifier: 'hindi', language: 'hi-IN' }, { identifier: 'odia-test', language: 'or-IN' }, { identifier: 'vietnamese-test', language: 'vi-VN' }, { identifier: 'thai-test', language: 'th-TH' }, { identifier: 'ja-test', language: 'ja-JP' }, { identifier: 'bn-test', language: 'bn-IN' }]) }));
 jest.mock('expo-notifications', () => ({ cancelAllScheduledNotificationsAsync: jest.fn(async () => {}) }));
 
 function ReadyTalk() { return useStore().ready ? <Talk /> : null; }
@@ -610,9 +610,9 @@ test('first hands-free permission activity returns to listening without a second
   expect(await screen.findByRole('button', { name: 'Start hands-free conversation' })).toBeTruthy();
 });
 
-async function startMeteredConversation(recorder: ReturnType<typeof useAudioRecorder>) {
+async function startMeteredConversation(recorder: ReturnType<typeof useAudioRecorder>, talkLanguage?: string) {
   jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
-  await open();
+  await open(talkLanguage);
   let level = -60;
   jest.spyOn(recorder, 'getStatus').mockImplementation(() => ({ isRecording: true, canRecord: true, durationMillis: 0, metering: level, mediaServicesDidReset: false, url: recorder.uri }));
   jest.mocked(recorder.record).mockClear();
@@ -737,4 +737,37 @@ test('a pending permission preflight cannot start recording after leaving and re
   await act(async () => { AppState.currentState = 'active'; listeners.forEach(listener => listener('active')); finish({ granted: true } as never); });
   expect(recorder.record).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'Start recording' }).props.accessibilityState.disabled).toBe(false);
+});
+
+
+test.each([
+  { mine: 'en', partner: 'vi', original: 'Xin chào', translated: 'Hello', reply: 'Thank you', replyTranslation: 'Cảm ơn' },
+  { mine: 'hi', partner: 'th', original: 'สวัสดี', translated: 'नमस्ते', reply: 'धन्यवाद', replyTranslation: 'ขอบคุณ' },
+])('hands-free routes $mine ↔ $partner replies and waits for playback before listening', async ({ mine, partner, original, translated, reply, replyTranslation }) => {
+  const replies = [
+    { detected: partner, mine, fromMe: false, partner, target: mine, transcript: original, translation: translated, sameLanguage: false },
+    { detected: mine, mine, fromMe: true, partner, target: partner, transcript: reply, translation: replyTranslation, sameLanguage: false },
+  ];
+  const fetch = jest.fn<typeof global.fetch>().mockImplementation(async () => ({ ok: true, status: 200, json: async () => replies.shift() }) as Response);
+  global.fetch = fetch;
+  jest.mocked(Speech.speak).mockClear().mockImplementation(() => {});
+  const recorder = useAudioRecorder({} as never);
+  try {
+    const level = await startMeteredConversation(recorder, mine);
+    for (const [index, [translation, target]] of [[translated, mine], [replyTranslation, partner]].entries()) {
+      await finishRecordedPhrase(level);
+      expect(fetch).toHaveBeenCalledTimes(index + 1);
+      const sent = JSON.parse(fetch.mock.calls[index][1]?.body as string);
+      expect(sent).toMatchObject({ mine, audio: { data: 'YXVkaW8=', mimeType: 'audio/mp4' }, history: [] });
+      if (index) expect(sent.partner).toBe(partner);
+      expect(screen.getByText(translation)).toBeTruthy();
+      expect(Speech.speak).toHaveBeenLastCalledWith(translation, expect.objectContaining({ language: target }));
+      await act(async () => { await jest.advanceTimersByTimeAsync(2000); });
+      expect(recorder.record).toHaveBeenCalledTimes(index + 1);
+      await act(async () => { jest.mocked(Speech.speak).mock.calls.at(-1)![1]?.onDone?.(); });
+      await act(async () => { await jest.advanceTimersByTimeAsync(400); });
+      expect(recorder.record).toHaveBeenCalledTimes(index + 2);
+    }
+    await fireEvent.press(screen.getByRole('button', { name: 'Stop hands-free conversation' }));
+  } finally { jest.useRealTimers(); }
 });
