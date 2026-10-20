@@ -77,10 +77,10 @@ export default function Talk() {
   const accessibility = useAccessibility();
   const accessibilityRef = useRef(accessibility);
   useEffect(() => { accessibilityRef.current = accessibility; }, [accessibility]);
-  const { profile, partner: saved, setPartner, talkLanguage, setTalkLanguage } = useStore();
+  const { profile, talkPartner: saved, setTalkPartner: savePartner, talkLanguage, setTalkLanguage } = useStore();
   const [mine, setMine] = useState(talkLanguage ?? profile!.language);
   const [autoMine, setAutoMine] = useState(!talkLanguage);
-  const partner = saved;
+  const [partner, setPartner] = useState(saved);
   const [autoPartner, setAutoPartner] = useState(!saved);
   const languages = useRef({ mine, partner, autoMine, autoPartner });
   languages.current = { mine, partner, autoMine, autoPartner };
@@ -416,8 +416,7 @@ export default function Talk() {
               setTurns([]);
               history.current = [];
               expectedSpeaker.current = undefined;
-              languages.current.partner = null;
-              setPartner(null);
+              if (autoPartner) { languages.current.partner = null; setPartner(null); }
               if (autoMine) { languages.current.mine = profile!.language; setMine(profile!.language); }
             }}
           />
@@ -600,7 +599,7 @@ export default function Talk() {
             setAutoMine(!code);
             setTalkLanguage(code || null);
             if (code) { languages.current.mine = code; setMine(code); }
-          } else { languages.current.partner = code || null; languages.current.autoPartner = !code; setAutoPartner(!code); setPartner(code || null); }
+          } else { languages.current.partner = code || null; languages.current.autoPartner = !code; setAutoPartner(!code); setPartner(code || null); savePartner(code || null); }
           expectedSpeaker.current = undefined;
           history.current = [];
         }}
