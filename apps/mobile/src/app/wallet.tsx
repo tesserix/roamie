@@ -26,6 +26,7 @@ import { nudge } from '@/lib/budget-nudge';
 import { session } from '@/lib/auth-client';
 import { signOut } from '@/lib/sign-out';
 import { crossed, decimals, format, toHome, toMinor } from '@/lib/money';
+import { jpegData, statementData } from '@/lib/photo';
 import { reviewStatement, type StatementRow } from '@/lib/statement';
 import { type Expense, useStore } from '@/lib/store';
 import { useTrips } from '@/lib/trip-store';
@@ -96,7 +97,7 @@ export default function Wallet() {
 
   async function scan() {
     const camera = await ImagePicker.requestCameraPermissionsAsync();
-    const options: ImagePicker.ImagePickerOptions = { base64: true, quality: 0.5, mediaTypes: ['images'] };
+    const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'] };
     let picked: ImagePicker.ImagePickerResult;
     try {
       picked = camera.granted
@@ -106,10 +107,11 @@ export default function Wallet() {
       picked = await ImagePicker.launchImageLibraryAsync(options);
     }
     const asset = picked.canceled ? null : picked.assets[0];
-    if (!asset?.base64) return;
+    if (!asset) return;
     setScanning(true);
     try {
-      const r = await readReceipt(asset.base64, asset.mimeType ?? 'image/jpeg', lastCurrency);
+      const photo = await jpegData(asset.uri);
+      const r = await readReceipt(photo.data, photo.mimeType, lastCurrency);
       const currency = r.currency || lastCurrency;
       open({
         currency,
@@ -147,8 +149,8 @@ export default function Wallet() {
     setImporting(true);
     try {
       if (!file.exists || file.size <= 0 || file.size > MAX_STATEMENT_BYTES) throw new ApiError('Choose a PDF or photo up to 8 MB. Download only the months of your trip.');
-      const mimeType = asset.mimeType ?? (asset.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
-      const statement = await readStatement(await file.base64(), mimeType, trip.startDate, trip.endDate);
+      const upload = await statementData(asset);
+      const statement = await readStatement(upload.data, upload.mimeType, trip.startDate, trip.endDate);
       setReview({ rows: reviewStatement(statement.transactions, expenses, home, rates), range: `${day(trip.startDate)} – ${day(trip.endDate)}`, notice: statement.source?.reviewRequired || statement.unreadable ? `Check each selected transaction against the original. ${statement.unreadable} unreadable transaction(s) were excluded.` : undefined });
     } catch (e) {
       Alert.alert("Couldn't read that statement", e instanceof ApiError ? e.message : 'Try a clearer PDF or photo.');

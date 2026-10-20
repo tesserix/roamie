@@ -7,14 +7,14 @@ import { Badge, Button, Chip, Message, SpeakButton } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
 import { ApiError, type SignLine, translateSign } from '@/lib/api';
 import { languageName } from '@/lib/languages';
+import { type Photo, toJpeg } from '@/lib/photo';
 
-type Photo = { uri: string; width: number; height: number; base64: string; mimeType: string };
 type Read =
   | { status: 'reading' }
   | { status: 'error'; message: string }
   | { status: 'ready'; detected: string; gist: string; lines: SignLine[]; reviewRequired?: boolean };
 
-const PICK: ImagePicker.ImagePickerOptions = { base64: true, quality: 0.6, mediaTypes: ['images'] };
+const PICK: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'] };
 
 export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number }) {
   const c = useColors();
@@ -40,8 +40,15 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
       picked = await ImagePicker.launchImageLibraryAsync(PICK);
     }
     const a = picked.canceled ? null : picked.assets[0];
-    if (!a?.base64) return;
-    const next = { uri: a.uri, width: a.width, height: a.height, base64: a.base64, mimeType: a.mimeType ?? 'image/jpeg' };
+    if (!a) return;
+    let next: Photo;
+    try {
+      next = await toJpeg(a.uri);
+    } catch {
+      setPhoto(null);
+      setRead({ status: 'error', message: "Roamie couldn't open that photo. Try another one." });
+      return;
+    }
     setPhoto(next);
     setOverlay(true);
     await translate(next);
