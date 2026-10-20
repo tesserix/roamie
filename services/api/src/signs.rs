@@ -17,7 +17,6 @@ const MIME_TYPES: [&str; 3] = ["image/jpeg", "image/png", "image/webp"];
 #[serde(rename_all = "camelCase")]
 pub struct SignRequest {
     pub data: String,
-    pub mime_type: String,
     pub to: Lang,
 }
 
@@ -65,17 +64,18 @@ gist: one short sentence telling the traveller what this says or means for them,
 Return one entry per input line, echoing its index.";
 
 impl SignRequest {
-    pub fn image(&self) -> Result<Vec<u8>> {
-        if !MIME_TYPES.contains(&self.mime_type.as_str()) {
-            return Err(Error::Invalid("send a JPEG, PNG or WebP photo".into()));
-        }
+    /// Types the photo by its bytes: iOS labels re-encoded JPEGs with the original file's type.
+    pub fn image(&self) -> Result<(Vec<u8>, &'static str)> {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(&self.data)
             .map_err(|_| Error::Invalid("image is not valid base64".into()))?;
         match bytes.len() {
             0 => Err(Error::Invalid("image is empty".into())),
             n if n > MAX_IMAGE_BYTES => Err(Error::Invalid("image is too large".into())),
-            _ => Ok(bytes),
+            _ => crate::ocr::content_type(&bytes)
+                .filter(|mime| MIME_TYPES.contains(mime))
+                .map(|mime| (bytes, mime))
+                .ok_or_else(|| Error::Invalid("send a JPEG, PNG or WebP photo".into())),
         }
     }
 }
@@ -86,8 +86,8 @@ pub async fn translate(
     ai: &Gemini,
     req: &SignRequest,
 ) -> Result<SignResponse> {
-    let image = req.image()?;
-    let extraction = ocr.read(image, &req.mime_type).await?;
+    let (image, mime) = req.image()?;
+    let extraction = ocr.read(image, mime).await?;
     let source_review = extraction.review_required();
     let minimum_confidence = extraction.minimum_confidence();
     let found = crate::ocr::lines(extraction.document);
@@ -239,25 +239,39 @@ mod tests {
         );
     }
 
-    fn req(mime: &str, data: &str) -> SignRequest {
+    fn req(data: &str) -> SignRequest {
         SignRequest {
             data: data.into(),
-            mime_type: mime.into(),
             to: Lang::parse("en").unwrap(),
         }
     }
 
     #[test]
-    fn validates_the_photo() {
-        assert_eq!(req("image/jpeg", "AQID").image().unwrap(), [1, 2, 3]);
-        let rejected = [
-            ("gif", req("image/gif", "AQID")),
-            ("pdf", req("application/pdf", "AQID")),
-            ("not base64", req("image/png", "***")),
-            ("empty", req("image/png", "")),
+    fn types_the_photo_by_its_bytes() {
+        let typed = [
+            ("jpeg", "/9j/AAAA", "image/jpeg"),
+            ("png", "iVBORw0KGgo=", "image/png"),
+            ("webp", "UklGRgAAAABXRUJQ", "image/webp"),
         ];
-        for (name, r) in rejected {
-            assert!(matches!(r.image(), Err(Error::Invalid(_))), "case {name}");
+        for (name, data, want) in typed {
+            assert_eq!(
+                req(data).image().map(|(_, mime)| mime).ok(),
+                Some(want),
+                "case {name}"
+            );
+        }
+        let rejected = [
+            ("gif", "R0lGODlh"),
+            ("pdf", "JVBERi0xLjQ="),
+            ("unknown bytes", "AQID"),
+            ("not base64", "***"),
+            ("empty", ""),
+        ];
+        for (name, data) in rejected {
+            assert!(
+                matches!(req(data).image(), Err(Error::Invalid(_))),
+                "case {name}"
+            );
         }
     }
 }

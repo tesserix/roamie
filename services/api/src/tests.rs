@@ -759,14 +759,20 @@ async fn ocr_service_with_status(
     let stored = Arc::new(AtomicBool::new(false));
     let completed = Arc::new(AtomicBool::new(false));
     let seen = completed.clone();
+    let declared = Arc::new(std::sync::Mutex::new(String::new()));
+    let object = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (declare, write) = (declared.clone(), object.clone());
     let app = axum::Router::new()
         .route("/v1/systemone", post(|| async { axum::Json(json!({"model":"jev-1.13.0","answers":{"readability":{"type":"choice","choice":"accept","confidence":0.9,"probabilities":{"accept":0.9,"review":0.08,"retake":0.02}}},"usage":{"input_tokens":40,"output_tokens":10}})) }))
         .route(
             "/v1/ocr/uploads",
-            post(move |h, m, u| guard(h, m, u, json!({
-                "upload_id": "upl_1", "method": "PUT", "upload_url": put_url,
-                "required_headers": { "content-type": "image/jpeg" }, "expires_at": "2026-09-25T00:00:00Z"
-            }))),
+            post(move |h, m, u, axum::Json(body): axum::Json<Value>| {
+                *declare.lock().expect("declared") = body["content_type"].as_str().unwrap_or_default().into();
+                guard(h, m, u, json!({
+                    "upload_id": "upl_1", "method": "PUT", "upload_url": put_url,
+                    "required_headers": { "content-type": "image/jpeg" }, "expires_at": "2026-09-25T00:00:00Z"
+                }))
+            }),
         )
         .route(
             "/storage",
@@ -776,6 +782,7 @@ async fn ocr_service_with_status(
                 if stored.swap(true, Ordering::SeqCst) {
                     StatusCode::FORBIDDEN
                 } else {
+                    *write.lock().expect("object") = bytes.to_vec();
                     StatusCode::OK
                 }
             }),
@@ -783,8 +790,31 @@ async fn ocr_service_with_status(
         .route(
             "/v1/ocr/uploads/{id}/complete",
             post(move |h, m, u| {
-                completed.store(true, Ordering::SeqCst);
-                guard(h, m, u, json!({ "upload_id": "upl_1", "status": "uploaded" }))
+                // Like the real service, completion sniffs the stored bytes against the declared type.
+                let bytes = object.lock().expect("object").clone();
+                let sniffed = if bytes.starts_with(b"\xff\xd8\xff") {
+                    "image/jpeg"
+                } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+                    "image/png"
+                } else if bytes.starts_with(b"%PDF-") {
+                    "application/pdf"
+                } else {
+                    "unknown"
+                };
+                let verified = *declared.lock().expect("declared") == sniffed;
+                if verified {
+                    completed.store(true, Ordering::SeqCst);
+                }
+                async move {
+                    if verified {
+                        guard(h, m, u, json!({ "upload_id": "upl_1", "status": "uploaded" })).await
+                    } else {
+                        (
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            axum::Json(json!({ "code": "upload_verification_failed" })),
+                        )
+                    }
+                }
             }),
         )
         .route(
@@ -1044,6 +1074,30 @@ async fn sign_photo_is_read_and_translated_line_by_line() {
     let b = &body["lines"][0]["box"];
     assert!((b["x"].as_f64().unwrap() - 0.1).abs() < 1e-6, "{b}");
     assert!((b["w"].as_f64().unwrap() - 0.4).abs() < 1e-6, "{b}");
+}
+
+/// iOS returns picked photos as JPEG but labels them with the original file's type.
+#[tokio::test]
+async fn photos_reach_ocr_typed_by_their_bytes_not_their_label() {
+    for (path, label) in [
+        ("/v1/signs/translate", "image/png"),
+        ("/v1/signs/translate", "image/heic"),
+        ("/v1/receipts/extract", "image/png"),
+        ("/v1/receipts/extract", "image/heic"),
+    ] {
+        let ocr = ocr_service("accepted", json!([observation("出口", 0)])).await;
+        let (ai, _) = upstream(StatusCode::OK, model_reply(json!({"language":"ja", "gist":"Exit", "lines":[{"index":0,"translation":"Exit","romanized":"deguchi"}], "merchant":"Cafe", "total":"1.00", "currency":"AUD", "date":"2026-10-12", "category":"food", "confidence":0.9}))).await;
+        let photo =
+            json!({ "data": "/9j/AAAA", "mimeType": label, "to": "en", "localCurrency": "AUD" });
+        let (status, body) = call(
+            with_ocr(state(&ai, "http://unused", None), &ocr),
+            "POST",
+            path,
+            Some(photo),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{path} labelled {label}: {body}");
+    }
 }
 
 #[tokio::test]
