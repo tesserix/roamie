@@ -34,14 +34,8 @@ pub fn printed_amount(text: &str, amount: &str) -> bool {
     })
 }
 
-pub fn decode(data: &str, mime: &str, pdf: bool) -> Result<Vec<u8>> {
-    if !["image/jpeg", "image/png", "image/webp"].contains(&mime)
-        && !(pdf && mime == "application/pdf")
-    {
-        return Err(Error::Invalid(
-            "Choose a JPEG, PNG, WebP photo or a supported PDF.".into(),
-        ));
-    }
+/// Types the document by its bytes: iOS labels re-encoded JPEGs with the original file's type.
+pub fn decode(data: &str, pdf: bool) -> Result<(Vec<u8>, &'static str)> {
     if data.len() > 12 * 1024 * 1024 {
         return Err(Error::Invalid("This document is too large.".into()));
     }
@@ -51,7 +45,10 @@ pub fn decode(data: &str, mime: &str, pdf: bool) -> Result<Vec<u8>> {
     if bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
         return Err(Error::Invalid("Choose a document up to 8 MiB.".into()));
     }
-    Ok(bytes)
+    crate::ocr::content_type(&bytes)
+        .filter(|&mime| pdf || mime != "application/pdf")
+        .map(|mime| (bytes, mime))
+        .ok_or_else(|| Error::Invalid("Choose a JPEG, PNG, WebP photo or a supported PDF.".into()))
 }
 
 fn text(document: DocResult) -> Result<String> {
@@ -92,15 +89,9 @@ fn text(document: DocResult) -> Result<String> {
     Ok(text)
 }
 
-pub async fn read(
-    ocr: &Ocr,
-    jev: &Jev,
-    data: &str,
-    mime: &str,
-    purpose: &str,
-    pdf: bool,
-) -> Result<Checked> {
-    let extraction = ocr.read(decode(data, mime, pdf)?, mime).await?;
+pub async fn read(ocr: &Ocr, jev: &Jev, data: &str, purpose: &str, pdf: bool) -> Result<Checked> {
+    let (bytes, mime) = decode(data, pdf)?;
+    let extraction = ocr.read(bytes, mime).await?;
     let source_review = extraction.review_required();
     let minimum_confidence = extraction.minimum_confidence();
     let text = redact(&text(extraction.document)?);

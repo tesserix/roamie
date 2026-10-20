@@ -185,6 +185,21 @@ pub fn valid_tenant(tenant: &str) -> bool {
     })
 }
 
+/// Mirrors the OCR service's upload check, which rejects a file whose leading bytes contradict its declared type.
+pub fn content_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"%PDF-") {
+        Some("application/pdf")
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Some("image/jpeg")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
 pub fn sign(
     secret: &[u8],
     key_id: &str,
