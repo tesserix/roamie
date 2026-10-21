@@ -123,7 +123,6 @@ pub struct TurnResponse {
 
 #[derive(Debug, Deserialize)]
 struct Heard {
-    language: String,
     confidence: f32,
     #[serde(default)]
     candidates: Vec<String>,
@@ -142,7 +141,7 @@ const SYSTEM: &str = "You are a live interpreter. Identify, transcribe and trans
 Return language as its actual ISO 639-1 code, confidence from 0 to 1 and up to 3 alternative candidates. \
 Detect the language from the utterance alone; the requested languages say nothing about it. \
 The transcript preserves the original words and script exactly; never translate or rewrite it. For mixed language use the dominant language. \
-Distinguish Hindi (hi), Odia (or), Bengali (bn) and other languages, including romanized speech. \
+Different languages can share a script; preserve the current words and grammar, including romanized speech. \
 For audio report the speaker's pitch register as higher, lower, or unknown. For text use unknown. \
 If there is no intelligible speech return an empty transcript. \
 Translate the current utterance into each requested language. Use recentConversation only to resolve references, never to identify, transcribe or replace the current utterance. \
@@ -150,6 +149,7 @@ Preserve meaning, negation, names, numbers, prices and times exactly. Use natura
 
 pub async fn interpret(
     ai: &Gemini,
+    translator: &crate::translation::Translation,
     jev: Option<&crate::decisions::Jev>,
     req: &TurnRequest,
 ) -> Result<TurnResponse> {
@@ -181,13 +181,16 @@ pub async fn interpret(
         },
         "required": ["language", "confidence", "transcript", "to_mine", "to_partner", "to_mine_romanized", "to_partner_romanized"]
     });
-    let mut heard: Heard = ai
-        .json(
+    let mut heard: Heard = tokio::time::timeout(
+        std::time::Duration::from_secs(35),
+        ai.json(
             SYSTEM,
             vec![input, Gemini::text(context.to_string())],
             schema,
-        )
-        .await?;
+        ),
+    )
+    .await
+    .map_err(|_| Error::Upstream("conversation transcription deadline".into()))??;
     let voice = match (&utterance, heard.speaker_voice.as_deref()) {
         (Utterance::Audio { .. }, Some("higher")) => Some(crate::speech::Voice::Female),
         (Utterance::Audio { .. }, Some("lower")) => Some(crate::speech::Voice::Male),
@@ -203,28 +206,8 @@ pub async fn interpret(
     if heard.transcript.trim().is_empty() {
         return Err(Error::NoSpeech);
     }
-    let mut detected = Lang::parse(&heard.language)
-        .ok_or_else(|| Error::Upstream(format!("unknown language {:?}", heard.language)))?;
-    if !matches!(detected.as_str(), "bn" | "as" | "bpy" | "mni" | "syl")
-        && (req.mine.as_str() == "bn" || req.partner.as_str() == "bn")
-    {
-        let letters = heard.transcript.chars().filter(|c| c.is_alphabetic());
-        let (total, bengali) = letters.fold((0, 0), |(total, bengali), c| {
-            (
-                total + 1,
-                bengali + usize::from(('\u{0980}'..='\u{09ff}').contains(&c)),
-            )
-        });
-        // Short Bengali replies can be mislabeled; preserve languages that share its script.
-        if bengali >= 2 && bengali * 3 >= total * 2 {
-            detected = if req.mine.as_str() == "bn" {
-                req.mine.clone()
-            } else {
-                req.partner.clone()
-            };
-            tracing::info!("conversation language corrected from Bengali script");
-        }
-    }
+    let (detected, detection_confidence) = translator.detect(&heard.transcript).await?;
+    heard.confidence = heard.confidence.min(detection_confidence);
     if req.partner_locked && !req.auto_mine && detected != req.mine && detected != req.partner {
         return Err(Error::Invalid("This speech does not match the chosen languages. Choose a language above and try again.".into()));
     }
@@ -255,16 +238,24 @@ pub async fn interpret(
         resolve(&mine, &req.partner, &detected)
     };
     let same_language = direction.same_language(&detected);
-    // Both targets are known before detection, so one call covers either direction.
-    let (translation, romanized) = if same_language {
-        (heard.transcript.clone(), String::new())
-    } else if from_me {
-        (heard.to_partner, heard.to_partner_romanized)
+    let (model_translation, model_romanized) = if from_me {
+        (&heard.to_partner, &heard.to_partner_romanized)
     } else {
-        (heard.to_mine, heard.to_mine_romanized)
+        (&heard.to_mine, &heard.to_mine_romanized)
     };
-    let romanized = pronunciation(&translation, &romanized);
-    let mut review_required = heard.confidence < 0.8 || rewritten_transcript;
+    let translation = translator
+        .translate(&heard.transcript, &detected, &direction.target)
+        .await?;
+    let romanized = if translation.trim() == model_translation.trim() {
+        pronunciation(&translation, model_romanized)
+    } else {
+        String::new()
+    };
+    let outside_pair = req.partner_locked && detected != req.mine && detected != req.partner;
+    let echoed = !same_language
+        && translation.trim().to_lowercase() == heard.transcript.trim().to_lowercase();
+    let mut review_required =
+        heard.confidence < 0.8 || rewritten_transcript || outside_pair || echoed;
     let decision_model = if let Some(jev) = jev {
         let recent: Vec<_> = req.recent_history().iter().map(|turn| json!({"original":crate::documents::redact(&turn.original).chars().take(120).collect::<String>(),"translation":crate::documents::redact(&turn.translation).chars().take(120).collect::<String>()})).collect();
         if heard.transcript.chars().count() > 1000 || translation.chars().count() > 1000 {

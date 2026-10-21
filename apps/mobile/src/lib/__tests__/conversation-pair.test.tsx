@@ -61,13 +61,13 @@ test.each(languagePairs)('%s / %s survives reopening and translates the other sp
   await waitFor(() => expect(Speech.speak).toHaveBeenLastCalledWith(`translated reply in ${mine}`, expect.objectContaining({ language: mine })));
 });
 
-test.each(['tap-to-talk', 'hands-free'])('%s keeps English and Bengali through six distinct recordings and two screen restarts', async mode => {
+test.each(['tap-to-talk', 'hands-free'].flatMap(mode => ['alternating', 'same speaker twice'].map(pattern => [mode, pattern])))('%s keeps the pair with %s through six distinct recordings and two screen restarts', async (mode, pattern) => {
   jest.spyOn(session, 'current').mockReturnValue({ sub: 'conversation-test', name: 'Test traveller', email: 'test@example.invalid' });
   jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
   const storage = new Map([[accountStorageKey('conversation-test'), JSON.stringify({ profile: { language: 'bn', homeCurrency: 'INR', budgetMinor: 0, diet: 'none' }, talkPartner: 'bn', talkLanguage: null, expenses: [] })]]);
   jest.mocked(AsyncStorage.getItem).mockImplementation(async name => name.startsWith('roamie.ai-consent.') ? 'allowed' : storage.get(name) ?? null);
   jest.mocked(AsyncStorage.setItem).mockImplementation(async (name, value) => { storage.set(name, value); });
-  const phrases = [
+  const samples = [
     ['en', 'Where is the station?', 'স্টেশন কোথায়?'],
     ['bn', 'স্টেশন বাঁদিকে।', 'The station is on the left.'],
     ['en', 'I need two tickets.', 'আমার দুটি টিকিট লাগবে।'],
@@ -75,6 +75,7 @@ test.each(['tap-to-talk', 'hands-free'])('%s keeps English and Bengali through s
     ['en', 'Does it leave at four?', 'এটি কি চারটায় ছাড়বে?'],
     ['bn', 'হ্যাঁ, ট্রেন চারটায় ছাড়বে।', 'Yes, the train leaves at four.'],
   ];
+  const phrases = pattern === 'alternating' ? samples : [samples[0], samples[1], samples[3], samples[2], samples[4], samples[5]];
   let response = 0;
   const fetch = jest.fn<typeof global.fetch>().mockImplementation(async () => {
     const [detected, transcript, translation] = phrases[response++];
@@ -104,7 +105,7 @@ test.each(['tap-to-talk', 'hands-free'])('%s keeps English and Bengali through s
       }
       await act(async () => { await jest.advanceTimersByTimeAsync(400); });
       expect(fetch).toHaveBeenCalledTimes(i + 1);
-      expect(Speech.speak).toHaveBeenLastCalledWith(phrases[i][2], expect.objectContaining({ language: i % 2 === 0 ? 'bn' : 'en' }));
+      expect(Speech.speak).toHaveBeenLastCalledWith(phrases[i][2], expect.objectContaining({ language: phrases[i][0] === 'en' ? 'bn' : 'en' }));
       expect(screen.getByRole('button', { name: 'Your language: Auto-detect (English). Change' })).toBeTruthy();
       expect(screen.getByRole('button', { name: 'Their language: Bengali. Change' })).toBeTruthy();
       if (i % 2 === 1 && i < phrases.length - 1) {

@@ -78,10 +78,42 @@ Odia/Hindi/French/Hindi sequence reproduced context drift; the typed-text invari
 and clearer translation contract prevent silent acceptance of a rewritten input.
 Audio transcripts remain model-derived and require the existing JEV check.
 
-Native QA also reproduced short Bengali replies being labeled Hindi despite a
-Bengali transcript. When Bengali is selected, at least two alphabetic Bengali
-characters making up at least two thirds of the transcript's letters override
-a conflicting model label. Assamese, Bishnupriya, Manipuri, and Sylheti labels
-are preserved because they can share the script. This correction runs before
-direction selection, third-language rejection, and the review check, for speech
-and typed replies. Model confidence and the configured pair are preserved.
+Generative language labels are not authoritative. Live testing found Gemini
+2.5 Flash copied a Nepali reply into both Hindi/Nepali outputs while confidently
+labelling it Hindi. Shared scripts defeat both a turn-order guess and a
+language-specific script guard.
+
+Cloud Translation v3 detects the current exact typed text or current audio
+transcript, then translates from that language into the counterpart selected by
+the existing pair-routing rules. No language-specific routing rule is used.
+`expectedSpeaker`, history and the profile cannot override detection. The
+production workload uses ADC and a scoped `roles/cloudtranslate.user` grant;
+there is no API key. The service is already enabled in the project. ADC discovery
+is lazy and cached, so unavailable credentials cannot prevent unrelated API
+routes from starting.
+
+Gemini retains speech transcription, acoustic confidence, voice register and
+optional pronunciation guides. A guide is retained only when its associated
+translation matches the dedicated service's final text. The lower detection/
+transcription confidence, rewritten typed transcripts, unexpected languages and
+echoed translations require review. Independent JEV review still runs. An
+unavailable or malformed provider fails safely without accepting an echo or
+changing memory.
+
+Each dedicated operation has a nine-second total deadline, four seconds per
+request, at most one transient retry, and a 64 KiB response limit. Transcription
+is bounded at 35 seconds so these operations and review fit inside the 60-second
+route deadline. Requests are idempotent; the account-scoped accepted turn cache
+and existing client retry remain in place.
+
+Provider preflight covered 35 selectable languages, 70 current utterance
+detections and 172 translations. It exposed one low-confidence Indonesian/Malay
+ambiguity and two transient network failures. Those observations are retained
+in QA evidence rather than treated as passing cases. This architecture prevents
+the reported successful same-language echo; it cannot promise perfect detection
+for every ambiguous phrase or eliminate upstream outages.
+
+Client regressions cover every ordered distinct pair in the 35-language picker
+(1,190 pairs), reopening Translate and replying in the other language. Recording
+mode tests cover both alternating turns and repeated turns by the same speaker,
+with six distinct payloads and two screen restarts per mode and pattern.
