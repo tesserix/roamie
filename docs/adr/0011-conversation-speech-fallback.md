@@ -54,6 +54,15 @@ explicit source preference. Manual language changes discard old reference contex
 Card-number-length runs in JEV evidence are masked before truncation. Transcripts
 are never stored on the server or included in gateway telemetry.
 
+The last accepted distinct source/partner pair is saved together in the existing
+account-scoped device store. Reopening Translate restores that pair before falling
+back to the profile language, without turning Auto into a manual selection.
+Explicit selections take precedence; Clear conversation and choosing You: Auto
+discard the remembered pair. Review-required, cancelled, and failed turns cannot
+replace it. Identical selected languages produce a correction prompt rather than
+an echoed utterance presented as a translation. This adds two language codes to
+one local storage write, no transcript persistence, API round trip, or migration.
+
 The native speech route exports fixed model identity and provider usage metadata
 without audio/text payloads. The existing console ledger stores it under Roamie,
 roamie-api and talk/speech. Speech remains explicitly unpriced until a verified
@@ -68,3 +77,11 @@ bind both translations to their requested languages/native scripts. A live
 Odia/Hindi/French/Hindi sequence reproduced context drift; the typed-text invariant
 and clearer translation contract prevent silent acceptance of a rewritten input.
 Audio transcripts remain model-derived and require the existing JEV check.
+
+Native QA also reproduced short Bengali replies being labeled Hindi despite a
+Bengali transcript. When Bengali is selected, at least two alphabetic Bengali
+characters making up at least two thirds of the transcript's letters override
+a conflicting model label. Assamese, Bishnupriya, Manipuri, and Sylheti labels
+are preserved because they can share the script. This correction runs before
+direction selection, third-language rejection, and the review check, for speech
+and typed replies. Model confidence and the configured pair are preserved.

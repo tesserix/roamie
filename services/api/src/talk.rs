@@ -203,8 +203,28 @@ pub async fn interpret(
     if heard.transcript.trim().is_empty() {
         return Err(Error::NoSpeech);
     }
-    let detected = Lang::parse(&heard.language)
+    let mut detected = Lang::parse(&heard.language)
         .ok_or_else(|| Error::Upstream(format!("unknown language {:?}", heard.language)))?;
+    if !matches!(detected.as_str(), "bn" | "as" | "bpy" | "mni" | "syl")
+        && (req.mine.as_str() == "bn" || req.partner.as_str() == "bn")
+    {
+        let letters = heard.transcript.chars().filter(|c| c.is_alphabetic());
+        let (total, bengali) = letters.fold((0, 0), |(total, bengali), c| {
+            (
+                total + 1,
+                bengali + usize::from(('\u{0980}'..='\u{09ff}').contains(&c)),
+            )
+        });
+        // Short Bengali replies can be mislabeled; preserve languages that share its script.
+        if bengali >= 2 && bengali * 3 >= total * 2 {
+            detected = if req.mine.as_str() == "bn" {
+                req.mine.clone()
+            } else {
+                req.partner.clone()
+            };
+            tracing::info!("conversation language corrected from Bengali script");
+        }
+    }
     if req.partner_locked && !req.auto_mine && detected != req.mine && detected != req.partner {
         return Err(Error::Invalid("This speech does not match the chosen languages. Choose a language above and try again.".into()));
     }

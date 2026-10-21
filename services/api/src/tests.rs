@@ -133,6 +133,84 @@ async fn authenticated_responses_cannot_be_reused_from_http_caches() {
 }
 
 #[tokio::test]
+async fn bengali_script_reply_keeps_english_target_when_model_reports_another_script() {
+    use base64::Engine;
+    for language in ["hi", "or", "en"] {
+        for automatic in [false, true] {
+            for audio in [false, true] {
+                let (ai, _) = upstream(
+                    StatusCode::OK,
+                    model_reply(json!({
+                        "language":language, "confidence":0.9, "candidates":["bn","or"],
+                        "transcript":"স্টেশন বাঁদিকে।", "to_mine":"The station is on the left.",
+                        "to_partner":"স্টেশন বাঁদিকে।"
+                    })),
+                )
+                .await;
+                let mut payload = json!({"mine":"en","partner":"bn","autoMine":automatic,"partnerLocked":true,"expectedSpeaker":"mine","history":[]});
+                if audio {
+                    payload["audio"] = json!({"mimeType":"audio/mp4","data":base64::engine::general_purpose::STANDARD.encode(include_bytes!("../testdata/speech-hi.m4a"))});
+                } else {
+                    payload["text"] = json!("স্টেশন বাঁদিকে।");
+                }
+                let configured = state(&ai, "http://unused", None);
+                let body = if audio {
+                    let request = serde_json::from_value(payload).unwrap();
+                    let turn =
+                        crate::talk::interpret(configured.ai.as_ref().unwrap(), None, &request)
+                            .await
+                            .unwrap();
+                    serde_json::to_value(turn).unwrap()
+                } else {
+                    let (status, body) =
+                        call(configured, "POST", "/v1/talk/turn", Some(payload)).await;
+                    assert_eq!(status, StatusCode::OK, "auto={automatic}: {body}");
+                    body
+                };
+                assert_eq!(body["detected"], "bn", "{body}");
+                assert_eq!(body["mine"], "en", "{body}");
+                assert_eq!(body["partner"], "bn", "{body}");
+                assert_eq!(body["fromMe"], false, "{body}");
+                assert_eq!(body["target"], "en", "{body}");
+                assert_eq!(body["translation"], "The station is on the left.", "{body}");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn bengali_pair_does_not_relabel_hindi_or_assamese_as_bengali() {
+    for (language, transcript) in [
+        ("hi", "स्टेशन बाईं ओर है।"),
+        ("hi", "स्टेशन কলকাতা के पास है।"),
+        ("hi", "Station baayin taraf hai"),
+        ("as", "ষ্টেচনটো বাওঁফালে আছে।"),
+    ] {
+        let (ai, _) = upstream(
+            StatusCode::OK,
+            model_reply(json!({
+                "language":language,"confidence":0.95,"transcript":transcript,
+                "to_mine":"The station is on the left.","to_partner":"স্টেশন বাঁদিকে।"
+            })),
+        )
+        .await;
+        let (status, body) = call(
+            state(&ai, "http://unused", None),
+            "POST",
+            "/v1/talk/turn",
+            Some(json!({
+                "mine":"en","partner":"bn","autoMine":true,"partnerLocked":true,"text":transcript
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["detected"], language, "{body}");
+        assert_eq!(body["mine"], language, "{body}");
+        assert_eq!(body["target"], "bn", "{body}");
+    }
+}
+
+#[tokio::test]
 async fn partner_speech_is_translated_into_my_language() {
     let (ai, _) = upstream(
         StatusCode::OK,
