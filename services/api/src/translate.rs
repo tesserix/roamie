@@ -56,14 +56,21 @@ Honour the verified source language and translate into the requested target lang
 source_romanized is the pronunciation guide for the original text. \
 alternatives: up to 2 other natural phrasings of the translation, empty if there are none worth showing.";
 
-/// The model sometimes echoes Latin-script text as its own guide; that tells the reader nothing.
+/// The model sometimes echoes or re-accents Latin-script text as its own guide; that tells the reader nothing.
 pub fn pronunciation(text: &str, guide: &str) -> String {
     let guide = guide.trim();
-    if guide.to_lowercase() == text.trim().to_lowercase() {
+    if latin(text) || guide.to_lowercase() == text.trim().to_lowercase() {
         String::new()
     } else {
         guide.to_string()
     }
+}
+
+/// Every letter is from the Latin blocks, Vietnamese included, so readers can already sound it out.
+fn latin(text: &str) -> bool {
+    text.chars().filter(|c| c.is_alphabetic()).all(
+        |c| matches!(c, 'A'..='Z' | 'a'..='z' | '\u{C0}'..='\u{24F}' | '\u{1E00}'..='\u{1EFF}'),
+    )
 }
 
 /// Up to two phrasings that differ from the translation and from each other, ignoring case.
@@ -192,12 +199,16 @@ mod tests {
     }
 
     #[test]
-    fn drops_a_guide_that_only_repeats_the_text() {
+    fn drops_a_guide_the_reader_does_not_need() {
         let cases = [
             ("Où est la gare ?", "Où est la gare ?", ""),
             ("Hola amigo", " hola amigo ", ""),
             ("駅はどこ", "Eki wa doko", "Eki wa doko"),
             ("駅はどこ", "  ", ""),
+            ("Bún chả Hà Nội", "Bùn chả Hà Nội", ""),
+            ("Phở bò 40,000 VND", "fuh baw", ""),
+            ("Thành phố Hồ Chí Minh", "Tahn foh Hoh Chee Min", ""),
+            ("ПОЖАЛУЙСТА", "pozhaluysta", "pozhaluysta"),
         ];
         for (text, guide, want) in cases {
             assert_eq!(
