@@ -7,7 +7,6 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -21,6 +20,7 @@ import {
 import { Badge, Button, Icon, IconButton, Message, Screen, SectionLabel, TAB_CLEARANCE } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
 import { StatementReview } from '@/components/statement-review';
+import { ApplePaySetup } from '@/components/apple-pay-setup';
 import { ApiError, fxRates, readReceipt, readStatement } from '@/lib/api';
 import { nudge } from '@/lib/budget-nudge';
 import { session } from '@/lib/auth-client';
@@ -62,6 +62,7 @@ export default function Wallet() {
   const [importing, setImporting] = useState(false);
   const [review, setReview] = useState<Review | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [applePaySetup, setApplePaySetup] = useState(false);
 
   useEffect(() => {
     fxRates(home)
@@ -173,14 +174,7 @@ export default function Wallet() {
   }
 
   function setUpApplePay() {
-    Alert.alert(
-      'Add Apple Pay payments automatically',
-      '1. In Shortcuts, open Automation and tap New Automation.\n2. Choose Transaction, pick your cards and choose Run Immediately.\n3. Add the Roamie action "Log card payment" and set Merchant and Amount from the transaction.\n\nPayments you make during a trip then appear here next time you open Roamie.',
-      [
-        { text: 'Not now', style: 'cancel' },
-        { text: 'Open Shortcuts', onPress: () => { void Linking.openURL('shortcuts://'); } },
-      ],
-    );
+    setApplePaySetup(true);
   }
 
   function menu() {
@@ -236,6 +230,7 @@ export default function Wallet() {
         {review ? <StatementReview rows={review.rows} home={home} range={review.range} notice={review.notice} onAdd={(rows) => { void addStatement(rows); }} onClose={() => setReview(null)} /> : null}
       </Modal>
       <AddSheet draft={draft} error={error} onChange={setDraft} onSave={save} onClose={() => setDraft(null)} />
+      {applePaySetup ? <ApplePaySetup home={home} tripCount={trips.length} onClose={() => setApplePaySetup(false)} /> : null}
     </Screen>
   );
 }

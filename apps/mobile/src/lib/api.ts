@@ -129,6 +129,9 @@ export type Place = {
   mapsUri: string;
   distanceM: number;
   rating: number | null;
+  priceLevel?: number | null;
+  lat?: number;
+  lng?: number;
   openNow: boolean | null;
   why: string;
 };
