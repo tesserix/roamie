@@ -50,6 +50,7 @@ fn model_reply(answer: Value) -> Value {
 pub(crate) fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc<AppState> {
     let http = reqwest::Client::new();
     Arc::new(AppState {
+        mail: None,
         trip_manager: None,
         travel_mcp_key: None,
         auth: None,

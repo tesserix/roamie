@@ -218,6 +218,17 @@ async fn conflicting_authorization_headers_are_rejected_before_identity_lookup()
 }
 
 const CUSTOMER_ROUTES: &[(&str, &str)] = &[
+    ("GET", "/v1/groups"),
+    ("POST", "/v1/groups"),
+    ("GET", "/v1/groups/00000000-0000-0000-0000-000000000001"),
+    (
+        "POST",
+        "/v1/groups/00000000-0000-0000-0000-000000000001/commands",
+    ),
+    (
+        "POST",
+        "/v1/groups/00000000-0000-0000-0000-000000000001/join",
+    ),
     ("GET", "/v1/trips/another-users-trip/profile"),
     ("PUT", "/v1/trips/another-users-trip/profile"),
     ("POST", "/v1/talk/turn"),

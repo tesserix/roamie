@@ -15,7 +15,10 @@ mod error;
 mod fx;
 mod gateway;
 mod gemini;
+mod group_budget;
+mod group_budget_api;
 mod lang;
+mod mail;
 mod memories;
 mod money;
 mod nearby;
@@ -51,6 +54,7 @@ use tower_http::trace::TraceLayer;
 use error::{Error, Result};
 
 struct AppState {
+    mail: Option<mail::Sender>,
     trip_manager: Option<trip_manager::Manager>,
     travel_mcp_key: Option<String>,
     auth: Option<auth::Verifier>,
@@ -153,6 +157,7 @@ async fn main() -> anyhow::Result<()> {
         .map(|db| phrasebook::Phrasebook::new(db.pool.clone(), &model));
     audio::check_runtime().expect("speech detection runtime must initialize");
     let state = Arc::new(AppState {
+        mail: mail::Sender::from_env()?,
         trip_manager: trip_manager::Manager::from_env()?,
         travel_mcp_key: std::env::var("TRAVEL_MCP_API_KEY").ok(),
         auth,
@@ -180,6 +185,7 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(%addr, "roamie-api listening");
     let (jobs_stop, jobs_shutdown) = tokio::sync::watch::channel(false);
+    let mail = tokio::spawn(mail::run(state.clone(), jobs_shutdown.clone()));
     let jobs = tokio::spawn(planning_jobs::run(state.clone(), jobs_shutdown));
     let served = axum::serve(listener, router(state))
         .with_graceful_shutdown(async move {
@@ -188,6 +194,7 @@ async fn main() -> anyhow::Result<()> {
         })
         .await;
     jobs.await?;
+    mail.await?;
     served?;
     Ok(())
 }
@@ -198,6 +205,18 @@ fn timeout(seconds: u64) -> TimeoutLayer {
 
 fn router(state: Arc<AppState>) -> Router {
     let v1 = Router::new()
+        .route(
+            "/groups",
+            get(group_budget_api::list)
+                .post(group_budget_api::create)
+                .layer(RequestBodyLimitLayer::new(8192)),
+        )
+        .route("/groups/{id}", get(group_budget_api::get))
+        .route("/groups/{id}/join", post(group_budget_api::join))
+        .route(
+            "/groups/{id}/commands",
+            post(group_budget_api::command).layer(RequestBodyLimitLayer::new(16384)),
+        )
         .route(
             "/trips/{trip}/planning",
             get(planning_jobs::get)
