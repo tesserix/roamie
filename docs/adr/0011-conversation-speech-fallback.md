@@ -54,6 +54,15 @@ explicit source preference. Manual language changes discard old reference contex
 Card-number-length runs in JEV evidence are masked before truncation. Transcripts
 are never stored on the server or included in gateway telemetry.
 
+The last accepted distinct source/partner pair is saved together in the existing
+account-scoped device store. Reopening Translate restores that pair before falling
+back to the profile language, without turning Auto into a manual selection.
+Explicit selections take precedence; Clear conversation and choosing You: Auto
+discard the remembered pair. Review-required, cancelled, and failed turns cannot
+replace it. Identical selected languages produce a correction prompt rather than
+an echoed utterance presented as a translation. This adds two language codes to
+one local storage write, no transcript persistence, API round trip, or migration.
+
 The native speech route exports fixed model identity and provider usage metadata
 without audio/text payloads. The existing console ledger stores it under Roamie,
 roamie-api and talk/speech. Speech remains explicitly unpriced until a verified

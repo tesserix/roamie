@@ -65,10 +65,10 @@ export default function Talk() {
   const accessibility = useAccessibility();
   const accessibilityRef = useRef(accessibility);
   useEffect(() => { accessibilityRef.current = accessibility; }, [accessibility]);
-  const { profile, talkPartner: saved, setTalkPartner: savePartner, talkLanguage, setTalkLanguage } = useStore();
-  const [mine, setMine] = useState(talkLanguage ?? profile!.language);
+  const { profile, talkPartner: saved, setTalkPartner: savePartner, talkLanguage, setTalkLanguage, talkPair, setTalkPair } = useStore();
+  const [mine, setMine] = useState(talkLanguage ?? talkPair?.mine ?? profile!.language);
   const [autoMine, setAutoMine] = useState(!talkLanguage);
-  const [partner, setPartner] = useState(saved);
+  const [partner, setPartner] = useState(saved ?? talkPair?.partner ?? null);
   const [autoPartner, setAutoPartner] = useState(!saved);
   const languages = useRef({ mine, partner, autoMine, autoPartner });
   languages.current = { mine, partner, autoMine, autoPartner };
@@ -162,10 +162,16 @@ export default function Talk() {
     setRecoveryNotice(null);
     try {
       const current = languages.current;
+      if (!current.autoMine && !current.autoPartner && current.mine === current.partner) {
+        throw new ApiError('Choose two different conversation languages above, then try again.', 422, 'language_mismatch');
+      }
       const res = await talkTurn({ mine: current.mine, partner: current.partner ?? current.mine, autoMine: current.autoMine, partnerLocked: !current.autoPartner, expectedSpeaker: current.autoPartner ? expectedSpeaker.current : 'mine', history: history.current, ...input }, controller.signal, () => setRecoveryNotice('Connection interrupted. Retrying…'));
       if (controller.signal.aborted || (automatic && !automatic())) return;
       const fromMe = !current.autoPartner && current.autoMine ? res.detected !== current.partner : res.fromMe ?? res.detected === current.mine;
       const turnMine = current.autoMine && fromMe ? res.detected : current.mine;
+      if (!current.autoPartner && turnMine === current.partner) {
+        throw new ApiError('Choose two different conversation languages above, then try again.', 422, 'language_mismatch');
+      }
       if (!current.autoPartner && (res.partner !== current.partner || res.target !== (fromMe ? current.partner : turnMine))) {
         throw new ApiError('The translation did not match the chosen languages. Please try again or check the languages above.', 422, 'language_mismatch');
       }
@@ -196,6 +202,8 @@ export default function Talk() {
       if (focusedRef.current) signalFeedback(accessibilityRef.current.vibration);
       if (current.autoMine && fromMe) { languages.current.mine = turnMine; setMine(turnMine); }
       if (!fromMe && current.autoPartner) { languages.current.partner = res.partner; setPartner(res.partner); }
+      const rememberedPartner = !fromMe && current.autoPartner ? res.partner : current.partner;
+      if (rememberedPartner && rememberedPartner !== turnMine) setTalkPair({ mine: turnMine, partner: rememberedPartner });
       expectedSpeaker.current = fromMe ? 'partner' : 'mine';
       if (!current.partner && fromMe) setNotice('Let the other person speak once so we can detect their language, or choose it above.');
       if (focusedRef.current && !res.sameLanguage && !accessibilityRef.current.quiet && (!accessibilityRef.current.screenReader || automatic)) {
@@ -403,6 +411,7 @@ export default function Talk() {
               failedTurns.current = 0; unclearTurns.current = 0;
               setTurns([]);
               history.current = [];
+              setTalkPair(null);
               expectedSpeaker.current = undefined;
               if (autoPartner) { languages.current.partner = null; setPartner(null); }
               if (autoMine) { languages.current.mine = profile!.language; setMine(profile!.language); }
@@ -586,6 +595,7 @@ export default function Talk() {
             languages.current.autoMine = !code;
             setAutoMine(!code);
             setTalkLanguage(code || null);
+            if (!code) setTalkPair(null);
             if (code) { languages.current.mine = code; setMine(code); }
           } else { languages.current.partner = code || null; languages.current.autoPartner = !code; setAutoPartner(!code); setPartner(code || null); savePartner(code || null); }
           expectedSpeaker.current = undefined;

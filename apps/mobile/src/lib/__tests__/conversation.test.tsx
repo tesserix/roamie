@@ -432,7 +432,7 @@ test('clearing cancels a pending reply and forgets recent context and detected p
   expect(JSON.parse(fetch.mock.calls[2][1]?.body as string)).toMatchObject({ mine: 'en', partner: 'en', history: [] });
 });
 
-test('reopening after a detected Vietnamese reply keeps their language on auto-detect', async () => {
+test('reopening remembers detected Vietnamese without turning off auto-detection', async () => {
   jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
   jest.mocked(Speech.speak).mockImplementation((_text, options) => { options?.onDone?.(); });
   const fetch = jest.fn<typeof global.fetch>().mockResolvedValue({ ok: true, status: 200, json: async () => ({ detected: 'vi', partner: 'vi', target: 'en', transcript: 'Xin chào', translation: 'Hello', sameLanguage: false }) } as Response);
@@ -447,12 +447,12 @@ test('reopening after a detected Vietnamese reply keeps their language on auto-d
   await screen.unmount();
   jest.mocked(AsyncStorage.getItem).mockImplementation(async key => key.startsWith('roamie.ai-consent.') ? 'allowed' : saved);
   await render(<StoreProvider accountId="conversation-test"><ReadyTalk /></StoreProvider>);
-  expect(await screen.findByRole('button', { name: 'Their language: Auto-detect. Choose manually' })).toBeTruthy();
+  expect(await screen.findByRole('button', { name: 'Their language: Vietnamese. Change' })).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Type instead' }));
   await fireEvent.changeText(screen.getByLabelText('Type something to translate'), 'Cảm ơn');
   await fireEvent.press(screen.getByRole('button', { name: 'Translate' }));
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-  expect(JSON.parse(fetch.mock.calls[1][1]?.body as string)).toMatchObject({ partnerLocked: false });
+  expect(JSON.parse(fetch.mock.calls[1][1]?.body as string)).toMatchObject({ mine: 'en', partner: 'vi', partnerLocked: false });
   await waitFor(() => expect(screen.queryByText('Finding the words…')).toBeNull());
   expect(screen.queryByText(/did not match/)).toBeNull();
 });
