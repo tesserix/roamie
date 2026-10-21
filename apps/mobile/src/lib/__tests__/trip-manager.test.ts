@@ -3,6 +3,7 @@ import { fetch } from 'expo/fetch';
 import { session } from '../auth-client';
 import { buildManagerRequest, loadTravelProfile, saveTravelProfile, askTripManager, initialPreferences, applyReviewedPlan } from '../trip-manager';
 import { createTrip } from '../trips';
+jest.mock('@react-native-async-storage/async-storage', () => ({getItem:jest.fn(async (key: string)=>key.startsWith('roamie.ai-consent.') ? 'allowed' : null),setItem:jest.fn(async()=>{})}));
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
 jest.mock('../auth-client', () => ({ API_BASE: 'https://roamie-api.tesserix.app', session: {current: jest.fn(() => ({sub:'alice'})), accessToken: jest.fn(async () => 'test-token'), clear: jest.fn(async () => {})} }));
 const trip = createTrip({title:'Sydney',destination:'Sydney',startDate:'2026-10-01',endDate:'2026-10-02',currency:'AUD',budgetMinor:0,diet:'vegan',interests:'Gardens',travellers:1});

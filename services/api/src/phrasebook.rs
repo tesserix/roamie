@@ -34,11 +34,12 @@ const WRITES_IN_FLIGHT: usize = 2;
 /// A variant answers other travellers only once it is this common, never a one-off sentence.
 const SHARED_AFTER_USES: i64 = 3;
 
-/// Every translation Roamie gives, kept without the traveller who asked (ADR-0016).
+#[derive(Clone)]
 pub struct Phrasebook {
     pool: PgPool,
     model: String,
     writes: Arc<Semaphore>,
+    subject: Option<String>,
 }
 
 impl Phrasebook {
@@ -47,6 +48,14 @@ impl Phrasebook {
             pool,
             model: model.into(),
             writes: Arc::new(Semaphore::new(WRITES_IN_FLIGHT)),
+            subject: None,
+        }
+    }
+
+    pub fn for_customer(&self, subject: &str) -> Self {
+        Self {
+            subject: Some(subject.into()),
+            ..self.clone()
         }
     }
 
@@ -63,6 +72,9 @@ impl Phrasebook {
     }
 
     pub fn remember(&self, entries: Vec<Entry>) {
+        let Some(subject) = self.subject.clone() else {
+            return;
+        };
         if entries.is_empty() {
             return;
         }
@@ -74,7 +86,7 @@ impl Phrasebook {
         // Detached on purpose: a translation never waits for, or fails with, the phrasebook.
         tokio::spawn(async move {
             for entry in &entries {
-                if let Err(error) = save(&pool, &model, entry).await {
+                if let Err(error) = save(&pool, &model, &subject, entry).await {
                     tracing::warn!(%error, "phrasebook entry dropped");
                     break;
                 }
@@ -122,7 +134,7 @@ fn sensitive(text: &str) -> bool {
 }
 
 /// Returns whether the entry was kept.
-async fn save(pool: &PgPool, model: &str, entry: &Entry) -> Result<bool> {
+async fn save(pool: &PgPool, model: &str, subject: &str, entry: &Entry) -> Result<bool> {
     let source = normalise(&entry.source);
     let translation = entry.translation.trim();
     let fits = source.chars().count() <= crate::translate::MAX_TEXT_CHARS
@@ -141,7 +153,8 @@ async fn save(pool: &PgPool, model: &str, entry: &Entry) -> Result<bool> {
     {
         return Ok(false);
     }
-    sqlx::query("INSERT INTO phrasebook(surface,source_lang,target_lang,prompt_version,model,source_digest,translation_digest,source_text,translation,romanized,source_romanized,alternatives,confidence,review_required) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(source_digest,source_lang,target_lang,surface,prompt_version,model,translation_digest) DO UPDATE SET uses=phrasebook.uses+1,last_seen=now(),confidence=EXCLUDED.confidence,review_required=phrasebook.review_required OR EXCLUDED.review_required")
+    let mut tx = pool.begin().await?;
+    let id: i64 = sqlx::query_scalar("INSERT INTO phrasebook(surface,source_lang,target_lang,prompt_version,model,source_digest,translation_digest,source_text,translation,romanized,source_romanized,alternatives,confidence,review_required) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(source_digest,source_lang,target_lang,surface,prompt_version,model,translation_digest) DO UPDATE SET uses=phrasebook.uses+1,last_seen=now(),confidence=EXCLUDED.confidence,review_required=phrasebook.review_required OR EXCLUDED.review_required RETURNING id")
         .bind(entry.surface.as_str())
         .bind(entry.from.as_str())
         .bind(entry.to.as_str())
@@ -156,13 +169,16 @@ async fn save(pool: &PgPool, model: &str, entry: &Entry) -> Result<bool> {
         .bind(entry.alternatives.iter().take(2).collect::<Vec<_>>())
         .bind(entry.confidence.map(|c| c.clamp(0.0, 1.0)))
         .bind(entry.review_required)
-        .execute(pool)
+        .fetch_one(&mut *tx)
         .await?;
+    sqlx::query("INSERT INTO phrasebook_contributions(subject,phrase_id) VALUES($1,$2) ON CONFLICT DO NOTHING")
+        .bind(subject).bind(id).execute(&mut *tx).await?;
+    tx.commit().await?;
     Ok(true)
 }
 
 async fn lookup(pool: &PgPool, from: &Lang, to: &Lang, text: &str) -> Result<Option<TextResponse>> {
-    let row: Option<(String, String, String, Vec<String>)> = sqlx::query_as("SELECT translation,romanized,source_romanized,alternatives FROM phrasebook WHERE source_digest=$1 AND source_lang=$2 AND target_lang=$3 AND surface='text' AND prompt_version=$4 AND NOT review_required AND uses>=$5 ORDER BY uses DESC,last_seen DESC LIMIT 1")
+    let row: Option<(String, String, String, Vec<String>)> = sqlx::query_as("SELECT translation,romanized,source_romanized,alternatives FROM phrasebook WHERE source_digest=$1 AND source_lang=$2 AND target_lang=$3 AND surface='text' AND prompt_version=$4 AND NOT review_required AND uses>=$5 AND EXISTS(SELECT 1 FROM phrasebook_contributions c WHERE c.phrase_id=phrasebook.id) ORDER BY uses DESC,last_seen DESC LIMIT 1")
         .bind(digest(&normalise(text)))
         .bind(from.as_str())
         .bind(to.as_str())
@@ -188,6 +204,10 @@ fn digest(text: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn save(pool: &PgPool, model: &str, entry: &Entry) -> Result<bool> {
+        super::save(pool, model, "phrasebook-fixture", entry).await
+    }
 
     #[test]
     fn spacing_never_splits_a_phrase() {
@@ -259,6 +279,19 @@ mod tests {
             .map(|c| c.to_digit(10).map_or(c, |d| char::from(b'g' + d as u8)))
             .collect();
         format!("Where is the toilet {unique}?")
+    }
+
+    #[tokio::test]
+    #[ignore = "requires isolated Postgres"]
+    async fn kept_text_has_an_account_owner_for_deletion() {
+        let pool = owner().await;
+        let source = phrase();
+        save(&pool, "m", &entry(Surface::Text, &source, "Owned phrase"))
+            .await
+            .unwrap();
+        let subjects: Vec<String> = sqlx::query_scalar("SELECT c.subject FROM phrasebook_contributions c JOIN phrasebook p ON p.id=c.phrase_id WHERE p.source_text=$1")
+            .bind(&source).fetch_all(&pool).await.expect("kept text must have deletion ownership");
+        assert_eq!(subjects, ["phrasebook-fixture"]);
     }
 
     async fn settle(pool: &PgPool, entry: &Entry) {

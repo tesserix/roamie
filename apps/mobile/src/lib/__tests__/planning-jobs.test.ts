@@ -4,6 +4,7 @@ import {initialPreferences} from '../trip-manager';
 import {createTrip} from '../trips';
 import {startPlanning, resumePlanning} from '../planning-jobs';
 
+jest.mock('@react-native-async-storage/async-storage', () => ({getItem:jest.fn(async (key: string)=>key.startsWith('roamie.ai-consent.') ? 'allowed' : null),setItem:jest.fn(async()=>{})}));
 jest.mock('expo/fetch',()=>({fetch:jest.fn()}));
 jest.mock('../auth-client',()=>({API_BASE:'https://roamie-api.tesserix.app',session:{current:()=>({sub:'alice'}),accessToken:async()=> 'token',clear:jest.fn()}}));
 const trip=createTrip({title:'Tokyo',destination:'Tokyo',startDate:'2026-10-20',endDate:'2026-10-20',currency:'AUD',budgetMinor:250000,travellers:2,diet:'none',interests:'Gardens'});

@@ -903,6 +903,125 @@ async fn receipt_extraction_reads_ocr_evidence_before_the_model() {
 }
 
 #[tokio::test]
+#[ignore = "requires isolated Postgres"]
+async fn ocr_documents_keep_account_ownership_and_provider_identifiers_for_deletion() {
+    let db = crate::database::Database::connect(
+        std::env::var("ROAMIE_TEST_DATABASE_URL")
+            .unwrap()
+            .parse()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    db.migrate().await.unwrap();
+    let ocr = ocr_service("accepted", json!([observation("CAFE TOTAL 12.50 AUD", 0)])).await;
+    let (ai, _) = upstream(StatusCode::OK, model_reply(json!({"merchant":"Cafe", "total":"12.50", "currency":"AUD", "date":"2026-10-12", "category":"food", "confidence":0.99}))).await;
+    let mut configured = with_ocr(state(&ai, "http://unused", None), &ocr);
+    Arc::get_mut(&mut configured).unwrap().database = Some(db.clone());
+    let (status, body) = call(
+        configured,
+        "POST",
+        "/v1/receipts/extract",
+        Some(json!({"data":"/9j/AAAA", "mimeType":"image/jpeg", "localCurrency":"AUD"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let found: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM ocr_resources WHERE subject='local-development' AND upload_id='upl_1' AND job_id='job_1')").fetch_one(&db.pool).await.unwrap();
+    assert!(
+        found,
+        "document deletion must be scoped to its owner and exact provider resources"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires isolated Postgres"]
+async fn ocr_ownership_is_durable_before_provider_calls_and_separates_identical_files() {
+    use axum::{http::HeaderMap, routing::post, Json, Router};
+    let db = crate::database::Database::connect(
+        std::env::var("ROAMIE_TEST_DATABASE_URL")
+            .unwrap()
+            .parse()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    db.migrate().await.unwrap();
+    let prefix = uuid::Uuid::now_v7().to_string();
+    let alice = format!("{prefix}-alice");
+    let bob = format!("{prefix}-bob");
+    let pool = db.pool.clone();
+    let keys = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let captured = keys.clone();
+    let app = Router::new().route(
+        "/v1/ocr/uploads",
+        post(move |headers: HeaderMap| {
+            let pool = pool.clone();
+            let captured = captured.clone();
+            async move {
+                let key = headers["idempotency-key"]
+                    .to_str()
+                    .unwrap()
+                    .strip_suffix("-u")
+                    .unwrap()
+                    .to_owned();
+                let recorded: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM ocr_resources WHERE request_key=$1)",
+                )
+                .bind(&key)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+                assert!(recorded, "reserve ownership before any provider request");
+                captured.lock().unwrap().push(key);
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({"error":"synthetic provider failure"})),
+                )
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let state = with_ocr(state("http://unused", "http://unused", None), &address);
+    let base = state.ocr.as_ref().unwrap();
+    for subject in [&alice, &bob] {
+        assert!(base
+            .for_customer(db.pool.clone(), subject)
+            .read(vec![0xff, 0xd8, 0xff], "image/jpeg")
+            .await
+            .is_err());
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM ocr_resources WHERE subject=$1 AND upload_id IS NULL",
+        )
+        .bind(subject)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+    }
+    let seen = keys.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2);
+    assert_ne!(
+        seen[0], seen[1],
+        "another customer's photo must not reuse the resource"
+    );
+    db.pool.close().await;
+    assert!(base
+        .for_customer(db.pool.clone(), "unrecorded")
+        .read(vec![0xff, 0xd8, 0xff], "image/jpeg")
+        .await
+        .is_err());
+    assert_eq!(
+        keys.lock().unwrap().len(),
+        2,
+        "storage failure must stop uploads"
+    );
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
 async fn statement_extraction_cannot_import_amounts_absent_from_ocr() {
     let ocr = ocr_service(
         "accepted",
@@ -1025,6 +1144,7 @@ fn with_ocr(state: Arc<AppState>, base: &str) -> Arc<AppState> {
         secret: hex::decode(OCR_SECRET).expect("hex"),
         tenant: "ten_roamie_public".into(),
         deadline: std::time::Duration::from_secs(5),
+        owner: None,
     });
     Arc::new(s)
 }
@@ -1340,6 +1460,7 @@ async fn planning_evidence_requires_mcp_identity_and_preserves_place_sources() {
 }
 
 #[tokio::test]
+#[ignore = "requires isolated Postgres for durable document ownership"]
 async fn verified_receipt_request_uses_gateway_for_judgment_and_generation() {
     use axum::{http::HeaderMap, routing::post, Json, Router};
     let oauth = crate::auth_tests::token(json!({}));
@@ -1379,6 +1500,16 @@ async fn verified_receipt_request_uses_gateway_for_judgment_and_generation() {
     .await;
     let mut state = with_ocr(state("http://unused", "http://unused", None), &ocr);
     let mutable = Arc::get_mut(&mut state).unwrap();
+    let db = crate::database::Database::connect(
+        std::env::var("ROAMIE_TEST_DATABASE_URL")
+            .unwrap()
+            .parse()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    db.migrate().await.unwrap();
+    mutable.database = Some(db);
     mutable.development_auth_disabled = false;
     mutable.auth = Some(crate::auth_tests::verifier(crate::auth_tests::profile()).0);
     mutable.ai = Some(gemini::Gemini::with_gateway(gateway.clone()));

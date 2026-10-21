@@ -1,6 +1,7 @@
 import type { MemoryOptions } from './memory-contract';
 import { fetch } from 'expo/fetch';
 import { API_BASE, session } from './auth-client';
+import { assertAIConsent, requireAIConsent, usesAI } from './ai-consent';
 import type { Destination, PlanRequest, PlanResponse } from './trip-contract';
 
 export class ApiError extends Error {
@@ -9,16 +10,20 @@ export class ApiError extends Error {
 
 export async function apiRequest<T>(path: string, payload: unknown, read: (response: Response) => Promise<T>, milliseconds: number, signal?: AbortSignal, method: 'GET' | 'PUT' | 'POST' | 'DELETE' = 'POST'): Promise<T> {
   if (!__DEV__ && !API_BASE.startsWith('https://')) throw new Error('A secure connection is required.');
+  const customer = session.current()?.sub;
+  const revision = session.revision?.();
+  const changed = () => session.current()?.sub !== customer || session.revision?.() !== revision;
+  if (!customer) throw new Error('Sign in again to continue.');
+  if (usesAI(path, method)) await requireAIConsent(customer, signal);
+  if (changed()) throw new Error('The account changed. Please try again.');
   const controller = new AbortController();
   const abort = () => controller.abort();
   const timer = setTimeout(abort, milliseconds);
   signal?.addEventListener('abort', abort);
   if (signal?.aborted) abort();
-  const customer = session.current()?.sub;
-  const revision = session.revision?.();
-  const changed = () => session.current()?.sub !== customer || session.revision?.() !== revision;
   try {
     const token = await session.accessToken();
+    if (usesAI(path, method)) await assertAIConsent(customer);
     if (!customer || changed()) throw new Error('The account changed. Please try again.');
     if (controller.signal.aborted) throw new Error('Request cancelled or timed out.');
     const response = await fetch(`${API_BASE}${path}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: method === 'GET' ? undefined : JSON.stringify(payload), signal: controller.signal });

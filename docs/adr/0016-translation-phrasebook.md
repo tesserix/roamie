@@ -1,5 +1,7 @@
 # ADR 0016: Translation phrasebook
 
+Account-unlinked storage below is superseded by ADR 0017 for public release.
+
 Every translation was discarded after its response, so Roamie paid for the same
 phrase again for each traveller and kept no record of how it translated. The
 product owner wants every translation kept, attributed to its surface, languages

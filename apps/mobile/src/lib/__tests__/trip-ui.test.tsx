@@ -9,7 +9,7 @@ import * as tripApi from '../trip-api';
 import { StoreProvider } from '../store';
 import { TripsProvider } from '../trip-store';
 import { tripStorageKey, createTrip, updateStop } from '../trips';
-jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}) }));
+jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async (key: string) => key.startsWith('roamie.ai-consent.') ? 'allowed' : null), setItem: jest.fn(async () => {}) }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 jest.mock('react-native-view-shot', () => ({ captureRef: jest.fn() }));
 jest.mock('expo-media-library', () => ({}));
@@ -133,7 +133,7 @@ test('traveller creates a trip, adds a timed meal and reopens the saved calendar
 test('editing a proposed visit preserves unknown cost until an amount is entered', async () => {
  process.env.EXPO_PUBLIC_AUTH_ENABLED = 'false';
  const trip=updateStop(createTrip({title:'Proposed Hanoi',destination:'Hanoi',startDate:'2026-10-01',endDate:'2026-10-01',currency:'AUD',budgetMinor:60000,travellers:1,diet:'none',interests:'Museums'}),0,{id:'museum',title:'Museum',time:'10:00',minutes:60,kind:'sight',note:'Confirm hours',costMinor:0,costUnknown:true,place:null,transport:[]});
- jest.mocked(AsyncStorage.getItem).mockImplementation(async key=>key===tripStorageKey('cost-check')?JSON.stringify([trip]):null);
+ jest.mocked(AsyncStorage.getItem).mockImplementation(async key=>key.startsWith('roamie.ai-consent.')?'allowed':key===tripStorageKey('cost-check')?JSON.stringify([trip]):null);
  await render(<StoreProvider accountId="cost-check"><TripsProvider accountId="cost-check"><Trips /></TripsProvider></StoreProvider>);
  await fireEvent.press(await screen.findByRole('button',{name:'Open Proposed Hanoi'}));
  await fireEvent.press(screen.getByRole('button',{name:'Edit'}));
