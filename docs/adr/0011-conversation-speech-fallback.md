@@ -95,7 +95,7 @@ routes from starting.
 Gemini retains speech transcription, acoustic confidence, voice register and
 optional pronunciation guides. A guide is retained only when its associated
 translation matches the dedicated service's final text. The lower detection/
-transcription confidence, rewritten typed transcripts, unexpected languages and
+transcription confidence, rewritten typed transcripts and
 echoed translations require review. Independent JEV review still runs. An
 unavailable or malformed provider fails safely without accepting an echo or
 changing memory.
@@ -127,12 +127,14 @@ words, but cannot supply an earlier utterance. Typed pronunciation guides retain
 the existing contract; audio guides are omitted rather than associated with an
 unrelated generated translation.
 
-The unexpected-language safeguard applies only after a distinct pair exists.
-An initial Auto turn whose profile/source fallback equals the partner must be
-accepted when it establishes a new distinct pair; otherwise the client correctly
-refuses to remember the reviewed result and the next reply still has equal sides.
-A regression reproduces that failure and verifies accepted initialization across
-unrelated language families.
+Auto accepts the current source language when confidence and independent review
+allow it; the profile and remembered source are fallbacks, not restrictions on
+which language the traveller may speak. This applies both when the initial pair
+is equal and when the fallback differs from the partner. A clear third source
+can update Auto while retaining the selected partner. Explicit source selection
+continues to reject speech outside the chosen languages. Low-confidence results
+cannot update memory. Regressions verify accepted initialization and subsequent
+source changes across unrelated language families.
 
 Independent Gemini and Cloud Speech comparisons retained short Bengali recordings
 with ambiguous pronunciation and divergent words. They must not be counted as

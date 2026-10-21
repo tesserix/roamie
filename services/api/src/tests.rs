@@ -2119,6 +2119,34 @@ async fn auto_mine_can_accept_its_first_language_before_a_distinct_pair_exists()
 }
 
 #[tokio::test]
+async fn auto_source_changes_are_accepted_when_the_current_language_is_clear() {
+    for (profile, partner, source, transcript, history) in [
+        ("bn", "th", "en", "Where is the train station?", vec![]),
+        (
+            "en",
+            "bn",
+            "hi",
+            "रेल चार बजे निकलती है।",
+            vec![json!({"original":"Hello","translation":"হ্যালো"})],
+        ),
+        (
+            "ja",
+            "ko",
+            "vi",
+            "Nhà ga ở bên trái.",
+            vec![json!({"original":"안녕하세요","translation":"こんにちは"})],
+        ),
+    ] {
+        let (model,_)=upstream(StatusCode::OK,model_reply(json!({"language":source,"confidence":0.99,"transcript":transcript,"to_mine":"A translated reply","to_partner":"A translated reply"}))).await;
+        let (status,body)=call(state(&model,"http://unused",None),"POST","/v1/talk/turn",Some(json!({"mine":profile,"partner":partner,"autoMine":true,"partnerLocked":true,"text":transcript,"history":history}))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["mine"], source, "{body}");
+        assert_eq!(body["target"], partner, "{body}");
+        assert_eq!(body["reviewRequired"],false,"Auto must accept clear current speech even when it differs from the fallback or previous source: {body}");
+    }
+}
+
+#[tokio::test]
 async fn auto_mine_starts_in_the_detected_language_with_one_model_call() {
     let (model, hits) = upstream(StatusCode::OK, model_reply(json!({"language":"hi","confidence":0.99,"transcript":"आप कैसे हैं?","to_mine":"How are you?","to_partner":"ଆପଣ କେମିତି ଅଛନ୍ତି?"}))).await;
     let (status, body) = call(
