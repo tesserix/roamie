@@ -2184,7 +2184,7 @@ async fn conversation_remembers_both_languages_and_tracks_language_switches() {
 
 #[tokio::test]
 #[cfg(media_tests)]
-async fn automatic_conversation_hears_and_translates_in_one_gateway_call_then_jev() {
+async fn automatic_conversation_transcribes_once_then_translates_and_reviews() {
     use axum::{http::HeaderMap, routing::post, Json, Router};
     let hits = Arc::new(AtomicUsize::new(0));
     let captured = hits.clone();
@@ -2217,6 +2217,12 @@ async fn automatic_conversation_hears_and_translates_in_one_gateway_call_then_je
     let mutable = Arc::get_mut(&mut s).unwrap();
     mutable.ai = Some(gemini::Gemini::with_gateway(gateway.clone()));
     mutable.jev = Some(crate::decisions::Jev::with_gateway(gateway));
+    let (nmt, _) = upstream(StatusCode::OK, json!({"languages":[{"languageCode":"hi","confidence":1.0}],"translations":[{"translatedText":"ଆପଣ କେମିତି ଅଛନ୍ତି?"}]})).await;
+    mutable.translation = crate::translation::Translation::with_auth(
+        reqwest::Client::new(),
+        format!("{nmt}/translation"),
+        Arc::new(FakeToken),
+    );
     for turn in [
         json!({"mine":"en","partner":"or","autoMine":true,"expectedSpeaker":"mine","text":"आप कैसे हैं?","history":[{"original":"नमस्ते","translation":"ନମସ୍କାର"}]}),
         json!({"mine":"en","partner":"or","autoMine":true,"expectedSpeaker":"mine","audio":{"mimeType":"audio/mp4","data":base64::Engine::encode(&base64::engine::general_purpose::STANDARD, include_bytes!("../testdata/speech-th.m4a"))},"history":[{"original":"नमस्ते","translation":"ନମସ୍କାର"}]}),
