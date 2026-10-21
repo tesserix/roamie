@@ -117,3 +117,27 @@ Client regressions cover every ordered distinct pair in the 35-language picker
 (1,190 pairs), reopening Translate and replying in the other language. Recording
 mode tests cover both alternating turns and repeated turns by the same speaker,
 with six distinct payloads and two screen restarts per mode and pattern.
+
+
+The audio model now has a transcription-only contract with the selected pair as
+language hints; it cannot generate the two translations while recognizing speech.
+Current words/native script and optional pitch remain its outputs, and the dedicated
+service translates that transcript afterwards. History may disambiguate current
+words, but cannot supply an earlier utterance. Typed pronunciation guides retain
+the existing contract; audio guides are omitted rather than associated with an
+unrelated generated translation.
+
+The unexpected-language safeguard applies only after a distinct pair exists.
+An initial Auto turn whose profile/source fallback equals the partner must be
+accepted when it establishes a new distinct pair; otherwise the client correctly
+refuses to remember the reviewed result and the next reply still has equal sides.
+A regression reproduces that failure and verifies accepted initialization across
+unrelated language families.
+
+Independent Gemini and Cloud Speech comparisons retained short Bengali recordings
+with ambiguous pronunciation and divergent words. They must not be counted as
+successful semantic tests merely because a recognizer returns the expected ISO
+code. A specialist recognizer did not consistently improve those cases and is
+not added to the production request path. Preserve raw audio, transcripts and
+meaning assertions in QA evidence; no provider can guarantee every accent or
+ambiguous fragment is recognized correctly.
