@@ -26,18 +26,19 @@ afterEach(async () => {
 test.each<typeof Platform.OS>(['ios', 'android'])('%s shows privacy actions only inside the signed-in profile', async platform => {
   jest.replaceProperty(Platform, 'OS', platform);
   await session.accept({accessToken:'access',refreshToken:'refresh',expiresIn:600}, {sub:'traveller',email:'traveller@example.test',name:'Traveller'}, config, platform as 'ios' | 'android');
-  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined).mockClear();
   await render(<AccessibilityProvider><ProfileSettings /></AccessibilityProvider>);
   expect(screen.queryByRole('link', {name:'Privacy policy'})).toBeNull();
-  expect(screen.queryByRole('link', {name:'Delete my account'})).toBeNull();
+  expect(screen.queryByRole('button', {name:'Delete my account'})).toBeNull();
   await fireEvent.press(screen.getByRole('button', {name:'Profile settings'}));
   await fireEvent.press(screen.getByRole('link', {name:'Privacy policy'}));
   expect(open).toHaveBeenLastCalledWith('https://roamie-api.tesserix.app/privacy');
-  await fireEvent.press(screen.getByRole('link', {name:'Delete my account'}));
-  expect(open).toHaveBeenLastCalledWith('https://roamie-api.tesserix.app/account-deletion');
+  await fireEvent.press(screen.getByRole('button', {name:'Delete my account'}));
+  expect(screen.getByText('Delete your Roamie account?')).toBeTruthy();
+  expect(open).toHaveBeenCalledTimes(1);
   await act(async () => { await session.clear(); });
   await waitFor(() => expect(screen.queryByRole('link', {name:'Privacy policy'})).toBeNull());
-  expect(screen.queryByRole('link', {name:'Delete my account'})).toBeNull();
+  expect(screen.queryByRole('button', {name:'Delete my account'})).toBeNull();
 });
 
 test.each<typeof Platform.OS>(['ios', 'android'])('%s hides account privacy actions from signed-out settings', async platform => {
@@ -45,5 +46,5 @@ test.each<typeof Platform.OS>(['ios', 'android'])('%s hides account privacy acti
   await render(<AccessibilityProvider><ProfileSettings /></AccessibilityProvider>);
   await fireEvent.press(screen.getByRole('button', {name:'Profile settings'}));
   expect(screen.queryByRole('link', {name:'Privacy policy'})).toBeNull();
-  expect(screen.queryByRole('link', {name:'Delete my account'})).toBeNull();
+  expect(screen.queryByRole('button', {name:'Delete my account'})).toBeNull();
 });

@@ -62,6 +62,15 @@ async fn authenticated_request(
     email: &str,
     path: &str,
 ) -> (axum::http::StatusCode, serde_json::Value) {
+    authenticated_request_with_method(subject, email, "GET", path).await
+}
+
+async fn authenticated_request_with_method(
+    subject: &str,
+    email: &str,
+    method: &str,
+    path: &str,
+) -> (axum::http::StatusCode, serde_json::Value) {
     use axum::{
         body::{to_bytes, Body},
         http::Request,
@@ -96,6 +105,7 @@ async fn authenticated_request(
     let response = crate::router(state)
         .oneshot(
             Request::builder()
+                .method(method)
                 .uri(path)
                 .header("Authorization", format!("Bearer {jwt}"))
                 .body(Body::empty())
@@ -106,6 +116,74 @@ async fn authenticated_request(
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 100_000).await.expect("body");
     (status, serde_json::from_slice(&bytes).unwrap_or_default())
+}
+
+#[tokio::test]
+#[ignore = "requires isolated Postgres and runtime role"]
+async fn deletion_request_is_durable_idempotent_private_and_not_a_completed_deletion() {
+    use axum::http::StatusCode;
+    let alice = format!("delete-alice-{}", uuid::Uuid::now_v7());
+    let bob = format!("delete-bob-{}", uuid::Uuid::now_v7());
+    let email = format!("{alice}@example.invalid");
+    let path = "/v1/auth/deletion-request";
+    let (status, first) = authenticated_request_with_method(&alice, &email, "POST", path).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(first["status"], "pending");
+    assert_eq!(first["owner"], "sales@tesserix.app");
+    assert!(first["id"]
+        .as_str()
+        .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok()));
+    assert_ne!(first["requestedAt"], first["dueAt"]);
+    assert_eq!(
+        authenticated_request_with_method(&alice, &email, "POST", path)
+            .await
+            .1,
+        first
+    );
+    assert_eq!(authenticated_request(&alice, &email, path).await.1, first);
+    assert_eq!(
+        authenticated_request(&bob, &format!("{bob}@example.invalid"), path)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        authenticated_request(
+            &bob,
+            &format!("{bob}@example.invalid"),
+            &format!("{path}/{}", first["id"].as_str().unwrap())
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+
+    let options =
+        PgConnectOptions::from_str(&std::env::var("ROAMIE_TEST_DATABASE_URL").unwrap()).unwrap();
+    let owner = crate::database::Database::connect(options.clone())
+        .await
+        .unwrap();
+    let days: f64 = sqlx::query_scalar("SELECT extract(epoch FROM (due_at-requested_at))::float8/86400 FROM account_deletion_requests WHERE subject=$1").bind(&alice).fetch_one(&owner.pool).await.unwrap();
+    assert_eq!(days, 30.0);
+    let runtime = crate::database::Database::connect(
+        options
+            .username("roamie_app")
+            .password(&std::env::var("ROAMIE_TEST_RUNTIME_PASSWORD").unwrap_or_default()),
+    )
+    .await
+    .unwrap();
+    for query in [
+        "UPDATE account_deletion_requests SET status='completed'",
+        "DELETE FROM account_deletion_requests",
+    ] {
+        assert!(sqlx::query(query).execute(&runtime.pool).await.is_err());
+    }
+    let error = sqlx::query("INSERT INTO account_deletion_requests(id,subject,issuer,contact_email,status,completed_at,completion_reference) VALUES($1,$2,'https://identity.example','synthetic@example.invalid','completed',now(),'forged')")
+        .bind(uuid::Uuid::now_v7()).bind(format!("forged-{}",uuid::Uuid::now_v7())).execute(&runtime.pool).await.expect_err("runtime cannot forge completion during insertion");
+    assert_eq!(
+        error.as_database_error().and_then(|e| e.code()).as_deref(),
+        Some("42501")
+    );
 }
 
 #[tokio::test]

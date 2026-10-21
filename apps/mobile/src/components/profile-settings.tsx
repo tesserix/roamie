@@ -68,7 +68,7 @@ export function ProfileSettings() {
             <Text style={[font.body, { color: c.muted }]}>In Translate, you can type, read replies or show a large message. With a screen reader, double-tap to start recording and again to finish.</Text>
           </View>
           <CommunicationCards />
-          {customer && <PrivacyLinks />}
+          {customer && <PrivacyLinks key={customer.sub} />}
           {settings.error ? <Text accessibilityRole="alert" style={{ color: c.danger }}>{settings.error}</Text> : null}
         </ScrollView>
       </View>

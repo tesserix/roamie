@@ -26,7 +26,7 @@ function ReadyTalk() { return useStore().ready ? <Talk /> : null; }
 async function open(talkLanguage?: string | null) {
   AppState.currentState = 'active';
   jest.spyOn(session, 'current').mockReturnValue({ sub: 'conversation-test', name: 'Test traveller', email: 'test@example.invalid' });
-  jest.mocked(AsyncStorage.getItem).mockResolvedValue(JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, partner: null, talkLanguage, expenses: [] }));
+  jest.mocked(AsyncStorage.getItem).mockImplementation(async key => key.startsWith('roamie.ai-consent.') ? 'allowed' : JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, partner: null, talkLanguage, expenses: [] }));
   await render(<StoreProvider accountId="conversation-test"><ReadyTalk /></StoreProvider>);
 }
 const originalFetch = global.fetch;
@@ -87,7 +87,7 @@ test.each([
   jest.spyOn(session, 'accessToken').mockResolvedValue('test-token');
   global.fetch = jest.fn<typeof global.fetch>().mockResolvedValue({ ok: true, status: 200, json: async () => ({ detected: 'hi', partner: 'hi', target: 'en', transcript: 'नमस्ते', translation: 'Hello', romanized: '', sameLanguage: false, voice: 'male' }) } as Response);
   jest.spyOn(session, 'current').mockReturnValue({ sub: 'conversation-test', name: 'Test traveller', email: 'test@example.invalid' });
-  jest.mocked(AsyncStorage.getItem).mockImplementation(async key => key === 'roamie.accessibility.v1' ? JSON.stringify({ voice }) : JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, partner: null, talkLanguage: null, expenses: [] }));
+  jest.mocked(AsyncStorage.getItem).mockImplementation(async key => key.startsWith('roamie.ai-consent.') ? 'allowed' : key === 'roamie.accessibility.v1' ? JSON.stringify({ voice }) : JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, partner: null, talkLanguage: null, expenses: [] }));
   await render(<AccessibilityProvider><StoreProvider accountId="conversation-test"><ReadyTalk /></StoreProvider></AccessibilityProvider>);
   await fireEvent.press(await screen.findByRole('button', { name: 'Type instead' }));
   await fireEvent.changeText(screen.getByLabelText('Type something to translate'), 'नमस्ते');
@@ -435,7 +435,7 @@ test('reopening after a detected Vietnamese reply keeps their language on auto-d
   await waitFor(() => expect(AsyncStorage.setItem).toHaveBeenCalled());
   const saved = jest.mocked(AsyncStorage.setItem).mock.calls.at(-1)![1];
   await screen.unmount();
-  jest.mocked(AsyncStorage.getItem).mockResolvedValue(saved);
+  jest.mocked(AsyncStorage.getItem).mockImplementation(async key => key.startsWith('roamie.ai-consent.') ? 'allowed' : saved);
   await render(<StoreProvider accountId="conversation-test"><ReadyTalk /></StoreProvider>);
   expect(await screen.findByRole('button', { name: 'Their language: Auto-detect. Choose manually' })).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Type instead' }));
@@ -471,7 +471,7 @@ test('clearing keeps a manually chosen partner language locked', async () => {
 test('a partner saved by an older version opens on auto-detect', async () => {
   AppState.currentState = 'active';
   jest.spyOn(session, 'current').mockReturnValue({ sub: 'conversation-test', name: 'Test traveller', email: 'test@example.invalid' });
-  jest.mocked(AsyncStorage.getItem).mockResolvedValue(JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, partner: 'or', talkLanguage: null, expenses: [] }));
+  jest.mocked(AsyncStorage.getItem).mockImplementation(async key => key.startsWith('roamie.ai-consent.') ? 'allowed' : JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, partner: 'or', talkLanguage: null, expenses: [] }));
   await render(<StoreProvider accountId="conversation-test"><ReadyTalk /></StoreProvider>);
   expect(await screen.findByRole('button', { name: 'Their language: Auto-detect. Choose manually' })).toBeTruthy();
 });

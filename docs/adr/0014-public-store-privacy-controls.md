@@ -1,5 +1,7 @@
 # ADR 0014: Public-store privacy controls
 
+The email-only initiation flow below is superseded by ADR 0017.
+
 Roamie 0.1.2 lacks discoverable privacy and account-deletion links. Its Android
 manifest also requests library-wide media and background playback permissions.
 A public release needs a truthful request path and permissions matching the UI.

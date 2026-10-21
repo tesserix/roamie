@@ -1,3 +1,4 @@
+mod account_deletion;
 mod accounts;
 mod audio;
 #[cfg(test)]
@@ -221,6 +222,12 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/fx", get(fx_latest))
         .route("/auth/me", get(accounts::me))
         .route("/auth/audit", get(accounts::audit))
+        .route(
+            "/auth/deletion-request",
+            get(account_deletion::get)
+                .post(account_deletion::create)
+                .layer(RequestBodyLimitLayer::new(1024)),
+        )
         .route("/reference/trip-styles", get(accounts::styles))
         .route("/trips/plan", post(trips::plan))
         .route("/memories/capabilities", post(memories::capabilities))
@@ -308,6 +315,7 @@ fn ocr_from_env(http: &reqwest::Client) -> anyhow::Result<ocr::Ocr> {
         secret: hex::decode(var("OCR_KEY_SECRET")?.trim())?,
         tenant,
         deadline: Duration::from_secs(env_or("OCR_DEADLINE_SECS", "40").parse()?),
+        owner: None,
     })
 }
 
@@ -342,7 +350,8 @@ async fn talk_turn(
     }
     let turn = talk::interpret(ai, s.jev.as_ref(), &req).await?;
     if let Some(book) = &s.phrasebook {
-        book.remember(vec![turn.phrase()]);
+        book.for_customer(&customer.sub)
+            .remember(vec![turn.phrase()]);
     }
     if let Some(key) = key {
         s.talk_turns.put(key, turn.clone());
@@ -360,47 +369,74 @@ async fn translate_text(
     if let Some(hit) = s.text_translations.get(&key) {
         return Ok(Json(hit));
     }
-    let translated = translate::text(ai, s.phrasebook.as_ref(), &req).await?;
+    let book = s
+        .phrasebook
+        .as_ref()
+        .map(|book| book.for_customer(&customer.sub));
+    let translated = translate::text(ai, book.as_ref(), &req).await?;
     s.text_translations.put(key, translated.clone());
     Ok(Json(translated))
 }
 
 async fn sign_translate(
     State(s): State<Arc<AppState>>,
+    Extension(customer): Extension<auth::Customer>,
     Json(req): Json<signs::SignRequest>,
 ) -> Result<Json<signs::SignResponse>> {
     let (Some(ocr), Some(jev), Some(ai)) = (s.ocr.as_ref(), s.jev.as_ref(), s.ai.as_ref()) else {
         return Err(Error::Unavailable("Photo translation"));
     };
-    let translated = signs::translate(ocr, jev, ai, &req).await?;
+    let ocr = customer_ocr(&s, ocr, &customer.sub)?;
+    let translated = signs::translate(&ocr, jev, ai, &req).await?;
     if let Some(book) = &s.phrasebook {
-        book.remember(translated.phrases(&req.to));
+        book.for_customer(&customer.sub)
+            .remember(translated.phrases(&req.to));
     }
     Ok(Json(translated))
 }
 
 async fn receipt_extract(
     State(s): State<Arc<AppState>>,
+    Extension(customer): Extension<auth::Customer>,
     Json(req): Json<receipts::ReceiptRequest>,
 ) -> Result<Json<receipts::Receipt>> {
     let ai =
         s.ai.as_ref()
             .ok_or(Error::Unavailable("Receipt scanning"))?;
+    let ocr = s
+        .ocr
+        .as_ref()
+        .map(|ocr| customer_ocr(&s, ocr, &customer.sub))
+        .transpose()?;
     Ok(Json(
-        receipts::extract(ai, s.ocr.as_ref(), s.jev.as_ref(), &req).await?,
+        receipts::extract(ai, ocr.as_ref(), s.jev.as_ref(), &req).await?,
     ))
 }
 
 async fn statement_extract(
     State(s): State<Arc<AppState>>,
+    Extension(customer): Extension<auth::Customer>,
     Json(req): Json<statements::StatementRequest>,
 ) -> Result<Json<statements::Statement>> {
     let ai =
         s.ai.as_ref()
             .ok_or(Error::Unavailable("Statement import"))?;
+    let ocr = s
+        .ocr
+        .as_ref()
+        .map(|ocr| customer_ocr(&s, ocr, &customer.sub))
+        .transpose()?;
     Ok(Json(
-        statements::extract(ai, s.ocr.as_ref(), s.jev.as_ref(), &req).await?,
+        statements::extract(ai, ocr.as_ref(), s.jev.as_ref(), &req).await?,
     ))
+}
+
+fn customer_ocr(state: &AppState, ocr: &ocr::Ocr, subject: &str) -> Result<ocr::Ocr> {
+    match &state.database {
+        Some(db) => Ok(ocr.for_customer(db.pool.clone(), subject)),
+        None if cfg!(debug_assertions) && state.development_auth_disabled => Ok(ocr.clone()),
+        None => Err(Error::Unavailable("Document ownership storage")),
+    }
 }
 
 async fn nearby_search(

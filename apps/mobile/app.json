@@ -2,7 +2,7 @@
   "expo": {
     "name": "Roamie",
     "slug": "roamie",
-    "version": "0.1.5",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/brand/roamie-icon.png",
     "scheme": "roamie",
@@ -15,8 +15,8 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSMicrophoneUsageDescription": "Roamie listens when you start recording or a hands-free conversation, to translate what is said.",
         "NSLocationWhenInUseUsageDescription": "Roamie uses your location to find places nearby and show the right emergency numbers.",
-        "NSCameraUsageDescription": "Roamie reads the total from a receipt you photograph.",
-        "NSPhotoLibraryUsageDescription": "Roamie reads the total from a receipt photo you choose."
+        "NSCameraUsageDescription": "Roamie uses photos you take to translate signs and menus and read receipt information.",
+        "NSPhotoLibraryUsageDescription": "Roamie uses photos you choose to translate signs and menus, read receipts and create trip memories."
       }
     },
     "android": {
@@ -77,8 +77,8 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Roamie reads the total from a receipt you photograph.",
-          "photosPermission": "Roamie reads the total from a receipt photo you choose."
+          "cameraPermission": "Roamie uses photos you take to translate signs and menus and read receipt information.",
+          "photosPermission": "Roamie uses photos you choose to translate signs and menus, read receipts and create trip memories."
         }
       ],
       "expo-notifications",
@@ -89,7 +89,7 @@
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow Roamie to suggest memories from photos taken during your trip.",
+          "photosPermission": "Roamie uses photos you choose to translate signs and menus, read receipts and create trip memories.",
           "savePhotosPermission": "Allow Roamie to save your trip memories.",
           "granularPermissions": [
             "photo",

@@ -9,7 +9,7 @@ import { createTrip } from '../trips';
 
 jest.mock('../planning-jobs',()=>({...jest.requireActual<typeof import('../planning-jobs')>('../planning-jobs'),loadPlanningJob:jest.fn(async()=>null)}));
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
-jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}) }));
+jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async (key: string) => key.startsWith('roamie.ai-consent.') ? 'allowed' : null), setItem: jest.fn(async () => {}) }));
 jest.mock('expo-secure-store', () => ({ setItemAsync: jest.fn(async () => {}), deleteItemAsync: jest.fn(async () => {}) }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 

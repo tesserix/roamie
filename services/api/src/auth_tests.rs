@@ -228,6 +228,8 @@ const CUSTOMER_ROUTES: &[(&str, &str)] = &[
     ("GET", "/v1/fx?base=AUD"),
     ("GET", "/v1/auth/me"),
     ("GET", "/v1/auth/audit"),
+    ("GET", "/v1/auth/deletion-request"),
+    ("POST", "/v1/auth/deletion-request"),
     ("GET", "/v1/reference/trip-styles"),
     ("POST", "/v1/trips/plan"),
     ("POST", "/v1/memories/capabilities"),
