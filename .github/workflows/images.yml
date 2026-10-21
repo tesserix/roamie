@@ -9,12 +9,8 @@ on:
       - Cargo.toml
       - Cargo.lock
       - .dockerignore
+      - .github/workflows/images.yml
   workflow_dispatch:
-    inputs:
-      promote_deploy:
-        description: Advance the deploy branch after verified publication
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -36,6 +32,8 @@ jobs:
   verify-published:
     needs: publish
     runs-on: ubuntu-24.04
+    outputs:
+      digest: ${{ steps.smoke.outputs.digest }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -46,26 +44,44 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify published image with TLS Postgres and authentication
-        env:
-          API_IMAGE: ghcr.io/tesserix/roamie-api:sha-${{ github.sha }}
+        id: smoke
         run: |
+          digest=$(docker buildx imagetools inspect "ghcr.io/tesserix/roamie-api:sha-${GITHUB_SHA}" --format '{{.Manifest.Digest}}')
+          export API_IMAGE="ghcr.io/tesserix/roamie-api@${digest}"
           docker pull "$API_IMAGE"
           bash scripts/ci/smoke-api.sh
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
-  # Kargo watches `deploy`, so a commit only lands there once its image is pullable.
-  advance-deploy:
-    if: github.event_name == 'workflow_dispatch' && inputs.promote_deploy && github.ref == 'refs/heads/main'
+  # Kargo promotes only deploy-<sha7>, so the tag goes on the exact digest the smoke test passed.
+  mark-deployable:
+    if: github.ref == 'refs/heads/main'
     needs: verify-published
     runs-on: ubuntu-24.04
-    environment: production
-    permissions:
-      contents: write
     concurrency:
-      group: advance-deploy
+      group: mark-deployable
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
-          fetch-depth: 0
-      - name: Fast-forward deploy
-        run: git push origin "${GITHUB_SHA}:refs/heads/deploy"
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: gcp
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
+        with:
+          workload_identity_provider: projects/849928263410/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions@tesseracthub-480811.iam.gserviceaccount.com
+          project_id: tesseracthub-480811
+          token_format: access_token
+          create_credentials_file: false
+      - name: Tag the verified digest and pull it through the Kargo mirror
+        env:
+          DIGEST: ${{ needs.verify-published.outputs.digest }}
+          GCP_TOKEN: ${{ steps.gcp.outputs.access_token }}
+        run: |
+          set -euo pipefail
+          tag="deploy-${GITHUB_SHA::7}"
+          docker buildx imagetools create --tag "ghcr.io/tesserix/roamie-api:${tag}" "ghcr.io/tesserix/roamie-api@${DIGEST}"
+          printf '%s' "$GCP_TOKEN" | docker login asia-south1-docker.pkg.dev -u oauth2accesstoken --password-stdin
+          mirror="asia-south1-docker.pkg.dev/tesseracthub-480811/ghcr-remote/tesserix/roamie-api:${tag}"
+          test "$(docker buildx imagetools inspect "$mirror" --format '{{.Manifest.Digest}}')" = "$DIGEST"
