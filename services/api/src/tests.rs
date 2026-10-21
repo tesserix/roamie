@@ -66,6 +66,10 @@ async fn upstream(status: StatusCode, body: Value) -> (String, Arc<AtomicUsize>)
                                     *targets.lock().unwrap() =
                                         context["requestedTranslations"].clone();
                                 }
+                                if let Some(languages) = context["selectedLanguages"].as_array() {
+                                    *targets.lock().unwrap() =
+                                        json!({"to_mine":languages[0],"to_partner":languages[1]});
+                                }
                             }
                         }
                     }
@@ -2068,6 +2072,53 @@ async fn automatic_text_detects_source_without_target_language_bias() {
 }
 
 #[tokio::test]
+async fn audio_transcription_does_not_require_or_request_generated_translations() {
+    use axum::{Json, Router};
+    let provider=Router::new().fallback(|Json(body):Json<Value>| async move {
+        let properties=&body["generationConfig"]["responseSchema"]["properties"];
+        assert!(properties.get("to_mine").is_none() && properties.get("to_partner").is_none(),"speech recognition must not generate translations: {properties}");
+        assert!(body["contents"].to_string().contains("selectedLanguages"));
+        Json(model_reply(json!({"language":"bn","confidence":0.99,"transcript":"স্টেশন বাঁদিকে।","speaker_voice":"lower"})))
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let (nmt,_)=upstream(StatusCode::OK,json!({"languages":[{"languageCode":"bn","confidence":1.0}],"translations":[{"translatedText":"The station is on the left."}]})).await;
+    let mut app = state(&url, "http://unused", None);
+    Arc::get_mut(&mut app).unwrap().translation = crate::translation::Translation::with_auth(
+        reqwest::Client::new(),
+        format!("{nmt}/translation"),
+        Arc::new(FakeToken),
+    );
+    let request=serde_json::from_value(json!({"mine":"en","partner":"bn","partnerLocked":true,"audio":{"mimeType":"audio/mp4","data":"AAAA"}})).unwrap();
+    let turn = crate::talk::interpret(app.ai.as_ref().unwrap(), &app.translation, None, &request)
+        .await
+        .unwrap();
+    assert_eq!(turn.detected.as_str(), "bn");
+    assert_eq!(turn.target.as_str(), "en");
+    assert_eq!(turn.translation, "The station is on the left.");
+    assert_eq!(turn.voice, Some(crate::speech::Voice::Male));
+    task.abort();
+    let _ = task.await;
+}
+
+#[tokio::test]
+async fn auto_mine_can_accept_its_first_language_before_a_distinct_pair_exists() {
+    for partner in ["bn", "ne", "th", "ja", "ur", "si"] {
+        let (model,_) = upstream(StatusCode::OK,model_reply(json!({"language":"en","confidence":0.99,"transcript":"Where is the train station?","to_mine":"The station","to_partner":"A translated question"}))).await;
+        let (status,body)=call(state(&model,"http://unused",None),"POST","/v1/talk/turn",Some(json!({"mine":partner,"partner":partner,"autoMine":true,"partnerLocked":true,"text":"Where is the train station?"}))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["mine"], "en", "{body}");
+        assert_eq!(body["partner"], partner, "{body}");
+        assert_eq!(body["target"], partner, "{body}");
+        assert_eq!(
+            body["reviewRequired"], false,
+            "the first learned distinct pair must be accepted: {body}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn auto_mine_starts_in_the_detected_language_with_one_model_call() {
     let (model, hits) = upstream(StatusCode::OK, model_reply(json!({"language":"hi","confidence":0.99,"transcript":"आप कैसे हैं?","to_mine":"How are you?","to_partner":"ଆପଣ କେମିତି ଅଛନ୍ତି?"}))).await;
     let (status, body) = call(
@@ -2195,7 +2246,9 @@ async fn automatic_conversation_transcribes_once_then_translates_and_reviews() {
                 assert_eq!(headers["authorization"], "Bearer synthetic-customer");
                 assert_eq!(body["model"], "roamie-structured");
                 let properties = &body["response_format"]["json_schema"]["schema"]["properties"];
-                assert!(properties.get("transcript").is_some() && properties.get("to_partner").is_some(), "{properties}");
+                assert!(properties.get("transcript").is_some(), "{properties}");
+                let audio = body["messages"][1]["content"].as_array().unwrap().iter().any(|part| part["type"] == "image_url");
+                assert_eq!(properties.get("to_partner").is_none(), audio, "{properties}");
                 let context = body["messages"][1].to_string();
                 assert!(context.contains("recentConversation") && context.contains("ନମସ୍କାର"), "{context}");
                 captured.fetch_add(1, Ordering::SeqCst);
