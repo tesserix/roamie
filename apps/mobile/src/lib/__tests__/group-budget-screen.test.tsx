@@ -135,6 +135,13 @@ test("traveller creates a group, adds contact and an equal expense, then records
     await screen.findByRole("button", { name: "Create a group" }),
   );
   await fireEvent.press(screen.getByRole("button", { name: "Save group" }));
+  expect(await screen.findByText("Add your travellers")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Repayments" })).toBeNull();
+  await fireEvent.press(screen.getByRole("button", { name: "Group options" }));
+  expect(
+    await screen.findByRole("button", { name: "Repayments" }),
+  ).toBeTruthy();
+  await fireEvent.press(screen.getByRole("button", { name: "Close" }));
   await fireEvent.press(
     await screen.findByRole("button", { name: "Add traveller" }),
   );
@@ -144,7 +151,7 @@ test("traveller creates a group, adds contact and an equal expense, then records
     "bob@example.com",
   );
   await fireEvent.changeText(
-    screen.getByLabelText("WhatsApp number (international format)"),
+    screen.getByLabelText("WhatsApp (optional, with country code)"),
     "+61412345678",
   );
   await fireEvent.press(screen.getByRole("button", { name: "Save traveller" }));
@@ -159,9 +166,7 @@ test("traveller creates a group, adds contact and an equal expense, then records
       expect.anything(),
     ),
   );
-  await fireEvent.press(
-    screen.getByRole("button", { name: "Add shared expense" }),
-  );
+  await fireEvent.press(screen.getByRole("button", { name: "Add expense" }));
   await fireEvent.changeText(
     screen.getByLabelText("Expense description"),
     "Dinner together",

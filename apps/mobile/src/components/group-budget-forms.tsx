@@ -150,7 +150,7 @@ export function ContactEditor({
         maxLength={254}
       />
       <GroupField
-        label="WhatsApp number (international format)"
+        label="WhatsApp (optional, with country code)"
         value={whatsapp}
         onChangeText={setWhatsapp}
         keyboardType="phone-pad"
@@ -158,9 +158,9 @@ export function ContactEditor({
         maxLength={16}
       />
       <GroupCopy>
-        Contacts are visible to this group. Add details with the traveller’s
-        permission. Saving a contact does not send a message or grant account
-        access.
+        Email lets you invite their verified Roamie account after saving.
+        WhatsApp is optional. Add contact details with their permission; these
+        are visible to group members.
       </GroupCopy>
       {error ? <GroupCopy alert>{error}</GroupCopy> : null}
       <Button label="Save traveller" busy={busy} onPress={() => void save()} />

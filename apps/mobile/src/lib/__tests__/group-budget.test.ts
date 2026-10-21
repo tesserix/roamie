@@ -5,10 +5,15 @@ import {
   minorAmount,
   reminderUrl,
   convertMinor,
+  groupFormat,
 } from "../group-budget";
 const a = "a",
   b = "b",
   c = "c";
+test("shared amounts identify the currency when travellers use different dollars", () => {
+  expect(groupFormat(12001, "AUD")).toMatch(/AUD.*120[.,]01/);
+  expect(groupFormat(12001, "USD")).toMatch(/USD.*120[.,]01/);
+});
 test("equal and percentage splits distribute every minor unit deterministically", () => {
   expect(
     allocate(100, "equal", [

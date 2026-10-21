@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, AppState, FlatList, Share, Text, View } from "react-native";
+import {
+  Alert,
+  AppState,
+  FlatList,
+  Pressable,
+  useWindowDimensions,
+  Share,
+  Text,
+  View,
+} from "react-native";
 import {
   Button,
   Card,
@@ -9,7 +18,7 @@ import {
   Screen,
   TAB_CLEARANCE,
 } from "./ui";
-import { GroupCopy } from "./group-budget-fields";
+import { GroupCopy, GroupSheet } from "./group-budget-fields";
 import {
   CreateGroup,
   ContactEditor,
@@ -18,7 +27,7 @@ import {
 } from "./group-budget-forms";
 import { ExpenseEditor } from "./group-expense-editor";
 import { SearchPicker } from "./search-picker";
-import { font, space, useColors } from "@/constants/theme";
+import { font, lift, radius, space, useColors } from "@/constants/theme";
 import { CURRENCIES } from "@/data/currencies";
 import { fxRates } from "@/lib/api";
 import { ApiError } from "@/lib/trip-api";
@@ -52,7 +61,7 @@ type Entry = {
   amount?: string;
   estimate?: string;
   overdue?: boolean;
-  actions: { label: string; run: () => void }[];
+  actions: { label: string; text?: string; run: () => void }[];
 };
 export function GroupBudget({
   home: initialHome,
@@ -68,6 +77,8 @@ export function GroupBudget({
     homeRef.current = home;
   }, [home]);
   const c = useColors();
+  const { width, fontScale } = useWindowDimensions();
+  const stackAmounts = width < 360 || fontScale > 1.35;
   const [listing, setListing] = useState<GroupList>({
     groups: [],
     invitations: [],
@@ -84,6 +95,7 @@ export function GroupBudget({
     asOf: string;
   } | null>(null);
   const [rateError, setRateError] = useState(false);
+  const [options, setOptions] = useState(false);
   const [create, setCreate] = useState(false),
     [person, setPerson] = useState<Participant | null | undefined>(undefined);
   const [expense, setExpense] = useState<GroupExpense | null | undefined>(
@@ -248,6 +260,7 @@ export function GroupBudget({
         accept(result);
         pending.current = null;
         setCreate(false);
+        setPane("Travellers");
         setError(null);
       }
     } finally {
@@ -301,46 +314,57 @@ export function GroupBudget({
   let entries: Entry[] = [];
   if (group) {
     if (pane === "Balances")
-      entries = currentDebts.map((d) => ({
-        id: `${d.fromId}:${d.toId}:${d.currency}`,
-        title: `${name(d.fromId)} owes ${name(d.toId)}`,
-        subtitle: `Oldest unpaid share: ${d.oldestOn}${d.overdue ? " · 30+ days unpaid" : ""}`,
-        amount: groupFormat(d.amountMinor, d.currency),
-        estimate: estimate(d.amountMinor, d.currency),
-        overdue: d.overdue,
-        actions: [
-          ...(group.isOwner ||
-          group.participants.some(
-            (p) => p.isSelf && (p.id === d.fromId || p.id === d.toId),
-          )
-            ? [
-                {
-                  label: `Record repayment from ${name(d.fromId)} to ${name(d.toId)}`,
-                  run: () => setRepayment(d),
-                },
-              ]
-            : []),
-          ...(group.isOwner ||
-          group.participants.some((p) => p.isSelf && p.id === d.toId)
-            ? [{ label: `Remind ${name(d.fromId)}`, run: () => setReminder(d) }]
-            : []),
-        ],
-      }));
+      entries = [...currentDebts]
+        .sort((a, b) => Number(b.overdue) - Number(a.overdue))
+        .map((d) => ({
+          id: `${d.fromId}:${d.toId}:${d.currency}`,
+          title: `${name(d.fromId)} owes ${name(d.toId)}`,
+          subtitle: `${d.overdue ? "30+ days unpaid · " : "Unpaid since "}${d.oldestOn}`,
+          amount: groupFormat(d.amountMinor, d.currency),
+          estimate: estimate(d.amountMinor, d.currency),
+          overdue: d.overdue,
+          actions: [
+            ...(group.isOwner ||
+            group.participants.some(
+              (p) => p.isSelf && (p.id === d.fromId || p.id === d.toId),
+            )
+              ? [
+                  {
+                    label: `Record repayment from ${name(d.fromId)} to ${name(d.toId)}`,
+                    text: "Settle",
+                    run: () => setRepayment(d),
+                  },
+                ]
+              : []),
+            ...(group.isOwner ||
+            group.participants.some((p) => p.isSelf && p.id === d.toId)
+              ? [
+                  {
+                    label: `Remind ${name(d.fromId)}`,
+                    text: "Remind",
+                    run: () => setReminder(d),
+                  },
+                ]
+              : []),
+          ],
+        }));
     if (pane === "Expenses")
       entries = group.expenses.map((e) => ({
         id: e.id,
         title: e.description,
-        subtitle: `${name(e.payerId)} paid · ${e.occurredOn} · ${e.method === "equal" ? "Equal split" : e.method === "percentage" ? "Percentage split" : "Exact split"}\n${e.homeCurrency !== e.currency ? `At entry: ${groupFormat(e.homeMinor, e.homeCurrency)} · rate ${e.rateAsOf}` : ""}`,
+        subtitle: `${name(e.payerId)} paid · ${e.occurredOn} · ${e.method === "equal" ? "Equal split" : e.method === "percentage" ? "Percentage split" : "Exact split"}`,
         amount: groupFormat(e.amountMinor, e.currency),
         estimate: estimate(e.amountMinor, e.currency),
         actions: e.canEdit
           ? [
               {
                 label: `Edit shared expense ${e.description}`,
+                text: "Edit",
                 run: () => setExpense(e),
               },
               {
                 label: `Remove shared expense ${e.description}`,
+                text: "Remove",
                 run: () =>
                   confirm(
                     "Remove shared expense?",
@@ -368,12 +392,19 @@ export function GroupBudget({
           .join("\n"),
         actions: [
           ...(group.isOwner || p.isSelf
-            ? [{ label: `Edit contact ${p.name}`, run: () => setPerson(p) }]
+            ? [
+                {
+                  label: `Edit contact ${p.name}`,
+                  text: "Edit",
+                  run: () => setPerson(p),
+                },
+              ]
             : []),
           ...(group.isOwner && !p.hasAccount && p.email
             ? [
                 {
                   label: `Invite ${p.name} to Roamie`,
+                  text: "Invite",
                   run: () => {
                     Alert.alert(
                       `Invite ${p.name}?`,
@@ -421,6 +452,7 @@ export function GroupBudget({
             ? [
                 {
                   label: `Remove access for ${p.name}`,
+                  text: "Remove access",
                   run: () =>
                     confirm(
                       "Remove this traveller’s access?",
@@ -434,6 +466,7 @@ export function GroupBudget({
             ? [
                 {
                   label: `Revoke invitation for ${p.name}`,
+                  text: "Revoke invite",
                   run: () =>
                     confirm(
                       "Revoke this invitation?",
@@ -468,6 +501,7 @@ export function GroupBudget({
             ? [
                 {
                   label: `Correct repayment ${name(s.fromId)} to ${name(s.toId)}`,
+                  text: "Correct",
                   run: () =>
                     confirm(
                       "Undo this recorded repayment?",
@@ -503,38 +537,61 @@ export function GroupBudget({
   );
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.md }}>
-      <SearchPicker
-        title="Your home currency"
-        value={home}
-        options={CURRENCIES}
-        onChange={preference.change}
-      />
       {preference.error ? (
         <GroupCopy alert>{preference.error}</GroupCopy>
       ) : null}
       {group ? (
         <>
-          <Card style={{ gap: space.sm }}>
-            <Text style={[font.title, { color: c.text }]}>
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: space.sm,
+            }}
+          >
+            <Text style={[font.caption, { color: c.muted }]}>
               {group.participants.length} travellers · {group.expenses.length}{" "}
-              shared expenses
+              {group.expenses.length === 1 ? "expense" : "expenses"}
             </Text>
-            <GroupCopy>
-              Debts stay in the original currency. Estimates use your home
-              currency, {home}. Repayments do not add to trip spending.
-            </GroupCopy>
-            {currentDebts.some((d) => d.overdue) ? (
-              <Text style={[font.headline, { color: c.warn }]}>
-                Some shares have been unsettled for 30 days. Review a reminder
-                below.
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Viewing in ${home}. Change currency`}
+              onPress={() => setOptions(true)}
+              style={({ pressed }) => ({
+                minHeight: 44,
+                justifyContent: "center",
+                paddingHorizontal: 12,
+                borderRadius: radius.pill,
+                backgroundColor: c.surface,
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Text style={[font.caption, { color: c.accent }]}>
+                Viewing in {home} ⌄
               </Text>
-            ) : null}
-          </Card>
+            </Pressable>
+          </View>
+          {group.participants.length === 1 && pane === "Travellers" ? (
+            <View style={{ gap: space.xs }}>
+              <Text
+                style={[font.title, { color: c.text }]}
+                accessibilityRole="header"
+              >
+                Add your travellers
+              </Text>
+              <GroupCopy>
+                Start with their names. Add an email to invite them; WhatsApp is
+                optional.
+              </GroupCopy>
+            </View>
+          ) : null}
           <View
             style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}
           >
             <Button
-              label="Add shared expense"
+              label="Add expense"
               icon="plus"
               onPress={() => setExpense(null)}
               disabled={busy || loading}
@@ -553,18 +610,10 @@ export function GroupBudget({
           <View
             style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}
           >
-            {(
-              [
-                "Balances",
-                "Expenses",
-                "Travellers",
-                "Repayments",
-                "Email reminders",
-              ] as const
-            ).map((value) => (
+            {(["Balances", "Expenses", "Travellers"] as const).map((value) => (
               <Chip
                 key={value}
-                label={value}
+                label={value === "Travellers" ? "People" : value}
                 selected={pane === value}
                 onPress={() => setPane(value)}
               />
@@ -573,20 +622,12 @@ export function GroupBudget({
         </>
       ) : (
         <>
-          <Card style={{ gap: space.sm }}>
-            <Text style={[font.title, { color: c.text }]}>
-              Travel together. Keep money simple.
-            </Text>
-            <GroupCopy>
-              Add everyone once. Shared expenses split equally by default, with
-              percentage or exact amounts when you need them. Each person sees
-              conversions in their own home currency.
-            </GroupCopy>
-            <GroupCopy>
-              Group expenses and contacts sync securely online and are visible
-              to group members. Your personal wallet remains separate.
-            </GroupCopy>
-          </Card>
+          <Text style={[font.title, { color: c.text }]}>
+            Travel together. Split simply.
+          </Text>
+          <GroupCopy>
+            Create a group, add your travellers, then share trip expenses.
+          </GroupCopy>
           <Button
             label="Create a group"
             icon="plus"
@@ -624,27 +665,65 @@ export function GroupBudget({
           />
         </>
       ) : null}
-      {!group ? rateControls : null}
+      {group && pane === "Balances" && currentDebts.some((d) => d.overdue) ? (
+        <View
+          style={{
+            padding: space.md,
+            borderRadius: radius.md,
+            backgroundColor: c.warnSoft,
+            gap: space.xs,
+          }}
+        >
+          <Text
+            accessibilityRole="header"
+            style={[font.headline, { color: c.warn }]}
+          >
+            Unsettled over 30 days
+          </Text>
+          <Text style={[font.body, { color: c.text }]}>
+            Review the highlighted balances and send a friendly reminder.
+          </Text>
+        </View>
+      ) : null}
+      {group ? (
+        <Text
+          accessibilityRole="header"
+          style={[font.overline, { color: c.muted }]}
+        >
+          {pane === "Balances"
+            ? "Who owes whom"
+            : pane === "Travellers"
+              ? "People"
+              : pane}
+        </Text>
+      ) : null}
     </View>
   );
   return (
     <Screen
-      title={group?.title ?? "Group expenses"}
-      subtitle={group ? "Shared trip ledger" : "Budget · split with a group"}
+      title={group ? "Budget" : "Group expenses"}
+      subtitle={group?.title ?? "Split with a group"}
       right={
-        <IconButton
-          icon="arrow.left"
-          label={group ? "All groups" : "Back to personal budget"}
-          onPress={() => {
-            if (busy) return;
-            if (group) {
-              setGroup(null);
-              selected.current = null;
-              requested.current = null;
-              void list();
-            } else onClose();
-          }}
-        />
+        <View style={{ flexDirection: "row", gap: space.xs }}>
+          <IconButton
+            icon="arrow.left"
+            label={group ? "All groups" : "Back to personal budget"}
+            onPress={() => {
+              if (busy) return;
+              if (group) {
+                setGroup(null);
+                selected.current = null;
+                requested.current = null;
+                void list();
+              } else onClose();
+            }}
+          />
+          <IconButton
+            icon="ellipsis"
+            label="Group options"
+            onPress={() => setOptions(true)}
+          />
+        </View>
       }
     >
       {group ? (
@@ -658,7 +737,21 @@ export function GroupBudget({
             paddingBottom: TAB_CLEARANCE,
           }}
           ListHeaderComponent={header}
-          ListFooterComponent={rateControls}
+          ListFooterComponent={
+            rateError ? (
+              <Button
+                label="Retry exchange rates"
+                kind="secondary"
+                onPress={() => void rates()}
+              />
+            ) : (
+              <Text
+                style={[font.caption, { color: c.muted, paddingTop: space.sm }]}
+              >
+                Converted amounts are estimates using daily reference rates.
+              </Text>
+            )
+          }
           ListEmptyComponent={
             <Message
               icon="wallet.pass.fill"
@@ -677,32 +770,102 @@ export function GroupBudget({
             />
           }
           renderItem={({ item }) => (
-            <Card style={{ gap: space.sm }}>
-              <Text style={[font.headline, { color: c.text }]}>
-                {item.title}
-              </Text>
-              <GroupCopy>{item.subtitle}</GroupCopy>
-              {item.amount ? (
-                <Text
-                  style={[
-                    font.title,
-                    { color: item.overdue ? c.warn : c.accent },
-                  ]}
+            <View
+              style={{
+                ...lift,
+                padding: 12,
+                gap: space.xs,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: item.overdue ? c.warn : c.border,
+                backgroundColor: item.overdue ? c.warnSoft : c.surface,
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: stackAmounts ? "column" : "row",
+                  justifyContent: "space-between",
+                  alignItems: stackAmounts ? "stretch" : "flex-start",
+                  gap: space.sm,
+                }}
+              >
+                <View style={{ flex: 1, gap: space.xs }}>
+                  <Text style={[font.headline, { color: c.text }]}>
+                    {item.title}
+                  </Text>
+                  <Text style={[font.caption, { color: c.muted }]}>
+                    {item.subtitle}
+                  </Text>
+                </View>
+                {item.amount ? (
+                  <View
+                    style={{
+                      alignItems: stackAmounts ? "flex-start" : "flex-end",
+                      gap: 2,
+                      flexShrink: 1,
+                    }}
+                  >
+                    <Text
+                      style={[
+                        font.title,
+                        { color: item.overdue ? c.warn : c.accent },
+                      ]}
+                    >
+                      {item.amount}
+                    </Text>
+                    {item.estimate ? (
+                      <Text style={[font.caption, { color: c.muted }]}>
+                        {item.estimate}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+              {item.actions.length ? (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: space.sm,
+                    justifyContent: "flex-end",
+                  }}
                 >
-                  {item.amount}
-                </Text>
+                  {item.actions.map((action) => (
+                    <Pressable
+                      key={action.label}
+                      accessibilityRole="button"
+                      accessibilityLabel={action.label}
+                      accessibilityState={{ disabled: busy }}
+                      disabled={busy}
+                      onPress={action.run}
+                      style={({ pressed }) => ({
+                        minHeight: 44,
+                        minWidth: 64,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: radius.md,
+                        backgroundColor:
+                          action.text === "Settle"
+                            ? c.accentSoft
+                            : "transparent",
+                        opacity: busy ? 0.4 : pressed ? 0.7 : 1,
+                      })}
+                    >
+                      <Text
+                        style={[
+                          font.headline,
+                          { color: c.accent, fontSize: 15 },
+                        ]}
+                      >
+                        {action.text ?? action.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
               ) : null}
-              {item.estimate ? <GroupCopy>{item.estimate}</GroupCopy> : null}
-              {item.actions.map((action) => (
-                <Button
-                  key={action.label}
-                  label={action.label}
-                  kind="secondary"
-                  onPress={action.run}
-                  disabled={busy}
-                />
-              ))}
-            </Card>
+            </View>
           )}
         />
       ) : (
@@ -747,6 +910,46 @@ export function GroupBudget({
           }
         />
       )}
+      {options ? (
+        <GroupSheet
+          title="Group options"
+          onClose={() => setOptions(false)}
+          busy={busy}
+        >
+          <SearchPicker
+            title="Your home currency"
+            value={home}
+            options={CURRENCIES}
+            onChange={preference.change}
+          />
+          {group ? (
+            <>
+              <Button
+                label="Repayments"
+                kind="secondary"
+                onPress={() => {
+                  setPane("Repayments");
+                  setOptions(false);
+                }}
+              />
+              <Button
+                label="Email reminders"
+                kind="secondary"
+                onPress={() => {
+                  setPane("Email reminders");
+                  setOptions(false);
+                }}
+              />
+              <GroupCopy>
+                Balances stay in the original currency. Conversions are
+                estimates in {home}. Recording a repayment does not move money
+                or add to trip spending.
+              </GroupCopy>
+            </>
+          ) : null}
+          {rateControls}
+        </GroupSheet>
+      ) : null}
       {create ? (
         <CreateGroup
           home={home}

@@ -55,6 +55,7 @@ export function currencyDecimals(currency: string): number {
 export const groupFormat = (minor: number, currency: string) =>
   new Intl.NumberFormat(undefined, {
     style: "currency",
+    currencyDisplay: "code",
     currency,
     minimumFractionDigits: currencyDecimals(currency),
     maximumFractionDigits: currencyDecimals(currency),
