@@ -98,7 +98,16 @@
           "isAccessMediaLocationEnabled": false
         }
       ],
-      "./plugins/card-payments"
+      "./plugins/card-payments",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
