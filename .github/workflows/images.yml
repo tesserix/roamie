@@ -84,3 +84,4 @@ jobs:
           printf '%s' "$GCP_TOKEN" | docker login asia-south1-docker.pkg.dev -u oauth2accesstoken --password-stdin
           mirror="asia-south1-docker.pkg.dev/tesseracthub-480811/ghcr-remote/tesserix/roamie-api:${tag}"
           test "$(docker buildx imagetools inspect "$mirror" --format '{{.Manifest.Digest}}')" = "$DIGEST"
+          docker buildx imagetools create --tag "asia-south1-docker.pkg.dev/tesseracthub-480811/global/roamie-api:${tag}" "${mirror}@${DIGEST}"
