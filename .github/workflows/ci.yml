@@ -25,6 +25,7 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install 1.97 --profile minimal && rustup default 1.97
       - run: bash scripts/ci/check-rsa-dependency.sh
+      - run: bash scripts/ci/check-webpki-roots.sh
 
   media:
     runs-on: ubuntu-24.04
