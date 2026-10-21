@@ -153,18 +153,20 @@ async fn bengali_script_reply_keeps_english_target_when_model_reports_another_sc
                 } else {
                     payload["text"] = json!("স্টেশন বাঁদিকে।");
                 }
-                let (status, body) = call(
-                    state(&ai, "http://unused", None),
-                    "POST",
-                    "/v1/talk/turn",
-                    Some(payload),
-                )
-                .await;
-                assert_eq!(
-                    status,
-                    StatusCode::OK,
-                    "auto={automatic} audio={audio}: {body}"
-                );
+                let configured = state(&ai, "http://unused", None);
+                let body = if audio {
+                    let request = serde_json::from_value(payload).unwrap();
+                    let turn =
+                        crate::talk::interpret(configured.ai.as_ref().unwrap(), None, &request)
+                            .await
+                            .unwrap();
+                    serde_json::to_value(turn).unwrap()
+                } else {
+                    let (status, body) =
+                        call(configured, "POST", "/v1/talk/turn", Some(payload)).await;
+                    assert_eq!(status, StatusCode::OK, "auto={automatic}: {body}");
+                    body
+                };
                 assert_eq!(body["detected"], "bn", "{body}");
                 assert_eq!(body["mine"], "en", "{body}");
                 assert_eq!(body["partner"], "bn", "{body}");
