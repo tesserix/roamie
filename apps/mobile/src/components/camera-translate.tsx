@@ -3,11 +3,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
-import { Badge, Button, Chip, Message, SpeakButton } from '@/components/ui';
+import { Badge, Button, Chip, Icon, Message, SpeakButton } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
 import { ApiError, type SignLine, translateSign } from '@/lib/api';
 import { languageName } from '@/lib/languages';
 import { type Photo, toJpeg } from '@/lib/photo';
+import { placeLabels } from '@/lib/sign-layout';
 
 type Read =
   | { status: 'reading' }
@@ -92,28 +93,20 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
   const w = photo.width * scale;
   const h = photo.height * scale;
   const ready = read.status === 'ready' ? read : null;
+  const labels = ready && overlay ? placeLabels(ready.lines, w, h) : [];
 
   return (
     <ScrollView contentContainerStyle={{ padding: space.md, gap: space.md, paddingBottom: bottom }}>
-      <View style={[styles.frame, { width: w, height: h }]}>
+      <View style={[styles.frame, { width: w, height: h, borderColor: c.border }]}>
         <Image source={{ uri: photo.uri }} style={{ width: w, height: h }} contentFit="cover" accessibilityLabel="Your photo" />
-        {ready && overlay
-          ? ready.lines.map((l, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.label,
-                  { left: l.box.x * w, top: l.box.y * h, width: l.box.w * w, minHeight: l.box.h * h, backgroundColor: c.surface },
-                ]}>
-                <Text
-                  adjustsFontSizeToFit
-                  numberOfLines={2}
-                  style={{ color: c.text, fontWeight: '600', fontSize: Math.max(10, Math.min(22, l.box.h * h * 0.7)) }}>
-                  {l.translation}
-                </Text>
-              </View>
-            ))
-          : null}
+        {labels.map(({ fontSize, ...box }, i) => (
+          <View key={i} style={[styles.label, box, { backgroundColor: c.surface }]}>
+            {/* Sized to the photo, so system text scaling would only push it past the label. */}
+            <Text allowFontScaling={false} adjustsFontSizeToFit minimumFontScale={0.6} numberOfLines={1} style={{ color: c.text, fontWeight: '600', fontSize }}>
+              {ready?.lines[i].translation}
+            </Text>
+          </View>
+        ))}
         {read.status === 'reading' ? (
           <View style={styles.scrim}>
             <ActivityIndicator color="#FFFFFF" size="large" />
@@ -122,8 +115,8 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
         ) : null}
       </View>
 
-      <View style={{ flexDirection: 'row', gap: space.sm, alignSelf: 'center' }}>
-        {ready ? <Chip label={overlay ? 'Show original' : 'Show translation'} icon="eye" onPress={() => setOverlay((o) => !o)} /> : null}
+      <View style={styles.actions}>
+        {ready ? <Chip label="Original" icon="eye" selected={!overlay} onPress={() => setOverlay((o) => !o)} /> : null}
         <Chip label="New photo" icon="camera.fill" onPress={() => take(true)} />
         <Chip label="Photos" icon="photo" onPress={() => take(false)} />
       </View>
@@ -138,7 +131,12 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
 
       {ready ? (
         <>
-          {ready.reviewRequired && <Text accessibilityRole="alert" style={[font.body, { color: c.warn }]}>Some text is uncertain. Check the original photo before relying on this translation.</Text>}
+          {ready.reviewRequired ? (
+            <View accessibilityRole="alert" style={[styles.notice, { backgroundColor: c.warnSoft }]}>
+              <Icon name="exclamationmark.triangle" size={18} color={c.warn} />
+              <Text style={[font.caption, { color: c.warn, flex: 1 }]}>Some text is uncertain. Check the original photo before relying on this translation.</Text>
+            </View>
+          ) : null}
           <View style={[styles.gist, lift, { backgroundColor: c.surface }]}>
             <Badge icon="lightbulb.fill" tint={c.accent} bg={c.accentSoft} size={36} />
             <View style={{ flex: 1, gap: 2 }}>
@@ -171,8 +169,10 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
 }
 
 const styles = StyleSheet.create({
-  frame: { alignSelf: 'center', borderRadius: radius.lg, overflow: 'hidden' },
-  label: { position: 'absolute', borderRadius: 4, paddingHorizontal: 3, justifyContent: 'center', opacity: 0.94 },
+  frame: { alignSelf: 'center', borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  label: { position: 'absolute', borderRadius: 4, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space.sm },
+  notice: { flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: 12, borderRadius: radius.md },
   scrim: {
     position: 'absolute',
     top: 0,
