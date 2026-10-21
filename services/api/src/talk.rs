@@ -272,14 +272,9 @@ pub async fn interpret(
     } else {
         String::new()
     };
-    let outside_pair = req.partner_locked
-        && req.mine != req.partner
-        && detected != req.mine
-        && detected != req.partner;
     let echoed = !same_language
         && translation.trim().to_lowercase() == heard.transcript.trim().to_lowercase();
-    let mut review_required =
-        heard.confidence < 0.8 || rewritten_transcript || outside_pair || echoed;
+    let mut review_required = heard.confidence < 0.8 || rewritten_transcript || echoed;
     let decision_model = if let Some(jev) = jev {
         let recent: Vec<_> = req.recent_history().iter().map(|turn| json!({"original":crate::documents::redact(&turn.original).chars().take(120).collect::<String>(),"translation":crate::documents::redact(&turn.translation).chars().take(120).collect::<String>()})).collect();
         if heard.transcript.chars().count() > 1000 || translation.chars().count() > 1000 {
