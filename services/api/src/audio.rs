@@ -12,6 +12,7 @@ use crate::error::{Error, Result};
 
 const MAX_ENCODED_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PCM_BYTES: usize = 60 * 16000 * 2;
+const DECODE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct Gate {
     slots: Arc<Semaphore>,
@@ -39,9 +40,7 @@ impl Gate {
             .clone()
             .try_acquire_owned()
             .map_err(|_| Error::Unavailable("Speech detection"))?;
-        let samples = tokio::time::timeout(Duration::from_secs(3), decode(data))
-            .await
-            .map_err(|_| Error::Unavailable("Speech detection"))??;
+        let samples = decode_with_timeout(decode(data)).await?;
         let speech = tokio::task::spawn_blocking(move || {
             let _slot = slot;
             has_speech(&samples)
@@ -62,6 +61,20 @@ pub fn check_runtime() -> Result<()> {
 
 fn invalid_audio() -> Error {
     Error::Invalid("Use a valid audio recording shorter than one minute.".into())
+}
+
+async fn decode_with_timeout(
+    decoder: impl std::future::Future<Output = Result<Vec<i16>>>,
+) -> Result<Vec<i16>> {
+    tokio::time::timeout(DECODE_TIMEOUT, decoder)
+        .await
+        .map_err(|_| {
+            tracing::warn!(
+                timeout_seconds = DECODE_TIMEOUT.as_secs(),
+                "audio decoding timed out"
+            );
+            Error::Unavailable("Speech detection")
+        })?
 }
 
 async fn decode(data: Vec<u8>) -> Result<Vec<i16>> {
@@ -176,4 +189,37 @@ fn has_speech(samples: &[i16]) -> Result<bool> {
         }
     }
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn slow_decoder_finishes_instead_of_interrupting_a_conversation() {
+        let samples = decode_with_timeout(async {
+            tokio::time::sleep(Duration::from_secs(4)).await;
+            Ok(vec![120, -120])
+        })
+        .await
+        .expect("valid decoded speech");
+        assert_eq!(samples, vec![120, -120]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stalled_decoder_is_cancelled_after_ten_seconds() {
+        let started = tokio::time::Instant::now();
+        let result = decode_with_timeout(std::future::pending()).await;
+        assert!(matches!(
+            result,
+            Err(Error::Unavailable("Speech detection"))
+        ));
+        assert_eq!(started.elapsed(), Duration::from_secs(10));
+    }
+
+    #[tokio::test]
+    async fn invalid_audio_is_rejected_without_waiting_for_the_deadline() {
+        let result = decode_with_timeout(std::future::ready(Err(invalid_audio()))).await;
+        assert!(matches!(result, Err(Error::Invalid(_))));
+    }
 }
