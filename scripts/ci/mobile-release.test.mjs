@@ -41,3 +41,10 @@ test('Android uses user-selected media and foreground-only speech', () => {
   assert.equal(audio.enableBackgroundPlayback, false);
   assert.equal(audio.enableBackgroundRecording, false);
 });
+
+test('Android store builds shrink resources and obfuscate release code', () => {
+  const { expo } = read('apps/mobile/app.json');
+  const properties = expo.plugins.find(p => Array.isArray(p) && p[0] === 'expo-build-properties')?.[1];
+  assert.equal(properties?.android?.enableMinifyInReleaseBuilds, true);
+  assert.equal(properties?.android?.enableShrinkResourcesInReleaseBuilds, true);
+});

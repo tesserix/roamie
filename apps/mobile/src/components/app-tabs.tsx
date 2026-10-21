@@ -1,9 +1,19 @@
+import { useRootNavigationState, useRouter } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
+import { useEffect, useRef } from 'react';
 
 import { useColors } from '@/constants/theme';
 
 export default function AppTabs() {
   const c = useColors();
+  const router = useRouter();
+  const navigation = useRootNavigationState();
+  const landed = useRef(false);
+  useEffect(() => {
+    if (!navigation?.key || landed.current) return;
+    landed.current = true;
+    router.replace('/');
+  }, [navigation?.key, router]);
   return (
     <NativeTabs tintColor={c.accent}>
       <NativeTabs.Trigger name="index">
