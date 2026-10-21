@@ -34,6 +34,7 @@ mod talk;
 #[cfg(test)]
 mod tests;
 mod translate;
+mod translation;
 mod travel_mcp;
 mod travel_profiles;
 mod trip_manager;
@@ -62,6 +63,7 @@ struct AppState {
     database: Option<database::Database>,
     http: reqwest::Client,
     ai: Option<gemini::Gemini>,
+    translation: translation::Translation,
     fx: fx::Fx,
     places: Option<nearby::Places>,
     ocr: Option<ocr::Ocr>,
@@ -156,7 +158,10 @@ async fn main() -> anyhow::Result<()> {
         .as_ref()
         .map(|db| phrasebook::Phrasebook::new(db.pool.clone(), &model));
     audio::check_runtime().expect("speech detection runtime must initialize");
+    let translation =
+        translation::Translation::new(http.clone(), &env_or("GCP_PROJECT", "tesseracthub-480811"));
     let state = Arc::new(AppState {
+        translation,
         mail: mail::Sender::from_env()?,
         trip_manager: trip_manager::Manager::from_env()?,
         travel_mcp_key: std::env::var("TRAVEL_MCP_API_KEY").ok(),
@@ -367,7 +372,7 @@ async fn talk_turn(
     if let Some(hit) = key.as_ref().and_then(|k| s.talk_turns.get(k)) {
         return Ok(Json(hit));
     }
-    let turn = talk::interpret(ai, s.jev.as_ref(), &req).await?;
+    let turn = talk::interpret(ai, &s.translation, s.jev.as_ref(), &req).await?;
     if let Some(book) = &s.phrasebook {
         book.for_customer(&customer.sub)
             .remember(vec![turn.phrase()]);

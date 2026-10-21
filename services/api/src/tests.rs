@@ -30,11 +30,51 @@ impl TokenProvider for FakeToken {
 async fn upstream(status: StatusCode, body: Value) -> (String, Arc<AtomicUsize>) {
     let hits = Arc::new(AtomicUsize::new(0));
     let counter = hits.clone();
-    let app = axum::Router::new().fallback(move || {
-        counter.fetch_add(1, Ordering::SeqCst);
-        let body = body.clone();
-        async move { (status, axum::Json(body)) }
-    });
+    let targets = Arc::new(std::sync::Mutex::new(Value::Null));
+    let app = axum::Router::new().fallback(
+        move |uri: axum::http::Uri, request: Option<axum::Json<Value>>| {
+            let targets = targets.clone();
+            let counter = counter.clone();
+            let body = body.clone();
+            async move {
+                let request = request.map(|v| v.0).unwrap_or(Value::Null);
+                if uri.path().starts_with("/nmt:") {
+                    let answer: Value = serde_json::from_str(
+                        body["candidates"][0]["content"]["parts"][0]["text"]
+                            .as_str()
+                            .unwrap_or("{}"),
+                    )
+                    .unwrap();
+                    let response = if uri.path().ends_with(":detectLanguage") {
+                        json!({"languages":[{"languageCode":answer["language"],"confidence":1.0}]})
+                    } else {
+                        let targets = targets.lock().unwrap();
+                        let field = if request["targetLanguageCode"] == targets["to_mine"] {
+                            "to_mine"
+                        } else {
+                            "to_partner"
+                        };
+                        json!({"translations":[{"translatedText":answer[field]}]})
+                    };
+                    return (status, axum::Json(response));
+                }
+                if let Some(parts) = request["contents"][0]["parts"].as_array() {
+                    for part in parts {
+                        if let Some(text) = part["text"].as_str() {
+                            if let Ok(context) = serde_json::from_str::<Value>(text) {
+                                if context.get("requestedTranslations").is_some() {
+                                    *targets.lock().unwrap() =
+                                        context["requestedTranslations"].clone();
+                                }
+                            }
+                        }
+                    }
+                }
+                counter.fetch_add(1, Ordering::SeqCst);
+                (status, axum::Json(body))
+            }
+        },
+    );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -50,6 +90,11 @@ fn model_reply(answer: Value) -> Value {
 pub(crate) fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc<AppState> {
     let http = reqwest::Client::new();
     Arc::new(AppState {
+        translation: crate::translation::Translation::with_auth(
+            http.clone(),
+            format!("{gemini_url}/nmt"),
+            Arc::new(FakeToken),
+        ),
         mail: None,
         trip_manager: None,
         travel_mcp_key: None,
@@ -133,7 +178,119 @@ async fn authenticated_responses_cannot_be_reused_from_http_caches() {
 }
 
 #[tokio::test]
-async fn bengali_script_reply_keeps_english_target_when_model_reports_another_script() {
+async fn dedicated_detection_corrects_shared_script_model_echoes() {
+    let transcript = "रेल चार बजे छुट्छ, पाँच बजे होइन।";
+    let (ai, _) = upstream(
+        StatusCode::OK,
+        model_reply(json!({
+            "language":"hi","confidence":0.99,"transcript":transcript,
+            "to_mine":transcript,"to_partner":transcript
+        })),
+    )
+    .await;
+    let (nmt, _) = upstream(StatusCode::OK, json!({"languages":[{"languageCode":"ne","confidence":1.0}],"translations":[{"translatedText":"ट्रेन चार बजे निकलती है, पांच बजे नहीं।"}]})).await;
+    let mut app = state(&ai, "http://unused", None);
+    Arc::get_mut(&mut app).unwrap().translation = crate::translation::Translation::with_auth(
+        reqwest::Client::new(),
+        format!("{nmt}/translation"),
+        Arc::new(FakeToken),
+    );
+    let (status, body) = call(
+        app,
+        "POST",
+        "/v1/talk/turn",
+        Some(json!({
+            "mine":"hi","partner":"ne","partnerLocked":true,"text":transcript
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["detected"], "ne", "{body}");
+    assert_eq!(body["target"], "hi", "{body}");
+    assert_eq!(
+        body["translation"], "ट्रेन चार बजे निकलती है, पांच बजे नहीं।",
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn current_utterance_detection_controls_both_speaker_sides_for_unrelated_languages() {
+    for (language, reported, transcript) in [
+        ("ne", "hi", "रेल चार बजे छुट्छ, पाँच बजे होइन।"),
+        ("fr", "es", "La gare est à gauche."),
+        ("ms", "id", "Stesen itu di sebelah kiri."),
+        ("uk", "ru", "Станція ліворуч."),
+        ("ar", "ur", "المحطة على اليسار."),
+        ("bn", "en", "স্টেশন বাঁদিকে।"),
+    ] {
+        for automatic in [false, true] {
+            for from_me in [false, true] {
+                let (mine, partner) = if from_me {
+                    (language, "en")
+                } else {
+                    ("en", language)
+                };
+                let (ai, _) = upstream(
+                    StatusCode::OK,
+                    model_reply(json!({
+                        "language":reported,"confidence":0.99,"transcript":transcript,
+                        "to_mine":transcript,"to_partner":transcript,
+                        "to_mine_romanized":"wrong guide","to_partner_romanized":"wrong guide"
+                    })),
+                )
+                .await;
+                let (nmt, _) = upstream(StatusCode::OK,json!({"languages":[{"languageCode":language,"confidence":1.0}],"translations":[{"translatedText":"The station is on the left."}]})).await;
+                let mut app = state(&ai, "http://unused", None);
+                Arc::get_mut(&mut app).unwrap().translation =
+                    crate::translation::Translation::with_auth(
+                        reqwest::Client::new(),
+                        format!("{nmt}/translation"),
+                        Arc::new(FakeToken),
+                    );
+                let (status, body) = call(app,"POST","/v1/talk/turn",Some(json!({
+                    "mine":mine,"partner":partner,"partnerLocked":true,"autoMine":automatic,
+                    "expectedSpeaker":if from_me { "partner" } else { "mine" },"text":transcript,
+                    "history":[{"original":"An unrelated earlier turn","translation":"A previous translation"}]
+                }))).await;
+                assert_eq!(status, StatusCode::OK, "{body}");
+                assert_eq!(body["detected"], language, "{body}");
+                assert_eq!(body["target"], "en", "{body}");
+                assert_eq!(body["mine"], mine, "{body}");
+                assert_eq!(body["partner"], partner, "{body}");
+                assert_eq!(body["fromMe"], from_me, "{body}");
+                assert_eq!(
+                    body["romanized"], "",
+                    "a guide for a different translation must not be spoken"
+                );
+                assert_eq!(body["reviewRequired"], false, "{body}");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_provider_echo_or_uncertain_third_language_cannot_be_silently_accepted() {
+    for (detected, confidence, translation) in [
+        ("en", 1.0, "The station is on the left."),
+        ("ms", 0.7, "Stesen itu di sebelah kiri."),
+    ] {
+        let (ai,_) = upstream(StatusCode::OK,model_reply(json!({"language":"en","confidence":0.99,"transcript":"The station is on the left.","to_mine":"The station is on the left.","to_partner":translation}))).await;
+        let (nmt,_) = upstream(StatusCode::OK,json!({"languages":[{"languageCode":detected,"confidence":confidence}],"translations":[{"translatedText":translation}]})).await;
+        let mut app = state(&ai, "http://unused", None);
+        Arc::get_mut(&mut app).unwrap().translation = crate::translation::Translation::with_auth(
+            reqwest::Client::new(),
+            format!("{nmt}/translation"),
+            Arc::new(FakeToken),
+        );
+        let (status,body)=call(app,"POST","/v1/talk/turn",Some(json!({"mine":"en","partner":"id","autoMine":true,"partnerLocked":true,"text":"The station is on the left."}))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["reviewRequired"], true, "{body}");
+        assert_eq!(body["partner"], "id", "{body}");
+    }
+}
+
+#[tokio::test]
+async fn dedicated_detection_keeps_english_target_when_model_reports_another_script() {
     use base64::Engine;
     for language in ["hi", "or", "en"] {
         for automatic in [false, true] {
@@ -153,13 +310,24 @@ async fn bengali_script_reply_keeps_english_target_when_model_reports_another_sc
                 } else {
                     payload["text"] = json!("স্টেশন বাঁদিকে।");
                 }
-                let configured = state(&ai, "http://unused", None);
+                let (nmt, _) = upstream(StatusCode::OK, json!({"languages":[{"languageCode":"bn","confidence":1.0}],"translations":[{"translatedText":"The station is on the left."}]})).await;
+                let mut configured = state(&ai, "http://unused", None);
+                Arc::get_mut(&mut configured).unwrap().translation =
+                    crate::translation::Translation::with_auth(
+                        reqwest::Client::new(),
+                        format!("{nmt}/translation"),
+                        Arc::new(FakeToken),
+                    );
                 let body = if audio {
                     let request = serde_json::from_value(payload).unwrap();
-                    let turn =
-                        crate::talk::interpret(configured.ai.as_ref().unwrap(), None, &request)
-                            .await
-                            .unwrap();
+                    let turn = crate::talk::interpret(
+                        configured.ai.as_ref().unwrap(),
+                        &configured.translation,
+                        None,
+                        &request,
+                    )
+                    .await
+                    .unwrap();
                     serde_json::to_value(turn).unwrap()
                 } else {
                     let (status, body) =
@@ -2016,7 +2184,7 @@ async fn conversation_remembers_both_languages_and_tracks_language_switches() {
 
 #[tokio::test]
 #[cfg(media_tests)]
-async fn automatic_conversation_hears_and_translates_in_one_gateway_call_then_jev() {
+async fn automatic_conversation_transcribes_once_then_translates_and_reviews() {
     use axum::{http::HeaderMap, routing::post, Json, Router};
     let hits = Arc::new(AtomicUsize::new(0));
     let captured = hits.clone();
@@ -2049,6 +2217,12 @@ async fn automatic_conversation_hears_and_translates_in_one_gateway_call_then_je
     let mutable = Arc::get_mut(&mut s).unwrap();
     mutable.ai = Some(gemini::Gemini::with_gateway(gateway.clone()));
     mutable.jev = Some(crate::decisions::Jev::with_gateway(gateway));
+    let (nmt, _) = upstream(StatusCode::OK, json!({"languages":[{"languageCode":"hi","confidence":1.0}],"translations":[{"translatedText":"ଆପଣ କେମିତି ଅଛନ୍ତି?"}]})).await;
+    mutable.translation = crate::translation::Translation::with_auth(
+        reqwest::Client::new(),
+        format!("{nmt}/translation"),
+        Arc::new(FakeToken),
+    );
     for turn in [
         json!({"mine":"en","partner":"or","autoMine":true,"expectedSpeaker":"mine","text":"आप कैसे हैं?","history":[{"original":"नमस्ते","translation":"ନମସ୍କାର"}]}),
         json!({"mine":"en","partner":"or","autoMine":true,"expectedSpeaker":"mine","audio":{"mimeType":"audio/mp4","data":base64::Engine::encode(&base64::engine::general_purpose::STANDARD, include_bytes!("../testdata/speech-th.m4a"))},"history":[{"original":"नमस्ते","translation":"ନମସ୍କାର"}]}),
