@@ -7,6 +7,10 @@ use serde_json::json;
 pub enum Error {
     #[error("not found")]
     NotFound,
+    #[error("reminder cooldown")]
+    ReminderCooldown,
+    #[error("group budget changed")]
+    BudgetChanged,
     #[error("profile changed")]
     ProfileChanged,
     #[error("account conflict")]
@@ -37,6 +41,12 @@ impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, code, message) = match &self {
             Error::NotFound => (StatusCode::NOT_FOUND, "not_found", "Not found.".into()),
+            Error::ReminderCooldown => (StatusCode::TOO_MANY_REQUESTS,"reminder_cooldown","A reminder was requested recently, or your daily reminder limit was reached. Try WhatsApp sharing or check back later.".into()),
+            Error::BudgetChanged => (
+                StatusCode::CONFLICT,
+                "budget_changed",
+                "This group changed. Refresh it before saving again.".into(),
+            ),
             Error::ProfileChanged => (
                 StatusCode::CONFLICT,
                 "profile_changed",

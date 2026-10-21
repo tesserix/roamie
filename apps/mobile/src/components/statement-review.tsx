@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/typography';
 
 import { Button, Icon, Message } from '@/components/ui';
 import { font, radius, space, useColors } from '@/constants/theme';

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, View } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 import { Button, Card, Chip } from './ui';
 import { font, useColors } from '@/constants/theme';
 import { decimals, format, toMinor } from '@/lib/money';

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, View } from 'react-native';
+import { Text } from '@/components/typography';
 import { font, useColors } from '@/constants/theme';
 import { checkTripReadiness, type DestinationCheck } from '@/lib/trip-readiness';
 import type { Trip } from '@/lib/trips';

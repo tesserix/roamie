@@ -33,6 +33,16 @@ const originalFetch = global.fetch;
 const originalAppState = AppState.currentState;
 afterEach(() => { jest.restoreAllMocks(); global.fetch = originalFetch; AppState.currentState = originalAppState; });
 
+test('changing display size from Translate keeps settings open for another choice', async () => {
+ jest.mocked(AsyncStorage.getItem).mockImplementation(async key => key === 'roamie.accessibility.v1' ? null : JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, expenses: [] }));
+ await render(<AccessibilityProvider><StoreProvider accountId="display-test"><ReadyTalk /></StoreProvider></AccessibilityProvider>);
+ await fireEvent.press(await screen.findByRole('button', {name: 'Profile settings'}));
+ await fireEvent.press(screen.getByRole('radio', {name: 'Large text'}));
+ expect(screen.getByRole('radio', {name: 'Normal text'})).toBeTruthy();
+ await fireEvent.press(screen.getByRole('button', {name: 'Reset display to normal'}));
+ expect(screen.getByRole('radio', {name: 'Normal text'}).props.accessibilityState.checked).toBe(true);
+});
+
 test('microphone starts without a partner language or location permission', async () => {
   jest.mocked(getRecordingPermissionsAsync).mockResolvedValueOnce({ granted: false } as never);
   await open();

@@ -3,24 +3,14 @@ import { File, Paths } from 'expo-file-system';
 import type { SFSymbol } from 'expo-symbols';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useState } from 'react';
-import {
-  Alert,
-  FlatList,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 
 import { Badge, Button, Icon, IconButton, Message, Screen, SectionLabel, TAB_CLEARANCE } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
 import { StatementReview } from '@/components/statement-review';
 import { ApplePaySetup } from '@/components/apple-pay-setup';
+import { GroupBudget } from '@/components/group-budget';
 import { ApiError, fxRates, readReceipt, readStatement } from '@/lib/api';
 import { nudge } from '@/lib/budget-nudge';
 import { session } from '@/lib/auth-client';
@@ -57,12 +47,13 @@ export default function Wallet() {
   const lastCurrency = expenses[0]?.currency ?? home;
   const [draft, setDraft] = useState<Draft | null>(null);
   const [rates, setRates] = useState<Record<string, number> | null>(null);
-  const { trips } = useTrips();
+  const { trips, accountId } = useTrips();
   const [scanning, setScanning] = useState(false);
   const [importing, setImporting] = useState(false);
   const [review, setReview] = useState<Review | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [applePaySetup, setApplePaySetup] = useState(false);
+  const [groupBudget, setGroupBudget] = useState(false);
 
   useEffect(() => {
     fxRates(home)
@@ -191,6 +182,7 @@ export default function Wallet() {
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.sm }}>
       <BudgetCard spent={spent} budget={budget} pct={pct} home={home} />
+      <Button label="Split with a group" icon="wallet.pass.fill" kind="secondary" onPress={() => setGroupBudget(true)} />
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         <Button label="Add expense" icon="plus" onPress={() => open()} style={{ flex: 1 }} />
         <Button label="Scan" icon="doc.text.viewfinder" kind="secondary" busy={scanning} onPress={scan} style={{ flex: 0.7 }} />
@@ -200,6 +192,8 @@ export default function Wallet() {
       {expenses.length ? <SectionLabel>Recent</SectionLabel> : null}
     </View>
   );
+
+  if (groupBudget) return <GroupBudget home={home} accountId={accountId} displayName={session.current()?.name ?? ''} trips={trips} onClose={() => setGroupBudget(false)} />;
 
   return (
     <Screen title="Wallet" subtitle={`Everything in ${home}`} right={<IconButton icon="ellipsis" label="More" tone="soft" onPress={menu} />}>
