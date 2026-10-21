@@ -8,8 +8,8 @@ const payment = (id: string, date: string, amount: string, currency: string, mer
 test('payments made during a trip become expenses converted home', () => {
   const { add, done } = capturePayments([payment('a', '2026-10-02', '185000', 'VND'), payment('b', '2026-10-08', '12.5', 'AUD', 'Opal')], trips, 'AUD', { VND: 16000 });
   expect(add).toEqual([
-    { amountMinor: 185000, currency: 'VND', homeMinor: 1156, category: 'other', note: 'Pho 24', at: '2026-10-02T05:00:00.000Z' },
-    { amountMinor: 1250, currency: 'AUD', homeMinor: 1250, category: 'other', note: 'Opal', at: '2026-10-08T05:00:00.000Z' },
+    { paymentId: 'a', amountMinor: 185000, currency: 'VND', homeMinor: 1156, category: 'other', note: 'Pho 24', at: '2026-10-02T05:00:00.000Z' },
+    { paymentId: 'b', amountMinor: 1250, currency: 'AUD', homeMinor: 1250, category: 'other', note: 'Opal', at: '2026-10-08T05:00:00.000Z' },
   ]);
   expect(done).toEqual(['a', 'b']);
 });
@@ -30,4 +30,15 @@ test('malformed stored entries are dropped when they carry an id', () => {
   const { add, done } = capturePayments([{ id: 'x' } as CardPayment], trips, 'AUD', {});
   expect(add).toEqual([]);
   expect(done).toEqual(['x']);
+});
+
+test('rejects unsafe amounts and timestamps and counts a repeated payment id once', () => {
+  const valid = payment('once', '2026-10-03', '12.50', 'AUD');
+  const result = capturePayments([
+    payment('huge', '2026-10-03', '9'.repeat(40), 'AUD'),
+    { ...valid, id: 'bad-time', at: 'not a timestamp' },
+    valid, valid,
+  ], trips, 'AUD', null);
+  expect(result.add).toEqual([expect.objectContaining({ paymentId: 'once', amountMinor: 1250 })]);
+  expect(result.done).toEqual(['huge', 'bad-time', 'once']);
 });
