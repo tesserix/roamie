@@ -77,3 +77,11 @@ bind both translations to their requested languages/native scripts. A live
 Odia/Hindi/French/Hindi sequence reproduced context drift; the typed-text invariant
 and clearer translation contract prevent silent acceptance of a rewritten input.
 Audio transcripts remain model-derived and require the existing JEV check.
+
+Native QA also reproduced short Bengali replies being labeled Hindi despite a
+Bengali transcript. When Bengali is selected, at least two alphabetic Bengali
+characters making up at least two thirds of the transcript's letters override
+a conflicting model label. Assamese, Bishnupriya, Manipuri, and Sylheti labels
+are preserved because they can share the script. This correction runs before
+direction selection, third-language rejection, and the review check, for speech
+and typed replies. Model confidence and the configured pair are preserved.
