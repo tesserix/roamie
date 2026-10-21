@@ -11,6 +11,7 @@ import { stopSpeaking } from '@/lib/voice';
 import { session } from '@/lib/auth-client';
 import { PrivacyLinks } from './privacy-links';
 import { DisplaySettings } from './display-settings';
+import { signOut } from '@/lib/sign-out';
 
 export function ProfileSettings() {
   const [open, setOpen] = useState(false);
@@ -29,6 +30,13 @@ export function ProfileSettings() {
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={{ padding: space.lg, paddingTop: space.sm, paddingBottom: insets.bottom + space.lg, gap: space.lg }}>
+          {customer && <View style={{ padding: space.md, gap: space.sm, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border }}>
+            <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Account</Text>
+            <Text style={[font.body, { color: c.muted }]}>{customer.email}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={() => { setOpen(false); void signOut(); }} style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: space.md, borderRadius: 14, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
+              <Text style={[font.headline, { color: c.danger }]}>Sign out</Text>
+            </Pressable>
+          </View>}
           <DisplaySettings />
           <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Sound & feedback</Text>
           <View style={{ borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, overflow: 'hidden' }}>
