@@ -1,4 +1,5 @@
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
+import { Text } from '@/components/typography';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { font, useColors } from '@/constants/theme';
 

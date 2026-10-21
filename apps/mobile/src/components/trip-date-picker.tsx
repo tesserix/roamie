@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Keyboard, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Keyboard, Modal, Pressable, ScrollView, View } from 'react-native';
+import { Text } from '@/components/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { font, useColors } from '@/constants/theme';
 import { Button, Icon, IconButton } from './ui';

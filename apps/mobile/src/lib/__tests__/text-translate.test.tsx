@@ -4,7 +4,6 @@ import { TextTranslate } from '../../components/text-translate';
 import { ApiError, translateText } from '../api';
 
 jest.mock('../api', () => ({ ApiError: class extends Error {}, translateText: jest.fn() }));
-jest.mock('../accessibility', () => ({ useAccessibility: () => ({ vibration: false }) }));
 jest.mock('../feedback', () => ({ signalFeedback: jest.fn() }));
 jest.mock('../../components/language-picker', () => ({ LanguagePicker: () => null }));
 jest.mock('../../components/show-them', () => ({ ShowThem: () => null }));

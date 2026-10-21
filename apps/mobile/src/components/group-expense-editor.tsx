@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from 'react-native';
+import { Text } from '@/components/typography';
 import { Button, Chip, SectionLabel } from "./ui";
 import { SearchPicker } from "./search-picker";
 import { GroupCopy, GroupField, GroupSheet } from "./group-budget-fields";

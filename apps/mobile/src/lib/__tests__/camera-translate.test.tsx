@@ -3,7 +3,6 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { CameraTranslate } from '../../components/camera-translate';
 import { translateSign } from '../api';
 
-jest.mock('../accessibility', () => ({ useAccessibility: () => ({ highContrast: false }) }));
 jest.mock('expo-image', () => ({ Image: () => null }));
 jest.mock('expo-image-picker', () => ({ launchImageLibraryAsync: jest.fn(async () => ({ canceled: false, assets: [{ uri: 'file:///IMG_0001.HEIC', width: 3024, height: 4032, mimeType: 'image/heic' }] })) }));
 jest.mock('expo-image-manipulator', () => {

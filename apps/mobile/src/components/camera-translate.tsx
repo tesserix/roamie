@@ -1,7 +1,8 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text as OverlayText, useWindowDimensions, View } from 'react-native';
+import { Text } from '@/components/typography';
 
 import { Badge, Button, Chip, Icon, Message, SpeakButton } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
@@ -102,9 +103,9 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
         {labels.map(({ fontSize, ...box }, i) => (
           <View key={i} style={[styles.label, box, { backgroundColor: c.surface }]}>
             {/* Sized to the photo, so system text scaling would only push it past the label. */}
-            <Text allowFontScaling={false} adjustsFontSizeToFit minimumFontScale={0.6} numberOfLines={1} style={{ color: c.text, fontWeight: '600', fontSize }}>
+            <OverlayText allowFontScaling={false} adjustsFontSizeToFit minimumFontScale={0.6} numberOfLines={1} style={{ color: c.text, fontWeight: '600', fontSize }}>
               {ready?.lines[i].translation}
-            </Text>
+            </OverlayText>
           </View>
         ))}
         {read.status === 'reading' ? (

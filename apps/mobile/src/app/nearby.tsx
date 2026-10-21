@@ -1,6 +1,7 @@
 import type { SFSymbol } from 'expo-symbols';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Keyboard, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Keyboard, Linking, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 
 import { NearbyFilterSheet, NEARBY_SORTS } from '@/components/nearby-filters';
 import { Badge, Button, Icon, IconButton, Message, Screen, TAB_CLEARANCE } from '@/components/ui';

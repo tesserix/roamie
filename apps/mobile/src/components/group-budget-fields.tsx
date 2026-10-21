@@ -1,14 +1,6 @@
 import type { ReactNode } from "react";
-import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-  type TextInputProps,
-} from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, View, type TextInputProps } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "./ui";
 import { font, space, radius, useColors } from "@/constants/theme";

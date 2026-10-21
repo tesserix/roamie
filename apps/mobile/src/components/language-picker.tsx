@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 
 import { Icon } from '@/components/ui';
 import { font, radius, space, touch, useColors } from '@/constants/theme';

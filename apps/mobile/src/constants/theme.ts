@@ -1,6 +1,6 @@
-import { Platform, useColorScheme, type ViewStyle } from 'react-native';
+import { Platform, type ViewStyle } from 'react-native';
 
-import { useAccessibility } from '@/lib/accessibility';
+import { useAccessibility, useAppColorScheme } from '@/lib/accessibility';
 
 // Window-seat palette: sky, passport navy, azure, and one marigold sun for the hero action.
 const palette = {
@@ -45,7 +45,7 @@ const palette = {
 export type Colors = { [K in keyof typeof palette.light]: string };
 
 export function useColors(): Colors {
-  const dark = useColorScheme() === 'dark';
+  const dark = useAppColorScheme() === 'dark';
   const { highContrast } = useAccessibility();
   const base = palette[dark ? 'dark' : 'light'];
   return highContrast ? { ...base, text: dark ? '#FFFFFF' : '#000000', muted: dark ? '#F2F4F7' : '#344054', faint: dark ? '#D0D5DD' : '#475467', border: dark ? '#D0D5DD' : '#475467' } : base;

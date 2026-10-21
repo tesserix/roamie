@@ -1,5 +1,7 @@
+import { useTextScale } from '@/lib/accessibility';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -116,7 +118,8 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
   const [showManager,setShowManager] = useState(false);
   const {profile} = useStore();
   const store = useTrips(), c = useColors(), insets = useSafeAreaInsets();
-  const { width, fontScale } = useWindowDimensions();
+  const { width } = useWindowDimensions();
+  const fontScale = useTextScale();
   const [day, setDay] = useState(0), [tab, setTab] = useState<'calendar' | 'memories'>('calendar'), [editor, setEditor] = useState<TripStop | 'new' | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(''), [seconds, setSeconds] = useState<60 | 90>(60), [video, setVideo] = useState<string | null>(null), [pdf, setPdf] = useState<string | null>(null), [suggested, setSuggested] = useState<MemoryPhoto[] | null>(null);
   const [videoStage, setVideoStage] = useState<'preparing' | 'rendering' | null>(null);
   const [videoNotice, setVideoNotice] = useState('');

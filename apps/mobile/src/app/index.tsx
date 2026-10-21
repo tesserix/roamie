@@ -8,21 +8,8 @@ import {
 } from 'expo-audio';
 import { File } from 'expo-file-system';
 import { useEffect, useRef, useState } from 'react';
-import {
-  AccessibilityInfo,
-  AppState,
-  ActivityIndicator,
-  FlatList,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import { AccessibilityInfo, AppState, ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 import { CommunicationCards } from '@/components/communication-cards';
 import { HandsFreeConversation } from '@/lib/hands-free';
 import { waitForMicrophoneForeground } from '@/lib/microphone';
@@ -30,7 +17,7 @@ import { SPEECH_RECORDING } from '@/lib/recording';
 import { signalFeedback } from '@/lib/feedback';
 import { ProfileSettings } from '@/components/profile-settings';
 import { RecordButton, type RecordingPhase } from '@/components/record-button';
-import { useAccessibility } from '@/lib/accessibility';
+import { useAccessibility, useTextScale } from '@/lib/accessibility';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CameraTranslate } from '@/components/camera-translate';
@@ -69,7 +56,8 @@ const MIN_HOLD_MS = 400;
 
 export default function Talk() {
   const c = useColors();
-  const { fontScale } = useWindowDimensions();
+  const fontScale = useTextScale();
+  const { fontScale: phoneFontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const focused = useIsFocused();
   const focusedRef = useRef(focused);
@@ -441,7 +429,7 @@ export default function Talk() {
       ) : (
       <>
       <FlatList
-        key={`conversation-${fontScale}`}
+        key={`conversation-${phoneFontScale}`}
         ref={list}
         data={turns}
         keyExtractor={(t) => t.id}
@@ -509,7 +497,7 @@ export default function Talk() {
         )}
       />
 
-      <View key={`recording-${fontScale}`} style={[styles.dock, { paddingBottom: keyboard ? space.sm : TAB_CLEARANCE }]}>
+      <View key={`recording-${phoneFontScale}`} style={[styles.dock, { paddingBottom: keyboard ? space.sm : TAB_CLEARANCE }]}>
         {status ? (
           <Text
             accessibilityLiveRegion="polite"

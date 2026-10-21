@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from '@/components/typography';
 import { font, useColors } from '@/constants/theme';
 import { session } from '@/lib/auth-client';
 import { reviewAIConsent, withdrawAIConsent } from '@/lib/ai-consent';

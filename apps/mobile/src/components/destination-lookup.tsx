@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 import { font, useColors } from '@/constants/theme';
 import { searchDestinations } from '@/lib/trip-api';
 import { Icon } from './ui';

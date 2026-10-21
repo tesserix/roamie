@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Alert,
-  AppState,
-  FlatList,
-  Pressable,
-  useWindowDimensions,
-  Share,
-  Text,
-  View,
-} from "react-native";
+import { Alert, AppState, FlatList, Pressable, useWindowDimensions, Share, View } from 'react-native';
+import { Text } from '@/components/typography';
 import {
   Button,
   Card,
@@ -28,6 +20,7 @@ import {
 import { ExpenseEditor } from "./group-expense-editor";
 import { SearchPicker } from "./search-picker";
 import { font, lift, radius, space, useColors } from "@/constants/theme";
+import { useTextScale } from "@/lib/accessibility";
 import { CURRENCIES } from "@/data/currencies";
 import { fxRates } from "@/lib/api";
 import { ApiError } from "@/lib/trip-api";
@@ -77,8 +70,9 @@ export function GroupBudget({
     homeRef.current = home;
   }, [home]);
   const c = useColors();
-  const { width, fontScale } = useWindowDimensions();
-  const stackAmounts = width < 360 || fontScale > 1.35;
+  const { width } = useWindowDimensions();
+  const textScale = useTextScale();
+  const stackAmounts = width < 360 || textScale > 1.15;
   const [listing, setListing] = useState<GroupList>({
     groups: [],
     invitations: [],

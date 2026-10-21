@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Linking, Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, View } from 'react-native';
+import { Text } from '@/components/typography';
 import { font, useColors } from '@/constants/theme';
 import { AccountDeletion } from './account-deletion';
 import { AIDataSharing } from './ai-data-sharing';
