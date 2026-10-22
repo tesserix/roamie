@@ -1,17 +1,18 @@
 import { beforeEach, expect, jest, test } from '@jest/globals';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Device from 'expo-device';
+import * as Network from 'expo-network';
 import { OfflineTools } from '../../components/offline-tools';
 import { OfflineReadiness } from '../../components/offline-readiness';
 import { SPEECH_MODELS } from '../speech-models';
 import { saveTranslationPreferences } from '../translation-preferences';
 
 jest.mock('expo-localization', () => ({ getLocales: () => [{ languageCode: 'en' }] }));
-jest.mock('expo-device', () => ({ totalMemory: 8 * 1024 ** 3 }));
+jest.mock('expo-device', () => ({ __esModule: true, totalMemory: 8 * 1024 ** 3 }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}) }));
-jest.mock('expo-network', () => ({ getNetworkStateAsync: async () => ({ type: 'WIFI', isConnected: true, isInternetReachable: true }), NetworkStateType: { WIFI: 'WIFI' }, addNetworkStateListener: () => ({ remove() {} }) }));
+jest.mock('expo-network', () => ({ getNetworkStateAsync: jest.fn(async () => ({ type: 'WIFI', isConnected: true, isInternetReachable: true })), NetworkStateType: { WIFI: 'WIFI' }, addNetworkStateListener: jest.fn(() => ({ remove() {} })) }));
 jest.mock('expo-notifications', () => ({ cancelAllScheduledNotificationsAsync: jest.fn(async () => {}) }));
 jest.mock('expo-file-system/legacy', () => {
   const files = new Map<string, { size: number; hash: string; modified: number }>();
@@ -46,6 +47,51 @@ beforeEach(async () => {
   files.clear(); jest.clearAllMocks();
   files.set(`file:///documents/offline-models/${SPEECH_MODELS.base.file}`, { size: SPEECH_MODELS.base.bytes, hash: SPEECH_MODELS.base.sha256, modified: 1 });
   await saveTranslationPreferences({ mode: 'offline', speechModel: 'base' });
+});
+
+test('compact status keeps download details behind the info button', async () => {
+  await saveTranslationPreferences({ mode: 'auto' });
+  await render(<OfflineReadiness mine="en" partner="vi" compact />);
+  expect(await screen.findByText('Online')).toBeTruthy();
+  expect(screen.queryByText('Offline on this phone')).toBeNull();
+  await fireEvent.press(screen.getByRole('button', { name: 'Translation connection details' }));
+  expect(await screen.findByText('Your phone has an internet connection. Automatic tries downloaded models first and uses the cloud when needed.')).toBeTruthy();
+  expect(await screen.findByText('Speech detector · Not downloaded')).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Close connection details' }));
+  expect(screen.queryByText('Offline on this phone')).toBeNull();
+});
+
+test.each([
+  { mode: 'offline' as const, state: { isConnected: true, isInternetReachable: true }, label: 'Offline', reason: 'Offline only is selected.' },
+  { mode: 'auto' as const, state: { isConnected: false, isInternetReachable: false }, label: 'Offline', reason: 'Your phone cannot reach the internet.' },
+  { mode: 'auto' as const, state: { isConnected: true }, label: 'Connection unknown', reason: 'Roamie could not confirm internet access.' },
+])('compact status explains $mode / $label without claiming missing downloads are ready', async ({ mode, state, label, reason }) => {
+  await saveTranslationPreferences({ mode });
+  jest.mocked(Network.getNetworkStateAsync).mockResolvedValueOnce(state);
+  await render(<OfflineReadiness mine="en" partner="vi" compact />);
+  expect(await screen.findByText(label)).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Translation connection details' }));
+  expect(await screen.findByText(new RegExp(reason))).toBeTruthy();
+  expect(await screen.findByText('Speech detector · Not downloaded')).toBeTruthy();
+  expect(screen.queryByText('Offline conversation is ready')).toBeNull();
+});
+
+test('connection changes update the compact badge and a late initial check cannot overwrite them', async () => {
+  await saveTranslationPreferences({ mode: 'auto' });
+  let finish!: (state: Network.NetworkState) => void;
+  jest.mocked(Network.getNetworkStateAsync).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const remove = jest.fn();
+  jest.mocked(Network.addNetworkStateListener).mockReturnValueOnce({ remove });
+  const view = await render(<OfflineReadiness mine="en" partner="vi" compact />);
+  const change = jest.mocked(Network.addNetworkStateListener).mock.calls.at(-1)![0];
+  await act(() => change({ isConnected: false, isInternetReachable: false }));
+  expect(screen.getByText('Offline')).toBeTruthy();
+  await act(() => finish({ isConnected: true, isInternetReachable: true }));
+  expect(screen.getByText('Offline')).toBeTruthy();
+  await act(() => change({ isConnected: true, isInternetReachable: true }));
+  expect(screen.getByText('Online')).toBeTruthy();
+  await view.unmount();
+  expect(remove).toHaveBeenCalledTimes(1);
 });
 
 test('finishing a partial speech download reuses the verified model and downloads only its missing detector', async () => {
@@ -99,6 +145,16 @@ test('a downloaded Small model can still be removed on a phone with insufficient
     expect(await screen.findByText('Small speech model removed from this phone.')).toBeTruthy();
     expect(files.has(`file:///documents/offline-models/${SPEECH_MODELS.small.file}`)).toBe(false);
     expect(files.has(`file:///documents/offline-models/${SPEECH_MODELS.base.file}`)).toBe(true);
+  } finally { jest.restoreAllMocks(); }
+});
+
+test('Small remains visible with a disabled download and reported memory on a lower-memory phone', async () => {
+  jest.replaceProperty(Device, 'totalMemory', 4_000_000_000);
+  try {
+    await render(<OfflineTools mine="en" partner="vi" onClose={() => {}} />);
+    const button = await screen.findByRole('button', { name: 'Download Small speech model' });
+    expect(button.props.accessibilityState.disabled).toBe(true);
+    expect(screen.getByText('Small needs a phone with about 6 GB RAM. This phone reports 4.0 GB. Use Base.')).toBeTruthy();
   } finally { jest.restoreAllMocks(); }
 });
 

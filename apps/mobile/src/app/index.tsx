@@ -439,7 +439,10 @@ export default function Talk() {
       </View>
 
       <Segmented disabled={phase !== 'idle'} options={MODES} value={mode} onChange={next => { if (phase === 'idle') setMode(next); }} />
-      <View style={{ marginHorizontal: space.md, marginVertical: space.sm }}><CommunicationCards disabled={phase !== 'idle'} /></View>
+      <View style={{ marginHorizontal: space.md, marginVertical: space.xs, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+        <OfflineReadiness mine={mine} partner={partner} compact onOpenChange={setSettingsOpen} />
+        <CommunicationCards compact disabled={phase !== 'idle'} />
+      </View>
 
     </>
   );
@@ -464,7 +467,7 @@ export default function Talk() {
         ListHeaderComponent={
           <View style={{ marginHorizontal: -space.md }}>
             {header}
-      <View style={[styles.langBar, lift, { backgroundColor: c.surface }]}>
+      <View style={[styles.langBar, { backgroundColor: c.surface, borderColor: c.border }]}>
         <Pressable accessibilityRole="button"
           accessibilityLabel={`Your language: ${autoMine ? `Auto-detect (${languageName(mine)})` : languageName(mine)}. Change`}
           disabled={busy}
@@ -493,7 +496,6 @@ export default function Talk() {
           </View>
         </Pressable>
       </View>
-      <OfflineReadiness mine={mine} partner={partner} refreshKey={settingsOpen} />
           </View>
         }
         onContentSizeChange={() => { if (turns.length) list.current?.scrollToEnd({ animated: !accessibility.reducedMotion }); }}
@@ -562,6 +564,7 @@ export default function Talk() {
           </View>
         ) : (
           <View style={styles.micRow}>
+            <View style={styles.sideGroup}>
             <Pressable accessibilityRole="button" accessibilityLabel="Type instead"
               disabled={handsFree || busy} accessibilityState={{ disabled: handsFree || busy }}
               onPress={() => setTyping(true)}
@@ -569,6 +572,8 @@ export default function Talk() {
               <View style={[styles.sideIcon, lift, { backgroundColor: c.surface }]}><Icon name="keyboard" size={22} color={c.text} /></View>
               <Text maxFontSizeMultiplier={2} style={[font.caption, { color: c.muted, textAlign: 'center' }]}>Type</Text>
             </Pressable>
+            <View style={{ width: 44 }}><ProfileSettings entryPoint="offline" mine={mine} partner={partner} onOpenChange={setSettingsOpen} /></View>
+            </View>
             {handsFree ? (
               <Pressable accessibilityRole="button" accessibilityLabel="Stop hands-free conversation"
                 onPress={() => { conversation.current?.stop(); request.current?.abort(); }}
@@ -580,7 +585,7 @@ export default function Talk() {
               </Pressable>
             ) : <RecordButton phase={phase === 'speaking' || pending ? 'thinking' : phase} onPress={() => { void (phase === 'listening' ? stopListening() : startListening()); }} />}
             {handsFree ? (
-              <View style={styles.sideAction} accessible accessibilityLabel="Hands-free active">
+              <View style={styles.handsFreeAction} accessible accessibilityLabel="Hands-free active">
                 <View style={[styles.sideIcon, { backgroundColor: c.accentSoft }]}><Icon name="waveform" size={22} color={c.accent} /></View>
                 <Text maxFontSizeMultiplier={2} style={[font.caption, { color: c.accent, fontWeight: '600', textAlign: 'center' }]}>Hands-free</Text>
               </View>
@@ -589,7 +594,7 @@ export default function Talk() {
                 accessibilityHint="Listens for pauses, translates, and speaks each reply. Stop at any time."
                 disabled={busy} accessibilityState={{ disabled: busy }}
                 onPress={() => { if (!sending.current && !recording.current && !recordingLock.current) { setError(null); setNotice(null); setRecoveryNotice(null); failedTurns.current = 0; unclearTurns.current = 0; void conversation.current?.start(); } }}
-                style={({ pressed }) => [styles.sideAction, { opacity: busy ? 0.4 : pressed ? 0.7 : 1 }]}>
+                style={({ pressed }) => [styles.handsFreeAction, { opacity: busy ? 0.4 : pressed ? 0.7 : 1 }]}>
                 <View style={[styles.sideIcon, { backgroundColor: c.accentSoft }]}><Icon name="waveform" size={22} color={c.accent} /></View>
                 <Text maxFontSizeMultiplier={2} style={[font.caption, { color: c.accent, fontWeight: '600', textAlign: 'center' }]}>Hands-free</Text>
               </Pressable>
@@ -672,10 +677,11 @@ function Bubble({ turn, busy, onShow, onPlay }: { turn: Turn; busy: boolean; onS
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.lg, paddingBottom: space.md },
+  header: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, paddingBottom: space.md },
   langBar: {
     marginHorizontal: space.md,
     borderRadius: radius.lg,
+    borderWidth: 1,
     paddingVertical: 12,
     paddingHorizontal: space.md,
     flexDirection: 'row',
@@ -687,9 +693,11 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: '86%', borderRadius: radius.lg, paddingHorizontal: space.md, paddingVertical: 12, gap: 6 },
   action: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 48 },
   dock: { paddingHorizontal: space.md, paddingTop: space.sm, gap: space.sm },
-  sideAction: { width: 76, minHeight: 72, alignItems: 'center', justifyContent: 'center', gap: 6 },
-  sideIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
-  micRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md },
+  sideAction: { width: 44, minHeight: 72, alignItems: 'center', gap: 6 },
+  sideGroup: { width: 92, flexDirection: 'row', alignItems: 'flex-start', gap: space.xs },
+  handsFreeAction: { width: 92, minHeight: 72, alignItems: 'center', gap: 6 },
+  sideIcon: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  micRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.xs },
   typeRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   input: { flex: 1, minHeight: 48, borderRadius: radius.pill, paddingHorizontal: space.md + 2, fontSize: 17 },
   send: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },

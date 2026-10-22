@@ -4,7 +4,7 @@ import { Text } from '@/components/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useAccessibility } from '@/lib/accessibility';
-import { font, space, useColors } from '@/constants/theme';
+import { font, radius, space, useColors } from '@/constants/theme';
 import { CommunicationCards } from './communication-cards';
 import { signalFeedback } from '@/lib/feedback';
 import { stopSpeaking } from '@/lib/voice';
@@ -13,28 +13,32 @@ import { PrivacyLinks } from './privacy-links';
 import { DisplaySettings } from './display-settings';
 import { signOut } from '@/lib/sign-out';
 import { OfflineTools } from './offline-tools';
-import { Button } from './ui';
+import { Icon, SectionLabel } from './ui';
 
-export function ProfileSettings({ mine, partner, onOpenChange }: { mine?: string; partner?: string | null; onOpenChange?: (open: boolean) => void } = {}) {
+export function ProfileSettings({ mine, partner, onOpenChange, entryPoint = 'profile' }: { mine?: string; partner?: string | null; onOpenChange?: (open: boolean) => void; entryPoint?: 'profile' | 'offline' } = {}) {
   const [open, setOpen] = useState(false);
   const [offline, setOffline] = useState(false);
   const customer = useSyncExternalStore(session.subscribe, session.current);
   const settings = useAccessibility(), c = useColors(), insets = useSafeAreaInsets();
   const close = () => { setOpen(false); onOpenChange?.(false); };
+  const direct = entryPoint === 'offline';
+  const closeOffline = () => { if (direct) close(); else setOffline(false); };
   return <>
-    <Pressable accessibilityRole="button" accessibilityLabel="Profile settings" onPress={() => { setOffline(false); setOpen(true); onOpenChange?.(true); }} style={({ pressed }) => ({ minWidth: 48, minHeight: 48, borderRadius: 24, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
-      <FontAwesome name="user-circle-o" size={24} color={c.text} accessible={false} />
+    <Pressable accessibilityRole="button" accessibilityLabel={direct ? 'Open offline languages' : 'Profile settings'} onPress={() => { setOffline(direct); setOpen(true); onOpenChange?.(true); }} style={({ pressed }) => ({ minWidth: direct ? 44 : 48, minHeight: 44, gap: 6, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
+      <View style={{ width: direct ? 44 : 48, height: direct ? 44 : 48, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' }}>
+        {direct ? <Icon name="wifi.slash" size={20} color={c.accent} /> : <FontAwesome name="user-o" size={20} color={c.text} accessible={false} />}
+      </View>
     </Pressable>
-    <Modal visible={open} animationType={settings.reducedMotion ? 'none' : 'slide'} onRequestClose={() => offline ? setOffline(false) : close()}>
-      {open && (offline ? <OfflineTools mine={mine} partner={partner} signedIn={!!customer} onClose={() => setOffline(false)} /> : <View accessibilityViewIsModal style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.lg, paddingVertical: space.md, gap: space.md }}>
+    <Modal visible={open} animationType={settings.reducedMotion ? 'none' : 'slide'} onRequestClose={() => offline ? closeOffline() : close()}>
+      {open && (offline ? <OfflineTools mine={mine} partner={partner} signedIn={!!customer} onClose={closeOffline} /> : <View accessibilityViewIsModal style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.md, paddingVertical: space.md, gap: space.md }}>
           <Text accessibilityRole="header" maxFontSizeMultiplier={1.35} style={[font.title, { color: c.text, flex: 1 }]}>Profile & settings</Text>
           <Pressable accessibilityRole="button" accessibilityLabel="Done" onPress={close} style={{ minHeight: 48, minWidth: 60, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: c.accent }}>
             <Text maxFontSizeMultiplier={1.35} style={[font.headline, { color: c.onAccent }]}>Done</Text>
           </Pressable>
         </View>
-        <ScrollView contentContainerStyle={{ padding: space.lg, paddingTop: space.sm, paddingBottom: insets.bottom + space.lg, gap: space.lg }}>
-          {customer && <View style={{ padding: space.md, gap: space.sm, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border }}>
+        <ScrollView contentContainerStyle={{ padding: space.md, paddingTop: space.sm, paddingBottom: insets.bottom + space.lg, gap: space.lg }}>
+          {customer && <View style={{ padding: space.md, gap: space.sm, borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border }}>
             <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Account</Text>
             <Text style={[font.body, { color: c.muted }]}>{customer.email}</Text>
             <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={() => { close(); void signOut(); }} style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: space.md, borderRadius: 14, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
@@ -42,13 +46,19 @@ export function ProfileSettings({ mine, partner, onOpenChange }: { mine?: string
             </Pressable>
           </View>}
           <View style={{ gap: space.sm }}>
-            <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Translation</Text>
-            <Button label="Offline languages" icon="wifi.exclamationmark" kind="secondary" onPress={() => setOffline(true)} />
-            <Text style={[font.body, { color: c.muted }]}>Download language packs and speech models before you travel. Manage offline translation here.</Text>
+            <SectionLabel>Translation</SectionLabel>
+            <Pressable accessibilityRole="button" accessibilityLabel="Offline languages" onPress={() => setOffline(true)} style={({ pressed }) => ({ minHeight: 72, padding: space.md, borderRadius: radius.lg, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: space.md, opacity: pressed ? 0.7 : 1 })}>
+              <View style={{ width: 44, height: 44, borderRadius: radius.md, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}><Icon name="wifi.slash" size={20} color={c.accent} /></View>
+              <View style={{ flex: 1, gap: space.xs }}>
+                <Text style={[font.headline, { color: c.text }]}>Offline languages</Text>
+                <Text style={[font.caption, { color: c.muted }]}>Downloads and device storage</Text>
+              </View>
+              <Icon name="chevron.right" size={14} color={c.muted} />
+            </Pressable>
           </View>
           <DisplaySettings />
           <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Sound & feedback</Text>
-          <View style={{ borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, overflow: 'hidden' }}>
+          <View style={{ borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, overflow: 'hidden' }}>
             {([
               ['quiet', 'Quiet translation', 'Read replies. Play audio when you choose.'],
               ['vibration', 'Vibration feedback', 'A brief pulse when recording starts or a reply is ready, where supported.'],
@@ -61,7 +71,7 @@ export function ProfileSettings({ mine, partner, onOpenChange }: { mine?: string
             </View>)}
           </View>
           <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Translation voice</Text>
-          <View accessibilityRole="radiogroup" style={{ borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, overflow: 'hidden' }}>
+          <View accessibilityRole="radiogroup" style={{ borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, overflow: 'hidden' }}>
             {([
               ['match', 'Match speaker', 'A female voice when the speaker sounds higher, a male voice when lower.'],
               ['female', 'Female', 'Always a calm female voice.'],

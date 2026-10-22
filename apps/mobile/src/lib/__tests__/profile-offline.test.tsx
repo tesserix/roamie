@@ -33,6 +33,18 @@ beforeEach(async () => {
 });
 afterEach(() => { jest.restoreAllMocks(); });
 
+test('the offline shortcut opens downloads directly and closes back to Translate', async () => {
+  const onOpenChange = jest.fn();
+  await render(<AccessibilityProvider><ProfileSettings entryPoint="offline" mine="en" partner="vi" onOpenChange={onOpenChange} /></AccessibilityProvider>);
+  await fireEvent.press(screen.getByRole('button', { name: 'Open offline languages' }));
+  expect(await screen.findByRole('header', { name: 'Offline translation' })).toBeTruthy();
+  expect(onOpenChange).toHaveBeenLastCalledWith(true);
+  await fireEvent.press(screen.getByRole('button', { name: 'Close offline translation' }));
+  expect(screen.queryByRole('header', { name: 'Profile & settings' })).toBeNull();
+  expect(screen.queryByRole('header', { name: 'Offline translation' })).toBeNull();
+  expect(onOpenChange).toHaveBeenLastCalledWith(false);
+});
+
 test.each<typeof Platform.OS>(['ios', 'android'])('%s opens Offline languages inside Profile and returns to settings', async platform => {
   jest.replaceProperty(Platform, 'OS', platform);
   await render(<AccessibilityProvider><ProfileSettings /></AccessibilityProvider>);

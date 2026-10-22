@@ -7,6 +7,7 @@ import { transcribeOffline, releaseOfflineSpeech } from '../offline-speech';
 import { SPEECH_MODELS } from '../speech-models';
 import { talkTurn } from '../api';
 import { fetch as cloudFetch } from 'expo/fetch';
+import { saveTranslationPreferences } from '../translation-preferences';
 
 jest.mock('expo-modules-core', () => ({ ...jest.requireActual<object>('expo-modules-core'), requireOptionalNativeModule: jest.fn() }));
 jest.mock('expo-device', () => ({ totalMemory: 8 * 1024 ** 3, deviceYearClass: 2022, isDevice: true }));
@@ -20,7 +21,8 @@ jest.mock('whisper.rn/index', () => ({ initWhisper: jest.fn(), initWhisperVad: j
 const vad = { detectSpeech: jest.fn(async () => [{ t0: 0, t1: 1 }]), release: jest.fn(async () => {}) };
 const context = { transcribe: jest.fn(), release: jest.fn(async () => {}) };
 
-beforeEach(() => {
+beforeEach(async () => {
+  await saveTranslationPreferences({ mode: 'auto', speechModel: 'base' });
   jest.clearAllMocks();
   vad.detectSpeech.mockResolvedValue([{ t0: 0, t1: 1 }]);
   jest.mocked(requireOptionalNativeModule).mockReturnValue({
@@ -34,6 +36,13 @@ beforeEach(() => {
   jest.mocked(initWhisperVad).mockResolvedValue(vad as never);
   jest.mocked(initWhisper).mockResolvedValue(context as never);
   context.transcribe.mockReturnValue({ stop: jest.fn(async () => {}), promise: Promise.resolve({ result: 'Bonjour', language: 'fr', isAborted: false }) });
+});
+
+test('deleting the selected Small model automatically uses a verified installed Base model', async () => {
+  await saveTranslationPreferences({ speechModel: 'small' });
+  jest.mocked(FileSystem.getInfoAsync).mockImplementation(async uri => uri.includes('small') ? { exists: false, isDirectory: false, uri } : { exists: true, isDirectory: false, uri, modificationTime: 1, size: uri.includes('silero') ? SPEECH_MODELS.vad.bytes : SPEECH_MODELS.base.bytes });
+  await expect(transcribeOffline('file:///cache/recording.m4a')).resolves.toEqual({ text: 'Bonjour', language: 'fr' });
+  expect(initWhisper).toHaveBeenCalledWith(expect.objectContaining({ filePath: expect.stringContaining(SPEECH_MODELS.base.file) }));
 });
 
 test('memory pressure prevents loading a speech model rather than risking a process crash', async () => {

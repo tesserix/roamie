@@ -1,7 +1,7 @@
 import { beforeEach, expect, jest, test } from '@jest/globals';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import * as FileSystem from 'expo-file-system/legacy';
-import { downloadSpeechModel, speechModelStatus, SPEECH_MODELS } from '../speech-models';
+import { downloadSpeechModel, speechModelStatus, SPEECH_MODELS, supportsSmallSpeechModel } from '../speech-models';
 import * as Network from 'expo-network';
 import * as Device from 'expo-device';
 
@@ -42,6 +42,12 @@ test('Small is not loaded or downloaded on a low-memory device', async () => {
   try { await expect(downloadSpeechModel('small')).rejects.toThrow('Use Base'); }
   finally { jest.restoreAllMocks(); }
   expect(FileSystem.createDownloadResumable).not.toHaveBeenCalled();
+});
+
+test('a six GB phone is eligible for Small when the OS reports less than six GiB', () => {
+  jest.replaceProperty(Device, 'totalMemory', 6_000_000_000);
+  try { expect(supportsSmallSpeechModel()).toBe(true); }
+  finally { jest.restoreAllMocks(); }
 });
 
 test('downloads monitor a Wi-Fi-only session so a network change can cancel it', async () => {

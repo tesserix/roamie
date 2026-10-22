@@ -8,7 +8,7 @@ export function DisplaySettings() {
   const size = TEXT_SIZES.find(option => option.value === settings.textSize)!;
   return <View style={{ gap: space.md }}>
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, alignItems: 'center', justifyContent: 'space-between' }}>
-      <Text accessibilityRole="header" maxFontSizeMultiplier={1.35} style={[font.title, { color: c.text }]}>Display</Text>
+      <Text accessibilityRole="header" maxFontSizeMultiplier={1.35} style={[font.headline, { color: c.text }]}>Display</Text>
       <Pressable accessibilityRole="button" accessibilityLabel="Reset display to normal" disabled={!settings.ready} accessibilityState={{ disabled: !settings.ready }} onPress={() => settings.update({ textSize: 'normal', appearance: 'system', highContrast: false })} style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: 12, justifyContent: 'center', borderRadius: radius.sm, backgroundColor: c.surface, opacity: !settings.ready ? 0.4 : pressed ? 0.7 : 1 })}>
         <Text maxFontSizeMultiplier={1.35} style={[font.headline, { color: c.accent }]}>Reset to normal</Text>
       </Pressable>
