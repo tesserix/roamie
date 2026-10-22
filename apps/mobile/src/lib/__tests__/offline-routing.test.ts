@@ -3,6 +3,7 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
 import { fetch as mockFetch } from 'expo/fetch';
 import { talkTurn, translateSign, translateText } from '../api';
 import * as Network from 'expo-network';
+import { session } from '../auth-client';
 import { saveTranslationPreferences, translationPreferences } from '../translation-preferences';
 
 jest.mock('expo-modules-core', () => {
@@ -11,8 +12,8 @@ jest.mock('expo-modules-core', () => {
 });
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
 jest.mock('expo-network', () => ({ getNetworkStateAsync: jest.fn(async () => ({ isConnected: false, isInternetReachable: false })) }));
-jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}) }));
-jest.mock('../auth-client', () => ({ API_BASE: 'https://example.test', session: { current: () => null, accessToken: jest.fn(async () => { throw new Error('No account'); }) } }));
+jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async (key: string) => key.startsWith('roamie.ai-consent.') ? 'allowed' : null), setItem: jest.fn(async () => {}) }));
+jest.mock('../auth-client', () => ({ API_BASE: 'https://example.test', session: { current: jest.fn(() => ({ sub: 'routing-qa' })), accessToken: jest.fn(async () => 'test-token') } }));
 
 const native = {
   supportedTextLanguages: jest.fn(async () => ['en', 'fr', 'tl']),
@@ -25,6 +26,9 @@ const native = {
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  jest.mocked(Network.getNetworkStateAsync).mockReset().mockResolvedValue({ isConnected: false, isInternetReachable: false });
+  jest.mocked(mockFetch).mockResolvedValue({ ok: true, status: 200, json: async () => ({ engine: 'cloud', translation: 'Cloud', lines: [] }) } as Awaited<ReturnType<typeof mockFetch>>);
+  jest.mocked(session.current).mockReturnValue({ sub: 'routing-qa' } as ReturnType<typeof session.current>);
   native.downloadedLanguages.mockResolvedValue(['fr']);
   native.identifyLanguage.mockResolvedValue('en');
   native.supportedTextLanguages.mockResolvedValue(['en', 'fr', 'tl']);
@@ -54,7 +58,7 @@ test('the explicit guest offline tool cannot use cloud even when the saved prefe
   expect(mockFetch).not.toHaveBeenCalled();
 });
 
-test('the legacy cloud-only preference migrates to local-first routing', async () => {
+test('the legacy cloud-only preference migrates to Automatic with disconnected fallback', async () => {
   await saveTranslationPreferences({ mode: 'cloud' });
   expect(translationPreferences().mode).toBe('auto');
   await expect(translateText('Hello', 'fr', 'en')).resolves.toMatchObject({ engine: 'device' });
@@ -62,10 +66,11 @@ test('the legacy cloud-only preference migrates to local-first routing', async (
   expect(mockFetch).not.toHaveBeenCalled();
 });
 
-test('an online phone uses downloaded models without a cloud request', async () => {
+test('an online phone prioritises cloud even when models are downloaded', async () => {
   jest.mocked(Network.getNetworkStateAsync).mockResolvedValueOnce({ isConnected: true, isInternetReachable: true });
-  await expect(translateText('Hello', 'fr', 'en')).resolves.toMatchObject({ engine: 'device' });
-  expect(mockFetch).not.toHaveBeenCalled();
+  await expect(translateText('Hello', 'fr', 'en')).resolves.toMatchObject({ engine: 'cloud' });
+  expect(native.translate).not.toHaveBeenCalled();
+  expect(mockFetch).toHaveBeenCalledTimes(1);
 });
 
 test('a local conversation retains speaker direction without inventing a confidence score', async () => {
@@ -107,14 +112,16 @@ test('unsupported offline language errors remain explicit even with a usable net
 });
 
 test('downloaded translation works without a customer or any cloud request', async () => {
+  jest.mocked(session.current).mockReturnValue(null);
   await expect(translateText('Hello', 'fr', 'en')).resolves.toMatchObject({ translation: 'Bonjour', engine: 'device' });
   expect(mockFetch).not.toHaveBeenCalled();
 });
 
 
-test('online conversation and camera translation also keep successful local work off cloud', async () => {
+test('online conversation and camera start cloud without local preparation', async () => {
   jest.mocked(Network.getNetworkStateAsync).mockResolvedValue({ isConnected: true, isInternetReachable: true });
-  await expect(talkTurn({ mine: 'en', partner: 'fr', text: 'Hello', history: [] })).resolves.toMatchObject({ engine: 'device', translation: 'Bonjour' });
-  await expect(translateSign('unused-image-data', 'image/jpeg', 'fr', { uri: 'file:///photo.jpg', from: 'en' })).resolves.toMatchObject({ engine: 'device', lines: [{ translation: 'Bonjour' }] });
-  expect(mockFetch).not.toHaveBeenCalled();
+  await expect(talkTurn({ mine: 'en', partner: 'fr', text: 'Hello', history: [] })).resolves.toMatchObject({ engine: 'cloud', translation: 'Cloud' });
+  await expect(translateSign('unused-image-data', 'image/jpeg', 'fr', { uri: 'file:///photo.jpg', from: 'en' })).resolves.toMatchObject({ engine: 'cloud' });
+  expect(native.recognizeText).not.toHaveBeenCalled();
+  expect(mockFetch).toHaveBeenCalledTimes(2);
 });

@@ -45,7 +45,7 @@ function ConnectionStatus(props: Props) {
   const label = forced || disconnected ? 'Offline' : online ? 'Online' : network === undefined ? 'Checking connection' : 'Connection unknown';
   const reason = forced ? 'Offline only is selected. Translation stays on this phone and requires downloaded models.'
     : disconnected ? 'Your phone cannot reach the internet. Roamie uses ready downloads; missing language or speech models need to be downloaded first.'
-      : online ? 'Your phone has an internet connection. Automatic tries downloaded models first and uses the cloud when needed.'
+      : online ? 'Your phone has an internet connection. Automatic uses cloud first, with ready offline models as a backup if the connection becomes slow or unavailable.'
         : 'Roamie could not confirm internet access. Automatic can still use ready downloads. Check your connection if cloud translation is unavailable.';
   const close = () => { setOpen(false); props.onOpenChange?.(false); };
   return <>
