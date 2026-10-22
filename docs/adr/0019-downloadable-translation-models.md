@@ -1,20 +1,20 @@
-# ADR 0019: Downloadable translation model evaluation
+# ADR 0019: Optional Hy-MT2 on-device translation
 
-Status: proposed evaluation; no new translation runtime or weights shipped.
+Status: implemented for the 1.0.3 native release; physical-device quality and performance validation pending.
 Evidence checked against publisher model cards and file metadata on 2026-10-22.
 This extends ADR 0013; Apple Translation and Android ML Kit remain the defaults.
 
 ## Decision
 
-Benchmark Tencent Hy-MT2 1.8B Q4_K_M as an optional multilingual translation
-download for capable phones. Its publisher lists Vietnamese, Thai and Korean,
+Use Tencent Hy-MT2 1.8B Q4_K_M as an optional multilingual translation
+download for capable phones, with pinned llama.rn 0.12.9. Its publisher lists Vietnamese, Thai and Korean,
 provides an ungated GGUF, and licenses the model under Apache 2.0. This is a
 candidate for evaluation, not a claim that it is the most accurate or fastest
 model on Roamie's users' phones. Keep the existing platform packs for small
 downloads and lower device requirements.
 
 Whisper Base/Small recognise speech; they do not replace the text translation
-engine. The proposed path is Whisper → Hy-MT2 → an installed offline system
+engine. The supported path is Whisper → Hy-MT2 → an installed offline system
 voice. Camera OCR remains the native OCR path. Speech recognition, translation,
 OCR and read-aloud continue to report separate capabilities.
 
@@ -60,7 +60,7 @@ under 3 seconds, cold text p95 under 8 seconds, and end-of-speech to translated
 text p95 under 5 seconds. Target total speech-plus-MT peak process memory below
 2 GiB on the 6 GB tier; measure actual OS termination and memory pressure limits.
 These are proposed gates, not measured performance or eligibility guarantees.
-Keep platform engines as the default if the larger model misses these budgets.
+Platform engines remain the initial preference. Explicitly downloading Hy-MT2 selects it; users can prefer platform packs again. An incompatible or failing engine falls back to the other installed local engine.
 
 Evaluate English ↔ Vietnamese, English ↔ Thai and English ↔ Korean in both
 directions, including prices, dates, names, negation, food allergies and travel
@@ -75,10 +75,11 @@ weights, cancellation, language changes, backgrounding, memory warnings and
 thermal/battery behavior. Offline-only must make zero translation network
 requests; automatic mode retains the existing consent and cloud policy.
 
-Ship a new native binary only after the pinned runtime and exact weights pass
-these gates. A text model remains optional; no large automatic download or new
-minimum requirement for all users. Rollback disables the optional model choice
-and retains the platform engine; users can delete the downloaded weights.
+The 1.0.3 binary includes the runtime and optional download controls for internal
+validation. Simulator smoke tests do not establish the physical-device gates
+above. No large automatic download or new minimum requirement applies to all
+users. A corrective binary can remove the optional model choice while retaining
+the platform engine; users can delete downloaded weights at any time.
 There is no new inference API cost. At the Q4 size, 10,000 first downloads move
 about 11.33 TB before retries, so hosting limits and distribution costs must be
 checked before a public rollout; no paid hosting change is approved here.
@@ -87,16 +88,45 @@ checked before a public rollout; no paid hosting change is approved here.
 
 Use a fixed model catalog with publisher revision, file name, expected byte
 length, SHA-256, language list and license notice. Download public model weights
-without embedding a Hugging Face token. Keep URLs fixed to the catalog and
-validate permitted HTTPS redirect destinations. Text and recordings never go
+without embedding a Hugging Face token. URLs are fixed to the pinned HTTPS
+catalog; Expo FileSystem follows the publisher/CDN redirects. Integrity relies
+on the pinned SHA-256 and byte length before the file can be loaded. Text and recordings never go
 to Hugging Face. Preserve existing Wi-Fi preference and explicit user action.
 
 Show actual byte progress, verify a temporary file before marking it ready,
 retain a valid installation during an update, and check free storage for the
 old and incoming files plus headroom. Resume/cancel/retry and removal must be
 supported. Serialize deletion with inference and release the native context
-before unlinking weights; refresh readiness after deletion. Keep ASR and MT
-memory budgets separate and release idle contexts.
+before unlinking weights; refresh readiness after deletion. A shared queue
+serializes Whisper and Hy-MT2 and releases the other engine before loading a
+model. Hy-MT2 checks 1,600 MiB available memory before initialization, rejects
+background jobs, stops on cancellation or memory warnings, clears prompt/KV
+cache after each request, and releases idle weights after 20 seconds. The coarse
+device gate uses 5 GiB reported total RAM to include phones advertised as 6 GB;
+this does not replace the free-memory admission check. Android uses CPU;
+physical iOS uses Metal, without requesting increased-memory entitlements.
+
+iOS URLSession can own paused temporary bytes outside the destination path.
+Bounded, revision-matched native resume metadata is sufficient to offer Resume,
+even when the final temporary path does not yet exist. Downloads pause when
+the app backgrounds. Complete files become ready only after SHA-256 verification.
+The bundled license screen contains Apache 2.0 and runtime MIT notices offline.
+
+## Local-first routing and cloud cost
+
+Automatic always tries the selected compatible downloaded text engine, then
+the other installed local engine, before considering cloud translation, even
+on a fast connection. Talk performs local ASR first and sends only its text
+to cloud if ASR succeeded but local translation could not complete. Text and
+Camera use the same central fallback policy. Offline only fails closed: no
+cloud translation request, including after a preference change during a job.
+Legacy Cloud-only preferences migrate to Automatic. Cancellation and no-speech
+results never trigger cloud fallback. Cloud fallback preserves existing account
+and AI-consent checks. No backend deployment or API contract change is needed.
+Each successful local translation avoids its cloud translation request; savings
+depend on downloads, supported languages and completion rates and are not yet
+measured in production. The compact Online label reports connectivity; each
+translation result separately identifies its actual device/cloud engine.
 
 Inspected publisher revisions:
 
@@ -104,6 +134,29 @@ Inspected publisher revisions:
 - 1.25-bit GGUF: `9df5c824a00a744fb0512a29c640466f4d97dfb0`
 - 2-bit GGUF: `b630487d19ab7f336664a15b07c638d0d1071471`
 - Hy-MT2 base: `9a341cd1b679d3efd23b46e847b01745a71ed792`
+
+## Validation on 2026-10-22
+
+The exact Q4 file was downloaded in the iOS simulator, verified, paused/resumed,
+removed and downloaded again. Its independently computed SHA-256 is
+`dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699`.
+Native CPU inference completed the phrase “Where is the nearest hospital?” in
+both directions for English/Vietnamese, English/Thai and English/Korean. The
+online main translator also returned a device result in Automatic mode.
+Evidence is in `output/hymt-validation/2026-10-22/` (not committed).
+
+72 mobile suites / 1,634 tests, TypeScript, lint and 21/21 Expo Doctor checks
+passed; production iOS, Android and web JavaScript exports passed. These checks
+include zero-cloud local success, cloud fallback after a local error,
+cancellation, preference migration, integrity failure and iOS resume metadata.
+Physical airplane-mode testing, Android inference and reviewed accuracy/latency
+benchmarks remain unverified. The simulator used a development account because
+its unsigned binary lacks production keychain entitlements; this is not an
+authentication test.
+
+Product labels are Small (Whisper Base speech), Medium (Whisper Small speech)
+and Large (Hy-MT2 text). Sizes and roles remain visible. Technical names appear
+in bundled license details; internal model IDs and saved preferences are stable.
 
 ## Sources
 

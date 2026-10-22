@@ -1,7 +1,8 @@
 import { beforeEach, expect, jest, test } from '@jest/globals';
 import * as FileSystem from 'expo-file-system/legacy';
+import { AppState, type AppStateStatus } from 'react-native';
 import { requireOptionalNativeModule } from 'expo-modules-core';
-import { downloadModelFile, modelFilePath, modelFileStatus, modelFileDownloading, type ModelFile } from '../model-files';
+import { downloadModelFile, hasPartialModelFile, modelFilePath, modelFileStatus, modelFileDownloading, type ModelFile } from '../model-files';
 
 jest.mock('expo-file-system/legacy', () => {
   const files = new Map<string, { size: number; hash: string; text?: string }>();
@@ -72,8 +73,46 @@ test('insufficient free space does not discard a paused model download', async (
   expect(files.has(modelFilePath(model, true))).toBe(true);
 });
 
+test('iOS resume metadata remains resumable when URLSession owns the temporary file', async () => {
+  const model = { ...artifact, resumable: true };
+  const text = JSON.stringify({ sha256: model.sha256, data: 'ios-urlsession-resume' });
+  files.set(`${modelFilePath(model, true)}.resume.json`, { size: text.length, hash: '', text });
+  expect(await hasPartialModelFile(model)).toBe(true);
+  jest.mocked(FileSystem.createDownloadResumable).mockImplementationOnce((_url, uri) => ({
+    resumeAsync: async () => { files.set(uri, { size: model.bytes, hash: model.sha256 }); return { status: 200 }; },
+    cancelAsync: async () => {},
+  }) as never);
+  await downloadModelFile(model);
+  expect(FileSystem.createDownloadResumable).toHaveBeenLastCalledWith(expect.any(String), modelFilePath(model, true), expect.any(Object), expect.any(Function), 'ios-urlsession-resume');
+  expect(await modelFileStatus(model)).toBe('ready');
+});
+
 test('a cleanup failure does not leave a model permanently marked as downloading', async () => {
   jest.mocked(FileSystem.deleteAsync).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('File is busy.'));
   await expect(downloadModelFile(artifact)).rejects.toThrow('busy');
   expect(modelFileDownloading(artifact)).toBe(false);
+});
+
+
+test('backgrounding pauses a large download and preserves its resumable partial file', async () => {
+  const model = { ...artifact, resumable: true };
+  let change: ((state: AppStateStatus) => void) | undefined;
+  const subscription = jest.spyOn(AppState, 'addEventListener').mockImplementation((event, listener) => { if (event === 'change') change = listener as (state: AppStateStatus) => void; return { remove() {} }; });
+  let created!: () => void;
+  const started = new Promise<void>(resolve => { created = resolve; });
+  let rejectDownload!: (error: Error) => void;
+  jest.mocked(FileSystem.createDownloadResumable).mockImplementationOnce((_url, uri) => ({
+    downloadAsync: async () => { files.set(uri, { size: 5, hash: '' }); created(); return new Promise((_resolve, reject) => { rejectDownload = reject; }); },
+    pauseAsync: async () => { rejectDownload(new Error('paused')); return { resumeData: 'background-resume' }; }, cancelAsync: async () => {},
+  }) as never);
+  const controller = new AbortController();
+  const download = downloadModelFile(model, undefined, controller.signal);
+  try {
+    await started;
+    expect(change).toBeDefined();
+    change!('background');
+    await expect(download).rejects.toThrow('paused');
+    expect(files.has(modelFilePath(model, true))).toBe(true);
+    expect(files.get(`${modelFilePath(model, true)}.resume.json`)?.text).toContain('background-resume');
+  } finally { controller.abort(); await download.catch(() => {}); subscription.mockRestore(); }
 });

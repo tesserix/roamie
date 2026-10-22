@@ -26,7 +26,7 @@ test('a French phone starts with a different partner language', async () => {
 test('downloaded text does not claim microphone readiness without a speech model', async () => {
   await render(<OfflineTools mine="en" partner="fr" onClose={() => {}} />);
   expect(await screen.findByText('English ↔ French · Ready on this phone')).toBeTruthy();
-  expect(screen.getByText('Base speech model · Not downloaded')).toBeTruthy();
+  expect(screen.getByText('Small speech model · Not downloaded')).toBeTruthy();
   expect(screen.getByText('Speech detector · Not downloaded')).toBeTruthy();
   expect(screen.queryByText('Main translator preference')).toBeNull();
 });

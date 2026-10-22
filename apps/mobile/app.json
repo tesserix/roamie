@@ -2,7 +2,7 @@
   "expo": {
     "name": "Roamie",
     "slug": "roamie",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/brand/roamie-icon.png",
     "scheme": "roamie",
@@ -53,7 +53,7 @@
           "image": "./assets/brand/roamie-mark.png",
           "imageWidth": 112,
           "resizeMode": "contain",
-          "backgroundColor": "#D8E8F6",
+          "backgroundColor": "#F4F7FB",
           "dark": {
             "backgroundColor": "#08131F"
           }
@@ -107,6 +107,14 @@
             "enableShrinkResourcesInReleaseBuilds": true
           }
         }
+      ],
+      [
+        "llama.rn",
+        {
+          "enableEntitlements": false,
+          "forceCxx20": true,
+          "enableOpenCLAndHexagon": false
+        }
       ]
     ],
     "experiments": {
@@ -123,6 +131,6 @@
     "web": {
       "favicon": "./assets/brand/roamie-mark.png"
     },
-    "runtimeVersion": "1.0.2"
+    "runtimeVersion": "1.0.3"
   }
 }

@@ -199,11 +199,13 @@ export function Chip({
   label,
   icon,
   selected,
+  disabled = false,
   onPress,
 }: {
   label: string;
   icon?: SFSymbol;
   selected?: boolean;
+  disabled?: boolean;
   onPress: () => void;
 }) {
   const c = useColors();
@@ -212,14 +214,15 @@ export function Chip({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ selected }}
+      accessibilityState={{ selected, disabled }}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.chip,
         {
           backgroundColor: selected ? c.accent : c.surface,
           borderColor: selected ? c.accent : c.border,
-          opacity: pressed ? 0.8 : 1,
+          opacity: disabled ? 0.45 : pressed ? 0.8 : 1,
         },
       ]}>
       {icon ? <Icon name={icon} size={15} color={fg} /> : null}

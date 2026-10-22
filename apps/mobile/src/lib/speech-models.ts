@@ -5,8 +5,8 @@ import { saveTranslationPreferences, translationPreferences, type SpeechModel } 
 
 const REVISION = '5359861c739e955e79d9a303bcbc70fb988958b1';
 export const SPEECH_MODELS = {
-  base: { name: 'Base · balanced', file: 'ggml-base-q5_1.bin', bytes: 59707625, sha256: '422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898', repository: 'ggerganov/whisper.cpp', revision: REVISION },
-  small: { name: 'Small · higher quality', file: 'ggml-small-q5_1.bin', bytes: 190085487, sha256: 'ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb', repository: 'ggerganov/whisper.cpp', revision: REVISION },
+  base: { name: 'Small', file: 'ggml-base-q5_1.bin', bytes: 59707625, sha256: '422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898', repository: 'ggerganov/whisper.cpp', revision: REVISION },
+  small: { name: 'Medium', file: 'ggml-small-q5_1.bin', bytes: 190085487, sha256: 'ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb', repository: 'ggerganov/whisper.cpp', revision: REVISION },
   vad: { name: 'Speech detector', file: 'ggml-silero-v6.2.0.bin', bytes: 885098, sha256: '2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987', repository: 'ggml-org/whisper-vad', revision: '9ffd54a1e1ee413ddf265af9913beaf518d1639b' },
 } as const;
 type Artifact = keyof typeof SPEECH_MODELS;
@@ -14,7 +14,7 @@ export type SpeechAssetState = 'ready' | 'missing' | 'invalid';
 export type SpeechModelStatus = { model: SpeechAssetState; detector: SpeechAssetState };
 
 export const supportsSmallSpeechModel = supportsLargeOfflineModels;
-export const smallSpeechModelUnavailableReason = () => `${largeModelMemoryReason('Small')} Use Base.`;
+export const smallSpeechModelUnavailableReason = () => `${largeModelMemoryReason(SPEECH_MODELS.small.name)} Use Small.`;
 
 const path = (model: Artifact) => modelFilePath(SPEECH_MODELS[model]);
 

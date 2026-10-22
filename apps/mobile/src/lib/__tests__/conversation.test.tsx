@@ -93,7 +93,7 @@ test('Translate keeps readiness details in the info panel and identifies a missi
   expect(screen.queryByText('Offline on this phone')).toBeNull();
   await fireEvent.press(screen.getByRole('button', { name: 'Translation connection details' }));
   expect(await screen.findByText('English ↔ Vietnamese · Ready on this phone')).toBeTruthy();
-  expect(screen.getByText('Base speech model · Downloaded and verified · 60 MB')).toBeTruthy();
+  expect(screen.getByText('Small speech model · Downloaded and verified · 60 MB')).toBeTruthy();
   expect(screen.getByText('Speech detector · Not downloaded')).toBeTruthy();
   expect(screen.queryByText('Offline conversation is ready')).toBeNull();
   detectorDownloaded = true;

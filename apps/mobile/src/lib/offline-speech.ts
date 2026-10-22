@@ -4,8 +4,9 @@ import * as Device from 'expo-device';
 import type { WhisperContext, WhisperVadContext } from 'whisper.rn/index';
 import { offlineNative } from '../../modules/roamie-offline';
 import { checkTranslationCanceled, appLanguage } from './offline-translation';
-import { resolveSpeechModel, speechModelStatus, supportsSmallSpeechModel } from './speech-models';
+import { resolveSpeechModel, SPEECH_MODELS, speechModelStatus, supportsSmallSpeechModel } from './speech-models';
 import { translationPreferences, type SpeechModel } from './translation-preferences';
+import { registerOfflineEngine, withOfflineInference } from './offline-inference';
 
 export class LocalSpeechError extends Error {
   constructor(message: string, readonly code: 'no_speech' | 'speech_busy' | 'speech_unavailable') { super(message); }
@@ -35,7 +36,13 @@ export async function releaseOfflineSpeech() {
   return releasing;
 }
 
-export async function transcribeOffline(uri: string, signal?: AbortSignal): Promise<{ text: string; language: string } | null> {
+registerOfflineEngine('speech', releaseOfflineSpeech);
+
+export function transcribeOffline(uri: string, signal?: AbortSignal): Promise<{ text: string; language: string } | null> {
+  return withOfflineInference('speech', () => executeSpeech(uri, signal), signal);
+}
+
+async function executeSpeech(uri: string, signal?: AbortSignal): Promise<{ text: string; language: string } | null> {
   checkTranslationCanceled(signal);
   if (releasing) await releasing;
   const native = offlineNative();
@@ -45,11 +52,11 @@ export async function transcribeOffline(uri: string, signal?: AbortSignal): Prom
   const resolved = await resolveSpeechModel(preferred);
   const model = resolved?.model ?? preferred;
   const paths = resolved?.paths;
-  if (!paths && model === 'small' && !supportsSmallSpeechModel()) throw new LocalSpeechError('Select Base for speech on this phone.', 'speech_unavailable');
+  if (!paths && model === 'small' && !supportsSmallSpeechModel()) throw new LocalSpeechError('Select Small for speech on this phone.', 'speech_unavailable');
   checkTranslationCanceled(signal);
   if (!paths) {
     const status = await speechModelStatus(model);
-    const name = model === 'base' ? 'Base' : 'Small';
+    const name = SPEECH_MODELS[model].name;
     const problem = status.model === 'missing' ? `${name} speech model is not downloaded`
       : status.model === 'invalid' ? `${name} speech model did not pass verification`
         : status.detector === 'missing' ? 'The speech detector is not downloaded'
@@ -59,7 +66,7 @@ export async function transcribeOffline(uri: string, signal?: AbortSignal): Prom
   if (active) throw new LocalSpeechError('Finish the current translation before recording again.', 'speech_busy');
   if (loaded && loaded.model !== model) await releaseOfflineSpeech();
   if (!loaded?.whisper && await native.availableMemory() < (model === 'small' ? 1200 : 600) * 1024 ** 2) {
-    throw new LocalSpeechError('Not enough free memory for this speech model. Close other apps or choose Base, then try again.', 'speech_unavailable');
+    throw new LocalSpeechError('Not enough free memory for this speech model. Close other apps or choose Small, then try again.', 'speech_unavailable');
   }
   if (active) throw new LocalSpeechError('Finish the current translation before recording again.', 'speech_busy');
   clearTimeout(idle);

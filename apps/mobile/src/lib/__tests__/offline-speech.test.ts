@@ -91,12 +91,12 @@ test('offline conversation identifies a missing selected speech model without bl
   const native = requireOptionalNativeModule<Record<string, unknown>>('RoamieOffline')!;
   native.isTranslationReady = jest.fn(async () => true);
   jest.mocked(FileSystem.getInfoAsync).mockImplementation(async uri => ({ exists: false, isDirectory: false, uri }));
-  await expect(talkTurn({ mine: 'en', partner: 'fr', partnerLocked: true, audio: { uri: 'file:///cache/recording.m4a', mimeType: 'audio/mp4' }, history: [], offlineOnly: true })).rejects.toThrow('Base speech model is not downloaded');
+  await expect(talkTurn({ mine: 'en', partner: 'fr', partnerLocked: true, audio: { uri: 'file:///cache/recording.m4a', mimeType: 'audio/mp4' }, history: [], offlineOnly: true })).rejects.toThrow('Small speech model is not downloaded');
   expect(cloudFetch).not.toHaveBeenCalled();
 });
 
 test('offline conversation names the language pair that is not ready', async () => {
-  await expect(talkTurn({ mine: 'en', partner: 'fr', partnerLocked: true, audio: { uri: 'file:///cache/recording.m4a', mimeType: 'audio/mp4' }, history: [], offlineOnly: true })).rejects.toThrow('English ↔ French language packs are not ready');
+  await expect(talkTurn({ mine: 'en', partner: 'fr', partnerLocked: true, audio: { uri: 'file:///cache/recording.m4a', mimeType: 'audio/mp4' }, history: [], offlineOnly: true })).rejects.toThrow('English ↔ French offline text is not ready');
   expect(cloudFetch).not.toHaveBeenCalled();
 });
 

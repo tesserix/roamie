@@ -2,8 +2,9 @@ import { useSyncExternalStore } from 'react';
 
 export type TranslationMode = 'auto' | 'offline' | 'cloud';
 export type SpeechModel = 'base' | 'small';
-type Preferences = { mode: TranslationMode; speechModel: SpeechModel; ready: boolean; error?: string };
-let state: Preferences = { mode: 'auto', speechModel: 'base', ready: false };
+export type TextModel = 'platform' | 'hymt';
+type Preferences = { mode: TranslationMode; speechModel: SpeechModel; textModel: TextModel; ready: boolean; error?: string };
+let state: Preferences = { mode: 'auto', speechModel: 'base', textModel: 'platform', ready: false };
 let restoring: Promise<void> | undefined;
 let writing = Promise.resolve();
 const listeners = new Set<() => void>();
@@ -19,16 +20,16 @@ export function restoreTranslationPreferences(): Promise<void> {
       const storage = (await import('@react-native-async-storage/async-storage')).default;
       const raw = await storage.getItem(KEY);
       const saved = raw ? JSON.parse(raw) as Partial<Preferences> : {};
-      update({ mode: ['auto', 'offline', 'cloud'].includes(saved.mode ?? '') ? saved.mode! : 'auto', speechModel: saved.speechModel === 'small' ? 'small' : 'base', ready: true });
+      update({ mode: saved.mode === 'offline' ? 'offline' : 'auto', speechModel: saved.speechModel === 'small' ? 'small' : 'base', textModel: saved.textModel === 'hymt' ? 'hymt' : 'platform', ready: true });
     } catch { update({ ...state, mode: 'offline', ready: true, error: 'Could not load translation preferences. Offline mode is active.' }); }
   })();
   return restoring;
 }
 
-export async function saveTranslationPreferences(patch: Partial<Pick<Preferences, 'mode' | 'speechModel'>>) {
+export async function saveTranslationPreferences(patch: Partial<Pick<Preferences, 'mode' | 'speechModel' | 'textModel'>>) {
   await restoreTranslationPreferences();
-  update({ ...state, ...patch, error: undefined });
-  const saved = JSON.stringify({ mode: state.mode, speechModel: state.speechModel });
+  update({ ...state, ...patch, mode: patch.mode === 'cloud' ? 'auto' : patch.mode ?? state.mode, error: undefined });
+  const saved = JSON.stringify({ mode: state.mode, speechModel: state.speechModel, textModel: state.textModel });
   writing = writing.catch(() => {}).then(async () => {
     const storage = (await import('@react-native-async-storage/async-storage')).default;
     await storage.setItem(KEY, saved);

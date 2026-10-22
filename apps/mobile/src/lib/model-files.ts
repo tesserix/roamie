@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import { AppState } from 'react-native';
 import { offlineNative } from '../../modules/roamie-offline';
 
 export type ModelFile = { file: string; bytes: number; sha256: string; repository: string; revision: string; resumable?: boolean };
@@ -36,7 +37,17 @@ export async function withModelDownloadNetwork(cellular: boolean, signal: AbortS
 const resumePath = (model: ModelFile) => `${modelFilePath(model, true)}.resume.json`;
 
 export async function hasPartialModelFile(model: ModelFile) {
-  return (await FileSystem.getInfoAsync(modelFilePath(model, true))).exists;
+  return (await FileSystem.getInfoAsync(modelFilePath(model, true))).exists || Boolean(await readResumeData(model));
+}
+
+async function readResumeData(model: ModelFile): Promise<string | undefined> {
+  if (!model.resumable) return;
+  const saved = await FileSystem.getInfoAsync(resumePath(model));
+  if (!saved.exists || saved.size > 1_000_000) return;
+  try {
+    const value = JSON.parse(await FileSystem.readAsStringAsync(resumePath(model))) as { sha256?: string; data?: string };
+    if (value.sha256 === model.sha256 && typeof value.data === 'string' && value.data.length > 0 && value.data.length <= 1_000_000) return value.data;
+  } catch { return; }
 }
 
 export async function validModelFile(model: ModelFile, uri: string) {
@@ -68,6 +79,8 @@ export async function downloadModelFile(model: ModelFile, progress: (fraction: n
   let cancel = () => {};
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
+  let backgrounded = false;
+  let background: { remove(): void } | undefined;
   let keepPartial = false;
   let invalid = false;
   let task: ReturnType<typeof FileSystem.createDownloadResumable> | undefined;
@@ -86,20 +99,12 @@ export async function downloadModelFile(model: ModelFile, progress: (fraction: n
     checkCanceled(signal);
     if (await validModelFile(model, modelFilePath(model))) { progress(1); return; }
     const partial = model.resumable ? await FileSystem.getInfoAsync(uri) : undefined;
-    keepPartial = partial?.exists === true;
+    const resumeData = await readResumeData(model);
+    keepPartial = partial?.exists === true || Boolean(resumeData);
+    if (model.resumable && (AppState.currentState === 'background' || AppState.currentState === 'inactive')) throw new Error('Model download paused. Keep Roamie open and tap Resume.');
     const required = model.resumable ? model.bytes - (partial?.exists ? Math.min(model.bytes, partial.size) : 0) : model.bytes * 2;
     if (await FileSystem.getFreeDiskStorageAsync() < required + 50 * 1024 ** 2) throw new Error('Not enough free space. Free some storage and retry.');
     await FileSystem.makeDirectoryAsync(`${FileSystem.documentDirectory}offline-models/`, { intermediates: true });
-    let resumeData: string | undefined;
-    if (model.resumable && await hasPartialModelFile(model)) {
-      const saved = await FileSystem.getInfoAsync(resumePath(model));
-      if (saved.exists && saved.size <= 1_000_000) {
-        try {
-          const value = JSON.parse(await FileSystem.readAsStringAsync(resumePath(model))) as { sha256?: string; data?: string };
-          if (value.sha256 === model.sha256 && typeof value.data === 'string' && value.data.length <= 1_000_000) resumeData = value.data;
-        } catch { resumeData = undefined; }
-      }
-    }
     if (!resumeData) {
       await FileSystem.deleteAsync(uri, { idempotent: true });
       if (model.resumable) await FileSystem.deleteAsync(resumePath(model), { idempotent: true });
@@ -112,11 +117,13 @@ export async function downloadModelFile(model: ModelFile, progress: (fraction: n
       ...resumeArgs,
     );
     cancel = () => { void (model.resumable ? pause() : task!.cancelAsync()).catch(() => {}); };
+    if (model.resumable) background = AppState.addEventListener('change', state => { if (state !== 'active') { backgrounded = true; cancel(); } });
     signal?.addEventListener('abort', cancel, { once: true });
     if (signal?.aborted) { cancel(); checkCanceled(signal); }
     timeout = setTimeout(() => { timedOut = true; cancel(); }, (model.resumable ? 45 : 10) * 60 * 1000);
     const result = await (resumeData ? task.resumeAsync() : task.downloadAsync());
     checkCanceled(signal);
+    if (backgrounded) throw new Error('Model download paused. Keep Roamie open and tap Resume.');
     if (timedOut) throw new Error('The model download took too long. Connect to Wi-Fi and retry.');
     if (![200, 206].includes(result?.status ?? 0) || !await validModelFile(model, uri)) {
       invalid = true;
@@ -135,6 +142,7 @@ export async function downloadModelFile(model: ModelFile, progress: (fraction: n
     throw error;
   } finally {
     clearTimeout(timeout);
+    background?.remove();
     signal?.removeEventListener('abort', cancel);
     await pausing;
     try {
