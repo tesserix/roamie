@@ -4,7 +4,7 @@ import * as Device from 'expo-device';
 import type { WhisperContext, WhisperVadContext } from 'whisper.rn/index';
 import { offlineNative } from '../../modules/roamie-offline';
 import { checkTranslationCanceled, appLanguage } from './offline-translation';
-import { speechModelPaths, supportsSmallSpeechModel } from './speech-models';
+import { speechModelPaths, speechModelStatus, supportsSmallSpeechModel } from './speech-models';
 import { translationPreferences, type SpeechModel } from './translation-preferences';
 
 export class LocalSpeechError extends Error {
@@ -45,7 +45,15 @@ export async function transcribeOffline(uri: string, signal?: AbortSignal): Prom
   if (model === 'small' && !supportsSmallSpeechModel()) throw new LocalSpeechError('Select Base for speech on this phone.', 'speech_unavailable');
   const paths = await speechModelPaths(model);
   checkTranslationCanceled(signal);
-  if (!paths) return null;
+  if (!paths) {
+    const status = await speechModelStatus(model);
+    const name = model === 'base' ? 'Base' : 'Small';
+    const problem = status.model === 'missing' ? `${name} speech model is not downloaded`
+      : status.model === 'invalid' ? `${name} speech model did not pass verification`
+        : status.detector === 'missing' ? 'The speech detector is not downloaded'
+          : 'The speech detector did not pass verification';
+    throw new LocalSpeechError(`${problem}. Open Profile → Offline languages and finish the speech download.`, 'speech_unavailable');
+  }
   if (active) throw new LocalSpeechError('Finish the current translation before recording again.', 'speech_busy');
   if (loaded && loaded.model !== model) await releaseOfflineSpeech();
   if (!loaded?.whisper && await native.availableMemory() < (model === 'small' ? 1200 : 600) * 1024 ** 2) {

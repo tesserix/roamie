@@ -11,8 +11,10 @@ export const SPEECH_MODELS = {
   vad: { name: 'Speech detector', file: 'ggml-silero-v6.2.0.bin', bytes: 885098, sha256: '2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987', repository: 'ggml-org/whisper-vad', revision: '9ffd54a1e1ee413ddf265af9913beaf518d1639b' },
 } as const;
 type Artifact = keyof typeof SPEECH_MODELS;
+export type SpeechAssetState = 'ready' | 'missing' | 'invalid';
+export type SpeechModelStatus = { model: SpeechAssetState; detector: SpeechAssetState };
 const downloading = new Set<Artifact>();
-const verified = new Map<Artifact, string>();
+const verified = new Map<Artifact, { uri: string; modified?: number }>();
 
 export const supportsSmallSpeechModel = () => Device.totalMemory !== null && Device.totalMemory >= 6 * 1024 ** 3;
 
@@ -35,17 +37,27 @@ async function valid(model: Artifact, uri: string) {
   return await offlineNative()?.sha256(uri) === SPEECH_MODELS[model].sha256;
 }
 
-export async function speechModelPaths(model: SpeechModel): Promise<{ model: string; vad: string } | null> {
-  for (const artifact of [model, 'vad'] as const) {
-    const uri = path(artifact);
-    if (verified.get(artifact) === uri) {
-      const info = await FileSystem.getInfoAsync(uri);
-      if (info.exists && info.size === SPEECH_MODELS[artifact].bytes) continue;
-    }
-    if (!await valid(artifact, uri)) { verified.delete(artifact); return null; }
-    verified.set(artifact, uri);
+async function artifactStatus(artifact: Artifact): Promise<SpeechAssetState> {
+  const uri = path(artifact);
+  const info = await FileSystem.getInfoAsync(uri);
+  if (!info.exists) { verified.delete(artifact); return 'missing'; }
+  if (info.size !== SPEECH_MODELS[artifact].bytes) { verified.delete(artifact); return 'invalid'; }
+  const cached = verified.get(artifact);
+  if (cached?.uri !== uri || info.modificationTime === undefined || cached.modified !== info.modificationTime) {
+    if (!await valid(artifact, uri)) { verified.delete(artifact); return 'invalid'; }
+    verified.set(artifact, { uri, modified: info.modificationTime });
   }
-  return { model: path(model), vad: path('vad') };
+  return 'ready';
+}
+
+export async function speechModelStatus(model: SpeechModel): Promise<SpeechModelStatus> {
+  const [modelState, detector] = await Promise.all([artifactStatus(model), artifactStatus('vad')]);
+  return { model: modelState, detector };
+}
+
+export async function speechModelPaths(model: SpeechModel): Promise<{ model: string; vad: string } | null> {
+  const status = await speechModelStatus(model);
+  return status.model === 'ready' && status.detector === 'ready' ? { model: path(model), vad: path('vad') } : null;
 }
 
 async function downloadArtifact(model: Artifact, progress: (fraction: number) => void, signal?: AbortSignal) {
@@ -77,7 +89,8 @@ async function downloadArtifact(model: Artifact, progress: (fraction: number) =>
     checkTranslationCanceled(signal);
     await FileSystem.deleteAsync(path(model), { idempotent: true });
     await FileSystem.moveAsync({ from: uri, to: path(model) });
-    verified.set(model, path(model));
+    const info = await FileSystem.getInfoAsync(path(model));
+    verified.set(model, { uri: path(model), modified: info.exists ? info.modificationTime : undefined });
     progress(1);
   } catch (error) {
     checkTranslationCanceled(signal);

@@ -11,6 +11,7 @@ jest.mock('expo-file-system/legacy', () => ({ documentDirectory: 'file:///docume
 jest.mock('../../../modules/roamie-offline', () => ({ __esModule: true, offlineNative: () => ({
   downloadedLanguages: async () => ['fr'],
   supportedTextLanguages: async () => ['en', 'fr'],
+  isTranslationReady: async () => true,
   canRemoveLanguagePacks: async () => true,
   offlineVoices: async () => [{ identifier: 'en', language: 'en-US' }, { identifier: 'fr', language: 'fr-FR' }],
   ocrLanguages: async () => ['en', 'fr'],
@@ -24,8 +25,9 @@ test('a French phone starts with a different partner language', async () => {
 
 test('downloaded text does not claim microphone readiness without a speech model', async () => {
   await render(<OfflineTools mine="en" partner="fr" onClose={() => {}} />);
-  expect(await screen.findByText('✓ Text in both directions: Ready')).toBeTruthy();
-  expect(screen.getByText('○ Microphone: Download a speech model and both languages')).toBeTruthy();
+  expect(await screen.findByText('English ↔ French · Ready on this phone')).toBeTruthy();
+  expect(screen.getByText('Base speech model · Not downloaded')).toBeTruthy();
+  expect(screen.getByText('Speech detector · Not downloaded')).toBeTruthy();
   expect(screen.queryByText('Main translator preference')).toBeNull();
 });
 
@@ -39,6 +41,6 @@ test('pending device checks do not label supported languages as unavailable', as
     expect(screen.getByText('Checking offline assets…')).toBeTruthy();
     expect(screen.queryByText('This language needs cloud translation. Its offline text pack is not available on this device.')).toBeNull();
     await act(async () => { finish(['fr']); });
-    expect(await screen.findByText('✓ Text in both directions: Ready')).toBeTruthy();
+    expect(await screen.findByText('English ↔ French · Ready on this phone')).toBeTruthy();
   } finally { finish(['fr']); spy.mockRestore(); }
 });

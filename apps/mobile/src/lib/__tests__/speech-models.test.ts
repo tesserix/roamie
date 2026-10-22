@@ -1,7 +1,7 @@
 import { beforeEach, expect, jest, test } from '@jest/globals';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import * as FileSystem from 'expo-file-system/legacy';
-import { downloadSpeechModel } from '../speech-models';
+import { downloadSpeechModel, speechModelStatus, SPEECH_MODELS } from '../speech-models';
 import * as Network from 'expo-network';
 import * as Device from 'expo-device';
 
@@ -52,4 +52,15 @@ test('downloads monitor a Wi-Fi-only session so a network change can cancel it',
 test('the visible cancellable download uses a foreground session', async () => {
   await expect(downloadSpeechModel('base')).rejects.toThrow('verification');
   expect(FileSystem.createDownloadResumable).toHaveBeenCalledWith(expect.any(String), expect.any(String), { sessionType: FileSystem.FileSystemSessionType.FOREGROUND }, expect.any(Function));
+});
+
+test('verified download status is rechecked when a model file changes on disk', async () => {
+  let modified = 1;
+  const hash = jest.fn(async (uri: string): Promise<string> => uri.includes('silero') ? SPEECH_MODELS.vad.sha256 : SPEECH_MODELS.base.sha256);
+  jest.mocked(requireOptionalNativeModule).mockReturnValue({ sha256: hash });
+  jest.mocked(FileSystem.getInfoAsync).mockImplementation(async uri => ({ exists: true, isDirectory: false, uri, modificationTime: modified, size: uri.includes('silero') ? SPEECH_MODELS.vad.bytes : SPEECH_MODELS.base.bytes }));
+  await expect(speechModelStatus('base')).resolves.toEqual({ model: 'ready', detector: 'ready' });
+  modified = 2;
+  hash.mockImplementation(async uri => uri.includes('silero') ? SPEECH_MODELS.vad.sha256 : 'corrupt');
+  await expect(speechModelStatus('base')).resolves.toEqual({ model: 'invalid', detector: 'ready' });
 });

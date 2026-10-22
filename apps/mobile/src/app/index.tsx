@@ -15,6 +15,7 @@ import { waitForMicrophoneForeground } from '@/lib/microphone';
 import { SPEECH_RECORDING } from '@/lib/recording';
 import { signalFeedback } from '@/lib/feedback';
 import { ProfileSettings } from '@/components/profile-settings';
+import { OfflineReadiness } from '@/components/offline-readiness';
 import { RecordButton, type RecordingPhase } from '@/components/record-button';
 import { useAccessibility, useTextScale } from '@/lib/accessibility';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -492,7 +493,7 @@ export default function Talk() {
           </View>
         </Pressable>
       </View>
-
+      <OfflineReadiness mine={mine} partner={partner} refreshKey={settingsOpen} />
           </View>
         }
         onContentSizeChange={() => { if (turns.length) list.current?.scrollToEnd({ animated: !accessibility.reducedMotion }); }}
