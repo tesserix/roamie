@@ -95,7 +95,7 @@ test('an older installation explains why downloads are unavailable and can retur
   await fireEvent.press(screen.getByRole('button', { name: 'Profile settings' }));
   await fireEvent.press(screen.getByRole('button', { name: 'Offline languages' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Offline models need a new Roamie app build. This installation cannot download or run them yet.');
-  expect(screen.getByRole('button', { name: 'Download Base speech model' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Download Small speech model' })).toBeDisabled();
   await fireEvent.press(screen.getByRole('button', { name: 'Close offline translation' }));
   expect(screen.getByRole('header', { name: 'Profile & settings' })).toBeTruthy();
 });

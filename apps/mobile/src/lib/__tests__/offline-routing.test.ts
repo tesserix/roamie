@@ -3,7 +3,7 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
 import { fetch as mockFetch } from 'expo/fetch';
 import { talkTurn, translateSign, translateText } from '../api';
 import * as Network from 'expo-network';
-import { saveTranslationPreferences } from '../translation-preferences';
+import { saveTranslationPreferences, translationPreferences } from '../translation-preferences';
 
 jest.mock('expo-modules-core', () => {
   const actual = jest.requireActual<typeof import('expo-modules-core')>('expo-modules-core');
@@ -54,10 +54,18 @@ test('the explicit guest offline tool cannot use cloud even when the saved prefe
   expect(mockFetch).not.toHaveBeenCalled();
 });
 
-test('cloud preference does not silently run the local model', async () => {
+test('the legacy cloud-only preference migrates to local-first routing', async () => {
   await saveTranslationPreferences({ mode: 'cloud' });
-  await expect(translateText('Hello', 'fr', 'en')).rejects.toThrow('Cloud mode is selected and this phone is offline');
-  expect(native.translate).not.toHaveBeenCalled();
+  expect(translationPreferences().mode).toBe('auto');
+  await expect(translateText('Hello', 'fr', 'en')).resolves.toMatchObject({ engine: 'device' });
+  expect(native.translate).toHaveBeenCalled();
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
+test('an online phone uses downloaded models without a cloud request', async () => {
+  jest.mocked(Network.getNetworkStateAsync).mockResolvedValueOnce({ isConnected: true, isInternetReachable: true });
+  await expect(translateText('Hello', 'fr', 'en')).resolves.toMatchObject({ engine: 'device' });
+  expect(mockFetch).not.toHaveBeenCalled();
 });
 
 test('a local conversation retains speaker direction without inventing a confidence score', async () => {
@@ -100,5 +108,13 @@ test('unsupported offline language errors remain explicit even with a usable net
 
 test('downloaded translation works without a customer or any cloud request', async () => {
   await expect(translateText('Hello', 'fr', 'en')).resolves.toMatchObject({ translation: 'Bonjour', engine: 'device' });
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
+
+test('online conversation and camera translation also keep successful local work off cloud', async () => {
+  jest.mocked(Network.getNetworkStateAsync).mockResolvedValue({ isConnected: true, isInternetReachable: true });
+  await expect(talkTurn({ mine: 'en', partner: 'fr', text: 'Hello', history: [] })).resolves.toMatchObject({ engine: 'device', translation: 'Bonjour' });
+  await expect(translateSign('unused-image-data', 'image/jpeg', 'fr', { uri: 'file:///photo.jpg', from: 'en' })).resolves.toMatchObject({ engine: 'device', lines: [{ translation: 'Bonjour' }] });
   expect(mockFetch).not.toHaveBeenCalled();
 });

@@ -39,7 +39,7 @@ test('Wi-Fi-only downloads reject mobile data before writing a file', async () =
 
 test('Small is not loaded or downloaded on a low-memory device', async () => {
   jest.replaceProperty(Device, 'totalMemory', 3 * 1024 ** 3);
-  try { await expect(downloadSpeechModel('small')).rejects.toThrow('Use Base'); }
+  try { await expect(downloadSpeechModel('small')).rejects.toThrow('Use Small'); }
   finally { jest.restoreAllMocks(); }
   expect(FileSystem.createDownloadResumable).not.toHaveBeenCalled();
 });

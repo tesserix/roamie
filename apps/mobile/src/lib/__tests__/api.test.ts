@@ -2,9 +2,13 @@ import { beforeEach, expect, jest, test } from '@jest/globals';
 import { fetch as mockExpoFetch } from 'expo/fetch';
 import { session } from '../auth-client';
 import { ApiError, talkTurn, translateText } from '../api';
+import { requireOptionalNativeModule } from 'expo-modules-core';
+import * as Network from 'expo-network';
 
 jest.mock('@react-native-async-storage/async-storage', () => ({getItem:jest.fn(async (key: string)=>key.startsWith('roamie.ai-consent.') ? 'allowed' : null),setItem:jest.fn(async()=>{})}));
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
+jest.mock('expo-modules-core', () => ({ ...jest.requireActual<object>('expo-modules-core'), requireOptionalNativeModule: jest.fn(() => null) }));
+jest.mock('expo-network', () => ({ getNetworkStateAsync: jest.fn(async () => ({ isConnected: true, isInternetReachable: true })) }));
 jest.mock('../auth-client', () => ({
   API_BASE: 'https://roamie-api.tesserix.app',
   authFetch: jest.fn((...args: Parameters<typeof mockExpoFetch>) => mockExpoFetch(...args)),
@@ -13,6 +17,7 @@ jest.mock('../auth-client', () => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(requireOptionalNativeModule).mockReturnValue(null);
   jest.mocked(session.current).mockReturnValue({ sub: 'alice' } as ReturnType<typeof session.current>);
   jest.mocked(session.revision).mockReturnValue(1);
 });
@@ -127,4 +132,19 @@ test('persistent outages stop after two attempts within the total ninety-second 
     expect(mockExpoFetch).toHaveBeenCalledTimes(2);
     expect(jest.getTimerCount()).toBe(0);
   } finally { jest.mocked(mockExpoFetch).mockReset(); jest.useRealTimers(); }
+});
+
+
+test('Automatic falls back to the existing cloud API only after a local translation failure', async () => {
+  const translate = jest.fn(async () => { throw new Error('Platform translation unavailable'); });
+  jest.mocked(requireOptionalNativeModule).mockReturnValue({
+    supportedTextLanguages: async () => ['en', 'fr'], isTranslationReady: async () => true, translate,
+  });
+  jest.mocked(mockExpoFetch).mockImplementationOnce(async () => {
+    expect(translate).toHaveBeenCalledTimes(1);
+    return { ok: true, status: 200, json: async () => ({ translation: 'Bonjour from cloud', engine: 'cloud' }) } as Awaited<ReturnType<typeof mockExpoFetch>>;
+  });
+  await expect(translateText('Hello', 'fr', 'en')).resolves.toMatchObject({ translation: 'Bonjour from cloud', engine: 'cloud' });
+  expect(Network.getNetworkStateAsync).toHaveBeenCalled();
+  expect(mockExpoFetch).toHaveBeenCalledTimes(1);
 });

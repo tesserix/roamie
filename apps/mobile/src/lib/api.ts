@@ -95,19 +95,17 @@ async function cloudTalkTurn(req: TurnRequest, signal?: AbortSignal, onRetry?: (
 async function routedTranslation<T>(local: () => Promise<T | null>, cloud: () => Promise<T>, signal?: AbortSignal, offlineOnly = false, missing = 'Download both languages in Offline languages, or connect to the internet.'): Promise<T> {
   checkTranslationCanceled(signal);
   const available = Boolean(offlineNative());
-  if (available) await restoreTranslationPreferences();
+  await restoreTranslationPreferences();
   checkTranslationCanceled(signal);
   const mode = offlineOnly ? 'offline' : translationPreferences().mode;
   let localError: unknown;
-  if (mode !== 'cloud') {
-    try {
-      const result = await local();
-      if (result !== null) return result;
-    } catch (error) {
-      checkTranslationCanceled(signal);
-      if (error instanceof ApiError && error.code === 'no_speech') throw error;
-      localError = error;
-    }
+  try {
+    const result = await local();
+    if (result !== null) return result;
+  } catch (error) {
+    checkTranslationCanceled(signal);
+    if (error instanceof ApiError && error.code === 'no_speech') throw error;
+    localError = error;
   }
   checkTranslationCanceled(signal);
   if (mode === 'offline') throw new ApiError(localError instanceof Error ? localError.message : missing, undefined, 'offline_unavailable');
@@ -115,7 +113,7 @@ async function routedTranslation<T>(local: () => Promise<T | null>, cloud: () =>
     const network = await (await import('expo-network')).getNetworkStateAsync().catch(() => null);
     checkTranslationCanceled(signal);
     if (network?.isConnected === false || network?.isInternetReachable === false) {
-      const message = mode === 'cloud' ? 'Cloud mode is selected and this phone is offline. Open Profile → Offline languages and select Automatic or Offline only to use downloaded models.' : localError instanceof Error ? localError.message : missing;
+      const message = localError instanceof Error ? localError.message : missing;
       throw new ApiError(message, undefined, 'offline_unavailable');
     }
   }
@@ -128,7 +126,7 @@ function offlineTextProblem(status: OfflineTextStatus, from: string, to: string)
   if (status.state === 'unsupported') return `${status.unsupported.map(languageName).join(', ')} offline text is not supported on this phone. Connect to the internet to translate it.`;
   if (status.state === 'choose_languages') return 'Choose two different conversation languages for offline translation.';
   if (status.state === 'unavailable') return 'Install the latest Roamie build to use offline translation.';
-  return `${languageName(from)} ↔ ${languageName(to)} language packs are not ready on this phone. ${next}`;
+  return `${languageName(from)} ↔ ${languageName(to)} offline text is not ready on this phone. Download platform packs or a compatible Large model. ${next}`;
 }
 
 export async function talkTurn(req: TurnRequest, signal?: AbortSignal, onRetry?: () => void): Promise<TurnResponse> {
@@ -185,7 +183,7 @@ export type TextTranslation = {
 
 export const translateText = (text: string, to: string, from?: string, signal?: AbortSignal, offlineOnly = false) =>
   routedTranslation(() => localTextTranslation(text, to, from, signal), () => call<TextTranslation>('/v1/translate/text', { text, to, from }, signal, offlineNative() ? 12000 : 65000), signal, offlineOnly,
-    !supportsLocalText(to) || (from && !supportsLocalText(from)) ? 'This language pair is not supported on this device. Connect to the internet to translate it.' : 'Download both languages in Offline languages. For short phrases, choose the source language instead of automatic detection.');
+    !supportsLocalText(to) || (from && !supportsLocalText(from)) ? 'This language pair is not supported on this device. Connect to the internet to translate it.' : 'Download platform language packs or a compatible Large model in Profile → Offline languages. For short phrases, choose the source language instead of automatic detection.');
 
 export type SignLine = {
   original: string;

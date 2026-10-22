@@ -44,8 +44,8 @@ function ConnectionStatus(props: Props) {
   const online = network?.isInternetReachable === true;
   const label = forced || disconnected ? 'Offline' : online ? 'Online' : network === undefined ? 'Checking connection' : 'Connection unknown';
   const reason = forced ? 'Offline only is selected. Translation stays on this phone and requires downloaded models.'
-    : disconnected ? preferences.mode === 'cloud' ? 'Your phone cannot reach the internet. Cloud mode needs a connection. Choose Automatic or Offline only in Profile → Offline languages to use downloads.' : 'Your phone cannot reach the internet. Roamie uses ready downloads; missing language or speech models need to be downloaded first.'
-      : online ? preferences.mode === 'cloud' ? 'Your phone has an internet connection. Cloud mode sends translation requests to the online service.' : 'Your phone has an internet connection. Automatic tries downloaded models first and uses the cloud when needed.'
+    : disconnected ? 'Your phone cannot reach the internet. Roamie uses ready downloads; missing language or speech models need to be downloaded first.'
+      : online ? 'Your phone has an internet connection. Automatic tries downloaded models first and uses the cloud when needed.'
         : 'Roamie could not confirm internet access. Automatic can still use ready downloads. Check your connection if cloud translation is unavailable.';
   const close = () => { setOpen(false); props.onOpenChange?.(false); };
   return <>
@@ -119,14 +119,13 @@ function DeviceReadiness({ mine, partner, refreshKey, offlineOnly = false, onRef
   const ready = text?.state === 'ready' && status.speech?.model === 'ready' && status.speech.detector === 'ready'
     && (selected !== 'small' || supportsSmallSpeechModel()) && mine !== 'or' && partner !== 'or';
   const pair = `${languageName(mine)} ↔ ${partner ? languageName(partner) : 'Choose a language'}`;
-  const textLabel = text?.state === 'ready' ? `${pair} · Ready on this phone`
+  const textLabel = text?.state === 'ready' ? `${pair} · Ready on this phone${text.provider === 'hymt' ? ' · Large text model' : ''}`
     : text?.state === 'unsupported' ? `${text.unsupported.map(languageName).join(', ')} · Offline text is not supported on this phone`
       : text?.state === 'choose_languages' ? 'Choose two different languages to check offline translation'
-        : text?.state === 'missing' ? `${pair} · Language packs not ready on this phone`
+        : text?.state === 'missing' ? `${pair} · ${text.provider === 'hymt' ? 'Download Large text model' : 'Language packs not ready on this phone'}`
           : 'Language packs · Could not verify';
-  const name = selected === 'base' ? 'Base' : 'Small';
-  const cloudMode = !offlineOnly && preferences.mode === 'cloud';
-  const modeLabel = offlineOnly ? 'Offline tools (on-device only)' : preferences.mode === 'cloud' ? 'Cloud (internet required)' : preferences.mode === 'offline' ? 'Offline only' : 'Automatic';
+  const name = SPEECH_MODELS[selected].name;
+  const modeLabel = offlineOnly ? 'Offline tools (on-device only)' : preferences.mode === 'offline' ? 'Offline only' : 'Automatic';
 
   return <View style={{ padding: space.md, gap: space.xs, borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
@@ -142,7 +141,7 @@ function DeviceReadiness({ mine, partner, refreshKey, offlineOnly = false, onRef
           <Text style={[font.caption, { color: c.text }]}>{textLabel}</Text>
           <Text style={[font.caption, { color: c.text }]}>{name} speech model · {assetLabel(status.speech?.model)}{status.speech?.model === 'ready' ? ` · ${Math.ceil(SPEECH_MODELS[selected].bytes / 1_000_000)} MB` : ''}</Text>
           <Text style={[font.caption, { color: c.text }]}>Speech detector · {assetLabel(status.speech?.detector)}</Text>
-          <Text accessibilityLiveRegion="polite" style={[font.caption, { color: ready && !cloudMode ? c.accent : c.muted }]}>{ready ? cloudMode ? 'Offline downloads are ready. Select Automatic or Offline only to use them.' : 'Offline conversation is ready' : 'Finish preparing offline conversation in Profile → Offline languages.'}</Text>
+          <Text accessibilityLiveRegion="polite" style={[font.caption, { color: ready ? c.accent : c.muted }]}>{ready ? 'Offline conversation is ready' : 'Finish preparing offline conversation in Profile → Offline languages.'}</Text>
           {selected === 'small' && !supportsSmallSpeechModel() ? <Text style={[font.caption, { color: c.warn }]}>{smallSpeechModelUnavailableReason()}</Text> : null}
           {status.error ? <Text accessibilityRole="alert" style={[font.caption, { color: c.danger }]}>{status.error}</Text> : null}
         </View>}
