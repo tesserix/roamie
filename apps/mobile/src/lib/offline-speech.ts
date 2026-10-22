@@ -4,7 +4,7 @@ import * as Device from 'expo-device';
 import type { WhisperContext, WhisperVadContext } from 'whisper.rn/index';
 import { offlineNative } from '../../modules/roamie-offline';
 import { checkTranslationCanceled, appLanguage } from './offline-translation';
-import { resolveSpeechModel, SPEECH_MODELS, speechModelStatus, supportsSmallSpeechModel } from './speech-models';
+import { resolveSpeechModel, SPEECH_MODELS, speechModelStatus, speechModelUnavailableReason } from './speech-models';
 import { translationPreferences, type SpeechModel } from './translation-preferences';
 import { registerOfflineEngine, withOfflineInference } from './offline-inference';
 
@@ -38,11 +38,28 @@ export async function releaseOfflineSpeech() {
 
 registerOfflineEngine('speech', releaseOfflineSpeech);
 
-export function transcribeOffline(uri: string, signal?: AbortSignal): Promise<{ text: string; language: string } | null> {
-  return withOfflineInference('speech', () => executeSpeech(uri, signal), signal);
+export async function transcribeOffline(uri: string, signal?: AbortSignal, ready?: () => void): Promise<{ text: string; language: string } | null> {
+  checkTranslationCanceled(signal);
+  if (!offlineNative()) return null;
+  const preferred = translationPreferences().speechModel;
+  if (!await resolveSpeechModel(preferred)) await speechUnavailable(preferred);
+  checkTranslationCanceled(signal);
+  return withOfflineInference('speech', () => executeSpeech(uri, signal, ready), signal);
 }
 
-async function executeSpeech(uri: string, signal?: AbortSignal): Promise<{ text: string; language: string } | null> {
+async function speechUnavailable(model: SpeechModel): Promise<never> {
+  const problem = speechModelUnavailableReason(model);
+  if (problem) throw new LocalSpeechError(problem, 'speech_unavailable');
+  const status = await speechModelStatus(model);
+  const name = SPEECH_MODELS[model].name;
+  const missing = status.model === 'missing' ? `${name} speech model is not downloaded`
+    : status.model === 'invalid' ? `${name} speech model did not pass verification`
+      : status.detector === 'missing' ? 'The speech detector is not downloaded'
+        : 'The speech detector did not pass verification';
+  throw new LocalSpeechError(`${missing}. Open Profile → Offline languages and finish the speech download.`, 'speech_unavailable');
+}
+
+async function executeSpeech(uri: string, signal?: AbortSignal, ready?: () => void): Promise<{ text: string; language: string } | null> {
   checkTranslationCanceled(signal);
   if (releasing) await releasing;
   const native = offlineNative();
@@ -52,22 +69,15 @@ async function executeSpeech(uri: string, signal?: AbortSignal): Promise<{ text:
   const resolved = await resolveSpeechModel(preferred);
   const model = resolved?.model ?? preferred;
   const paths = resolved?.paths;
-  if (!paths && model === 'small' && !supportsSmallSpeechModel()) throw new LocalSpeechError('Select Small for speech on this phone.', 'speech_unavailable');
   checkTranslationCanceled(signal);
-  if (!paths) {
-    const status = await speechModelStatus(model);
-    const name = SPEECH_MODELS[model].name;
-    const problem = status.model === 'missing' ? `${name} speech model is not downloaded`
-      : status.model === 'invalid' ? `${name} speech model did not pass verification`
-        : status.detector === 'missing' ? 'The speech detector is not downloaded'
-          : 'The speech detector did not pass verification';
-    throw new LocalSpeechError(`${problem}. Open Profile → Offline languages and finish the speech download.`, 'speech_unavailable');
-  }
+  if (!paths) return speechUnavailable(model);
   if (active) throw new LocalSpeechError('Finish the current translation before recording again.', 'speech_busy');
   if (loaded && loaded.model !== model) await releaseOfflineSpeech();
   if (!loaded?.whisper && await native.availableMemory() < (model === 'small' ? 1200 : 600) * 1024 ** 2) {
     throw new LocalSpeechError('Not enough free memory for this speech model. Close other apps or choose Small, then try again.', 'speech_unavailable');
   }
+  checkTranslationCanceled(signal);
+  ready?.();
   if (active) throw new LocalSpeechError('Finish the current translation before recording again.', 'speech_busy');
   clearTimeout(idle);
   let finish = () => {};
@@ -96,7 +106,7 @@ async function executeSpeech(uri: string, signal?: AbortSignal): Promise<{ text:
     if (!segments.length) throw new LocalSpeechError('No clear speech was detected. Please speak closer and try again.', 'no_speech');
     if (!loaded.whisper) {
       try { loaded.whisper = await engine.initWhisper({ filePath: paths.model, useGpu: Platform.OS === 'ios' && Device.isDevice }); }
-      catch { loaded.whisper = await engine.initWhisper({ filePath: paths.model, useGpu: false }); }
+      catch { check(); loaded.whisper = await engine.initWhisper({ filePath: paths.model, useGpu: false }); }
     }
     check();
     const task = loaded.whisper.transcribe(wav, { language: 'auto', translate: false, maxThreads: threads, temperature: 0, temperatureInc: 0 });

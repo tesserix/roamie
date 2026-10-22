@@ -15,7 +15,7 @@ import { downloadTextModel, hasPartialTextModel, hymtUnavailableReason, removeTe
 import type { ModelFileState } from '@/lib/model-files';
 import { OFFLINE_MODEL_LICENSES } from '@/constants/offline-licenses';
 import { useAccessibility } from '@/lib/accessibility';
-import { downloadSpeechModel, removeSpeechModel, SPEECH_MODELS, speechModelStatus, supportsSmallSpeechModel, smallSpeechModelUnavailableReason, type SpeechModelStatus } from '@/lib/speech-models';
+import { downloadSpeechModel, removeSpeechModel, SPEECH_MODELS, speechModelStatus, speechModelUnavailableReason, type SpeechModelStatus } from '@/lib/speech-models';
 import { restoreTranslationPreferences, saveTranslationPreferences, useTranslationPreferences, type SpeechModel, type TranslationMode } from '@/lib/translation-preferences';
 import { OfflineReadiness } from './offline-readiness';
 
@@ -166,9 +166,9 @@ export function OfflineTools({ onClose, mine: initialMine, partner: initialPartn
       {(['base', 'small'] as const).map(model => <Card key={model}>
         <Text style={[font.headline, { color: c.text }]}>{SPEECH_MODELS[model].name} · {model === 'base' ? 'balanced' : 'higher quality'} · {Math.ceil((SPEECH_MODELS[model].bytes + SPEECH_MODELS.vad.bytes) / 1_000_000)} MB</Text>
         {!checking && models[model] ? <Text style={[font.caption, { color: c.muted }]}>{models[model]!.model === 'ready' ? 'Model file downloaded and verified on this phone' : models[model]!.model === 'invalid' ? 'Model file is incomplete or invalid' : 'Model file is not downloaded'}</Text> : null}
-        {!checking && model === 'small' && !supportsSmallSpeechModel() ? <Text style={[font.caption, { color: c.muted }]}>{smallSpeechModelUnavailableReason()}</Text> : null}
-        {checking ? null : speech.includes(model) ? model !== 'small' || supportsSmallSpeechModel() ? <Chip label={preferences.speechModel === model ? `${SPEECH_MODELS[model].name} selected` : `Use ${SPEECH_MODELS[model].name}`} selected={preferences.speechModel === model} onPress={() => { void saveTranslationPreferences({ speechModel: model }); }} /> : null
-            : <Button label={models[model]?.model === 'ready' ? `Finish ${SPEECH_MODELS[model].name} speech download` : `Download ${SPEECH_MODELS[model].name} speech model`} disabled={!available || !!busy || (model === 'small' && !supportsSmallSpeechModel())} onPress={() => {
+        {!checking && speechModelUnavailableReason(model) ? <Text style={[font.caption, { color: c.muted }]}>{speechModelUnavailableReason(model)}</Text> : null}
+        {checking ? null : speech.includes(model) ? !speechModelUnavailableReason(model) ? <Chip label={preferences.speechModel === model ? `${SPEECH_MODELS[model].name} selected` : `Use ${SPEECH_MODELS[model].name}`} selected={preferences.speechModel === model} onPress={() => { void saveTranslationPreferences({ speechModel: model }); }} /> : null
+            : <Button label={models[model]?.model === 'ready' ? `Finish ${SPEECH_MODELS[model].name} speech download` : `Download ${SPEECH_MODELS[model].name} speech model`} disabled={!available || !!busy || !!speechModelUnavailableReason(model)} onPress={() => {
               cancelDownload.current = new AbortController();
               void run('Downloading speech model…', async () => {
                 await downloadSpeechModel(model, cellular, fraction => { if (alive.current) setProgress(fraction); }, cancelDownload.current!.signal);

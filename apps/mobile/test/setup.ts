@@ -1,4 +1,7 @@
 import { jest } from '@jest/globals';
+import { NativeModules } from 'react-native';
+
+NativeModules.RNWhisper = { install: jest.fn(async () => true) };
 
 jest.mock('@react-native-async-storage/async-storage', () => require('@react-native-async-storage/async-storage/jest/async-storage-mock'));
 

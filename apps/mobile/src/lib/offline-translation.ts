@@ -40,7 +40,7 @@ export function checkTranslationCanceled(signal?: AbortSignal) {
   if (signal?.aborted) throw new Error('Translation cancelled.');
 }
 
-export async function localTextTranslation(text: string, to: string, from?: string, signal?: AbortSignal): Promise<TextTranslation | null> {
+export async function localTextTranslation(text: string, to: string, from?: string, signal?: AbortSignal, ready?: () => void): Promise<TextTranslation | null> {
   checkTranslationCanceled(signal);
   await restoreTranslationPreferences();
   const native = offlineNative();
@@ -53,11 +53,12 @@ export async function localTextTranslation(text: string, to: string, from?: stri
   for (const provider of providers) {
     try {
       let translation: string | null = null;
-      if (provider === 'hymt') translation = await translateHymt(text, to, detected, signal);
+      if (provider === 'hymt') translation = await translateHymt(text, to, detected, signal, ready);
       else if (native) {
         const supported = await native.supportedTextLanguages();
         if (supportsLocalText(to, supported) && supportsLocalText(detected, supported) && await native.isTranslationReady(modelLanguage(detected), modelLanguage(to))) {
           checkTranslationCanceled(signal);
+          ready?.();
           translation = await native.translate(text, modelLanguage(detected), modelLanguage(to));
         }
       }

@@ -4,6 +4,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { downloadSpeechModel, speechModelStatus, SPEECH_MODELS, supportsSmallSpeechModel } from '../speech-models';
 import * as Network from 'expo-network';
 import * as Device from 'expo-device';
+import { TurboModuleRegistry } from 'react-native';
 
 jest.mock('expo-modules-core', () => ({ ...jest.requireActual<object>('expo-modules-core'), requireOptionalNativeModule: jest.fn() }));
 jest.mock('expo-network', () => ({ getNetworkStateAsync: jest.fn(async () => ({ type: 'WIFI', isConnected: true, isInternetReachable: true })), addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })), NetworkStateType: { WIFI: 'WIFI' } }));
@@ -69,4 +70,14 @@ test('verified download status is rechecked when a model file changes on disk', 
   modified = 2;
   hash.mockImplementation(async uri => uri.includes('silero') ? SPEECH_MODELS.vad.sha256 : 'corrupt');
   await expect(speechModelStatus('base')).resolves.toEqual({ model: 'invalid', detector: 'ready' });
+});
+
+test('missing speech runtime blocks direct download requests before any network or disk work', async () => {
+  const original = TurboModuleRegistry.get;
+  const capability = jest.spyOn(TurboModuleRegistry, 'get').mockImplementation(name => name === 'RNWhisper' ? null : original(name));
+  try {
+    await expect(downloadSpeechModel('base')).rejects.toThrow('latest Roamie build');
+    expect(Network.getNetworkStateAsync).not.toHaveBeenCalled();
+    expect(FileSystem.createDownloadResumable).not.toHaveBeenCalled();
+  } finally { capability.mockRestore(); }
 });

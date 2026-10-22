@@ -9,7 +9,7 @@ import { useAccessibility } from '@/lib/accessibility';
 import { offlineNative } from '../../modules/roamie-offline';
 import { languageName } from '@/lib/languages';
 import { offlineTextStatus, type OfflineTextStatus } from '@/lib/offline-translation';
-import { SPEECH_MODELS, resolveSpeechModel, speechModelStatus, supportsSmallSpeechModel, smallSpeechModelUnavailableReason, type SpeechAssetState, type SpeechModelStatus } from '@/lib/speech-models';
+import { SPEECH_MODELS, resolveSpeechModel, speechModelStatus, speechModelUnavailableReason, type SpeechAssetState, type SpeechModelStatus } from '@/lib/speech-models';
 import { restoreTranslationPreferences, useTranslationPreferences, type SpeechModel } from '@/lib/translation-preferences';
 
 type Status = { key: string; checking: boolean; available: boolean; text?: OfflineTextStatus; speech?: SpeechModelStatus; model?: SpeechModel; error?: string };
@@ -117,7 +117,7 @@ function DeviceReadiness({ mine, partner, refreshKey, offlineOnly = false, onRef
   const selected = status.model ?? model;
   const text = status.text;
   const ready = text?.state === 'ready' && status.speech?.model === 'ready' && status.speech.detector === 'ready'
-    && (selected !== 'small' || supportsSmallSpeechModel()) && mine !== 'or' && partner !== 'or';
+    && !speechModelUnavailableReason(selected) && mine !== 'or' && partner !== 'or';
   const pair = `${languageName(mine)} ↔ ${partner ? languageName(partner) : 'Choose a language'}`;
   const textLabel = text?.state === 'ready' ? `${pair} · Ready on this phone${text.provider === 'hymt' ? ' · Large text model' : ''}`
     : text?.state === 'unsupported' ? `${text.unsupported.map(languageName).join(', ')} · Offline text is not supported on this phone`
@@ -142,7 +142,7 @@ function DeviceReadiness({ mine, partner, refreshKey, offlineOnly = false, onRef
           <Text style={[font.caption, { color: c.text }]}>{name} speech model · {assetLabel(status.speech?.model)}{status.speech?.model === 'ready' ? ` · ${Math.ceil(SPEECH_MODELS[selected].bytes / 1_000_000)} MB` : ''}</Text>
           <Text style={[font.caption, { color: c.text }]}>Speech detector · {assetLabel(status.speech?.detector)}</Text>
           <Text accessibilityLiveRegion="polite" style={[font.caption, { color: ready ? c.accent : c.muted }]}>{ready ? 'Offline conversation is ready' : 'Finish preparing offline conversation in Profile → Offline languages.'}</Text>
-          {selected === 'small' && !supportsSmallSpeechModel() ? <Text style={[font.caption, { color: c.warn }]}>{smallSpeechModelUnavailableReason()}</Text> : null}
+          {speechModelUnavailableReason(selected) ? <Text style={[font.caption, { color: c.warn }]}>{speechModelUnavailableReason(selected)}</Text> : null}
           {status.error ? <Text accessibilityRole="alert" style={[font.caption, { color: c.danger }]}>{status.error}</Text> : null}
         </View>}
   </View>;

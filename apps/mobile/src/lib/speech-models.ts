@@ -1,4 +1,5 @@
 import { offlineNative } from '../../modules/roamie-offline';
+import { Platform, TurboModuleRegistry } from 'react-native';
 import { downloadModelFile, modelFilePath, modelFileStatus, modelFileDownloading, removeModelFile, withModelDownloadNetwork } from './model-files';
 import { supportsLargeOfflineModels, largeModelMemoryReason } from './offline-device';
 import { saveTranslationPreferences, translationPreferences, type SpeechModel } from './translation-preferences';
@@ -15,6 +16,13 @@ export type SpeechModelStatus = { model: SpeechAssetState; detector: SpeechAsset
 
 export const supportsSmallSpeechModel = supportsLargeOfflineModels;
 export const smallSpeechModelUnavailableReason = () => `${largeModelMemoryReason(SPEECH_MODELS.small.name)} Use Small.`;
+
+export function speechModelUnavailableReason(model: SpeechModel): string | null {
+  if (Platform.OS !== 'ios' && Platform.OS !== 'android') return 'Offline speech models are available in the iOS and Android apps.';
+  if (!offlineNative() || !TurboModuleRegistry.get('RNWhisper')) return 'Install the latest Roamie build to use offline speech on this phone.';
+  if (model === 'small' && !supportsSmallSpeechModel()) return smallSpeechModelUnavailableReason();
+  return null;
+}
 
 const path = (model: Artifact) => modelFilePath(SPEECH_MODELS[model]);
 
@@ -41,7 +49,7 @@ export async function speechModelPaths(model: SpeechModel): Promise<{ model: str
 export async function resolveSpeechModel(preferred: SpeechModel) {
   const candidates: SpeechModel[] = [preferred, preferred === 'base' ? 'small' : 'base'];
   for (const model of candidates) {
-    if (model === 'small' && !supportsSmallSpeechModel()) continue;
+    if (speechModelUnavailableReason(model)) continue;
     const paths = await speechModelPaths(model);
     if (paths) return { model, paths };
   }
@@ -51,8 +59,8 @@ export async function resolveSpeechModel(preferred: SpeechModel) {
 const downloadArtifact = (model: Artifact, progress: (fraction: number) => void, signal?: AbortSignal) => downloadModelFile(SPEECH_MODELS[model], progress, signal);
 
 export async function downloadSpeechModel(model: SpeechModel, cellular = false, progress: (fraction: number) => void = () => {}, signal?: AbortSignal): Promise<void> {
-  if (!offlineNative()) throw new Error('Install the latest Roamie build to download offline models.');
-  if (model === 'small' && !supportsSmallSpeechModel()) throw new Error(smallSpeechModelUnavailableReason());
+  const problem = speechModelUnavailableReason(model);
+  if (problem) throw new Error(problem);
   const bytes = SPEECH_MODELS[model].bytes;
   const total = bytes + SPEECH_MODELS.vad.bytes;
   await withModelDownloadNetwork(cellular, signal, async current => {
@@ -67,7 +75,7 @@ export async function removeSpeechModel(model: SpeechModel) {
   await releaseOfflineSpeech();
   await removeModelFile(SPEECH_MODELS[model]);
   const remaining = await installedSpeechModels();
-  const fallback = remaining.find(candidate => candidate !== 'small' || supportsSmallSpeechModel());
+  const fallback = remaining.find(candidate => !speechModelUnavailableReason(candidate));
   if (fallback && translationPreferences().speechModel === model) await saveTranslationPreferences({ speechModel: fallback });
   if (!remaining.length && !modelFileDownloading(SPEECH_MODELS.vad)) {
     await removeModelFile(SPEECH_MODELS.vad);

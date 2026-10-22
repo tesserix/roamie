@@ -27,11 +27,16 @@ export function releaseOfflineText(): Promise<void> {
 }
 registerOfflineEngine('text', releaseOfflineText);
 
-export function translateHymt(text: string, to: string, from: string, signal?: AbortSignal): Promise<string | null> {
+export async function translateHymt(text: string, to: string, from: string, signal?: AbortSignal, ready?: () => void): Promise<string | null> {
+  if (signal?.aborted) throw new Error('Offline translation cancelled.');
+  if (hymtUnavailableReason() || !supportsHymt(from) || !supportsHymt(to) || await textModelStatus() !== 'ready') return null;
+  if (signal?.aborted) throw new Error('Offline translation cancelled.');
   return withOfflineInference('text', async () => {
     if (hymtUnavailableReason() || !supportsHymt(from) || !supportsHymt(to) || await textModelStatus() !== 'ready') return null;
     if (releasing) await releasing;
     if (!context && (await offlineNative()?.availableMemory() ?? 0) < 1600 * 1024 ** 2) throw new Error('Not enough free memory for Large model. Close other apps or use platform language packs.');
+    if (signal?.aborted) throw new Error('Offline translation cancelled.');
+    ready?.();
     let finish!: () => void;
     const job: NonNullable<typeof active> = { cancelled: false, done: new Promise(resolve => { finish = resolve; }) };
     active = job; clearTimeout(idle);

@@ -299,3 +299,34 @@ test('stop during permission preflight does not open a late permission prompt', 
   expect(requestRecordingPermissionsAsync).not.toHaveBeenCalled();
   expect(t.recorder.record).not.toHaveBeenCalled();
 });
+
+test('a finished phrase is submitted within 800 ms of silence and capture resumes within 100 ms', async () => {
+  const t = setup();
+  t.level(-20);
+  const done = t.loop.start();
+  try {
+    await jest.advanceTimersByTimeAsync(500);
+    t.level(-60);
+    await jest.advanceTimersByTimeAsync(800);
+    expect(t.onTurn).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(100);
+    expect(t.recorder.record).toHaveBeenCalledTimes(2);
+  } finally { t.loop.stop(); await done; }
+});
+
+test('a short mid-sentence pause does not split the phrase', async () => {
+  const t = setup();
+  t.level(-20);
+  const done = t.loop.start();
+  try {
+    await jest.advanceTimersByTimeAsync(500);
+    t.level(-60);
+    await jest.advanceTimersByTimeAsync(600);
+    expect(t.onTurn).not.toHaveBeenCalled();
+    t.level(-20);
+    await jest.advanceTimersByTimeAsync(500);
+    t.level(-60);
+    await jest.advanceTimersByTimeAsync(800);
+    expect(t.onTurn).toHaveBeenCalledTimes(1);
+  } finally { t.loop.stop(); await done; }
+});
