@@ -1,22 +1,42 @@
 import { getLocales } from 'expo-localization';
 import * as Speech from 'expo-speech';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { File, Paths } from 'expo-file-system';
 import { useSyncExternalStore } from 'react';
+import { synthesizeSpeech, type VoiceGender } from './api';
+import type { VoicePreference } from './accessibility';
+import { offlineNative } from '../../modules/roamie-offline';
+import { restoreTranslationPreferences, translationPreferences } from './translation-preferences';
 
 // Speech slightly under normal pace is far easier to follow in a second language.
 const RATE = 0.92;
 
-function score(v: Speech.Voice, region?: string) {
+// expo-speech exposes no gender, so known Apple voice names stand in; unknown voices still play.
+const FEMALE = new Set(['samantha', 'ava', 'allison', 'susan', 'zoe', 'nicky', 'serena', 'kate', 'stephanie', 'martha', 'karen', 'catherine', 'moira', 'tessa', 'fiona', 'veena', 'isha', 'kanya', 'narisa', 'kyoko', 'tingting', 'meijia', 'sinji', 'lili', 'yuna', 'amelie', 'audrey', 'aurelie', 'marie', 'anna', 'petra', 'helena', 'monica', 'paulina', 'marisol', 'alice', 'federica', 'paola', 'luciana', 'joana', 'catarina', 'lekha', 'kiyara', 'damayanti', 'linh', 'milena', 'katya', 'yelda', 'claire', 'ellen', 'alva', 'klara', 'zosia', 'ewa', 'carmit', 'melina', 'amira', 'sara', 'nora', 'satu', 'mariska', 'ioana', 'zuzana', 'laura', 'lana']);
+const MALE = new Set(['daniel', 'oliver', 'arthur', 'jamie', 'evan', 'tom', 'alex', 'aaron', 'nathan', 'fred', 'lee', 'gordon', 'rishi', 'otoya', 'hattori', 'minsu', 'thomas', 'nicolas', 'markus', 'yannick', 'martin', 'jorge', 'juan', 'diego', 'carlos', 'luca', 'felipe', 'yuri', 'maged', 'cem', 'xander', 'oskar', 'krzysztof', 'nikos', 'reed']);
+
+export const playbackVoice = (preference: VoicePreference, heard?: VoiceGender) => preference === 'match' ? heard : preference;
+
+function genderOf(v: Speech.Voice): VoiceGender | undefined {
+  const id = v.identifier.toLowerCase();
+  if (/(^|[._-])female([._-]|$)/.test(id)) return 'female';
+  if (/(^|[._-])male([._-]|$)/.test(id)) return 'male';
+  const name = (id.split('.').pop() ?? '').normalize('NFD').replace(/[^a-z]/g, '');
+  return FEMALE.has(name) ? 'female' : MALE.has(name) ? 'male' : undefined;
+}
+
+function score(v: Speech.Voice, region?: string, gender?: VoiceGender) {
   const id = v.identifier.toLowerCase();
   if (id.includes('eloquence')) return 0;
   const quality = id.includes('premium') ? 3 : v.quality === Speech.VoiceQuality.Enhanced ? 2 : 1;
-  return quality + (region && v.language.toUpperCase().endsWith(`-${region}`) ? 1.5 : 0);
+  return quality + (region && v.language.toUpperCase().endsWith(`-${region}`) ? 1.5 : 0) + (gender && genderOf(v) === gender ? 10 : 0);
 }
 
-export function pickVoice(voices: Speech.Voice[], lang: string, region?: string): string | undefined {
+export function pickVoice(voices: Speech.Voice[], lang: string, region?: string, gender?: VoiceGender): string | undefined {
   let best: Speech.Voice | undefined;
   for (const v of voices) {
     if (v.language.toLowerCase().split(/[-_]/)[0] !== lang) continue;
-    if (!best || score(v, region) > score(best, region)) best = v;
+    if (!best || score(v, region, gender) > score(best, region, gender)) best = v;
   }
   return best?.identifier;
 }
@@ -33,27 +53,77 @@ function setCurrent(key: string | null) {
 let speechRevision = 0;
 let finishSpeech: ((completed: boolean) => void) | null = null;
 
-export function speak(text: string, lang: string, key = text): Promise<boolean> {
+export function speak(text: string, lang: string, key = text, gender?: VoiceGender, offlineOnly = false): Promise<boolean> {
   stopSpeaking();
   const revision = speechRevision;
   return new Promise(resolve => {
     let finished = false;
+    let cleanup = () => {};
     const done = (completed: boolean) => {
       if (finished) return;
       finished = true;
       clearTimeout(timeout);
+      try { cleanup(); } catch { completed = false; }
       if (revision === speechRevision) { finishSpeech = null; setCurrent(null); }
       resolve(completed);
     };
-    const timeout = setTimeout(() => { stopSpeaking(); done(false); }, 60000);
+    let timeout = setTimeout(() => { stopSpeaking(); done(false); }, 60000);
     finishSpeech = done;
+    let generated = false;
+    const playGenerated = async () => {
+      if (finished || revision !== speechRevision || generated) return;
+      if (offlineOnly || translationPreferences().mode === 'offline') { done(false); return; }
+      if (offlineNative()) {
+        const network = await (await import('expo-network')).getNetworkStateAsync().catch(() => null);
+        if (finished || revision !== speechRevision) return;
+        if (network?.isConnected === false || network?.isInternetReachable === false) { done(false); return; }
+      }
+      generated = true;
+      clearTimeout(timeout);
+      timeout = setTimeout(() => { stopSpeaking(); done(false); }, 120000);
+      const controller = new AbortController();
+      cleanup = () => controller.abort();
+      if (offlineOnly || translationPreferences().mode === 'offline') { done(false); return; }
+      const audio = await synthesizeSpeech(text, lang, gender, controller.signal);
+      if (finished || revision !== speechRevision) return;
+      const file = new File(Paths.cache, `roamie-speech-${Date.now()}-${revision}.wav`);
+      cleanup = () => { controller.abort(); if (file.exists) file.delete(); };
+      file.write(audio.data, { encoding: 'base64' });
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      if (finished || revision !== speechRevision) { cleanup(); return; }
+      const player = createAudioPlayer(file.uri);
+      const subscription = player.addListener('playbackStatusUpdate', status => {
+        if (status.didJustFinish) done(true);
+      });
+      cleanup = () => {
+        controller.abort();
+        subscription.remove();
+        player.pause();
+        player.remove();
+        if (file.exists) file.delete();
+      };
+      player.play();
+    };
     const play = async () => {
+      if (offlineNative()) await restoreTranslationPreferences();
       voices ??= Speech.getAvailableVoicesAsync().catch(() => []);
       const region = lang === getLocales()[0]?.languageCode ? (getLocales()[0]?.regionCode ?? undefined) : undefined;
-      const voice = pickVoice(await voices, lang, region);
+      let candidates = await voices;
+      const native = offlineNative();
+      if (native) {
+        const installed = new Set((await native.offlineVoices()).map(voice => voice.identifier));
+        candidates = candidates.filter(voice => installed.has(voice.identifier));
+      } else if (offlineOnly || translationPreferences().mode === 'offline') { done(false); return; }
+      const voice = pickVoice(candidates, lang, region, gender);
       if (finished || revision !== speechRevision) return;
       setCurrent(key);
-      Speech.speak(text, { language: lang, voice, rate: RATE, onDone: () => done(true), onStopped: () => done(false), onError: () => done(false) });
+      if (!voice) {
+        await playGenerated();
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      if (finished || revision !== speechRevision) return;
+      Speech.speak(text, { language: lang, voice, rate: RATE, onDone: () => done(true), onStopped: () => { if (!generated) done(false); }, onError: () => { void playGenerated().catch(() => done(false)); } });
     };
     void play().catch(() => done(false));
   });

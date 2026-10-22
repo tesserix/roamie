@@ -14,7 +14,7 @@ test('shows progress, then missing forecast coverage and official guidance', asy
   await fireEvent.press(screen.getByRole('button', { name: 'Check weather & entry guidance' }));
   expect(await screen.findByText('Checking your destinations…')).toBeTruthy();
   await act(async () => complete([{ destination: 'Japan', start: trip.startDate, end: trip.endDate, weather: { profile_revision: '1', response: { status: 'ok', limitations: [], recommendations: [{ id: 'coverage', name: 'Forecast coverage', source_url: 'https://developers.google.com/maps/documentation/weather', observed_at: new Date().toISOString(), weather: { coverage: 'unavailable', missing_dates: ['2027-01-01'], suggestions: ['Recheck closer to departure.'] } }] } } }]));
-  expect(screen.getByText(/No forecast yet for 1 trip day/)).toBeTruthy();
+  expect(screen.getByText(/Forecast unavailable for 1 trip day/)).toBeTruthy();
   expect(screen.queryByText('Checking your destinations…')).toBeNull();
 });
 
@@ -29,4 +29,28 @@ test('cancel aborts the request and does not show stale results', async () => {
   await act(async () => complete([{ destination: 'stale destination', start: trip.startDate, end: trip.endDate }]));
   expect(screen.queryByText('stale destination')).toBeNull();
   expect(screen.getByRole('button', { name: 'Check weather & entry guidance' })).toBeTruthy();
+});
+
+test('unsupported forecast coverage does not promise a later forecast', async () => {
+  const guidance = 'Google Weather does not provide daily forecasts in this country.';
+  jest.mocked(checkTripReadiness).mockResolvedValueOnce([{ destination: 'Japan', start: trip.startDate, end: trip.endDate, weather: { profile_revision: '1', response: { status: 'ok', limitations: [], recommendations: [{ id: 'coverage', name: 'Daily forecasts unavailable', source_url: 'https://developers.google.com/maps/documentation/weather/coverage', observed_at: new Date().toISOString(), weather: { coverage: 'unavailable', missing_dates: ['2027-01-01'], suggestions: [guidance] } }] } } }]);
+  await render(<TripReadiness trip={trip} />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Check weather & entry guidance' }));
+  expect(await screen.findByText(guidance)).toBeTruthy();
+  expect(screen.queryByText(/Check again closer to departure/)).toBeNull();
+});
+
+test.each([
+  ['https://open-meteo.com/', 'Weather by Open-Meteo · Source'],
+  ['https://developers.google.com/maps/documentation/weather', 'Weather by Google · Source'],
+  ['https://api.met.no/', 'Weather by MET Norway · Source'],
+  ['https://example.com/', 'Weather source'],
+  ['https://open-meteo.com.example.com/', 'Weather source'],
+])('credits the actual weather provider: %s', async (source_url, label) => {
+  jest.mocked(checkTripReadiness).mockResolvedValueOnce([{ destination: 'Tokyo', start: trip.startDate, end: trip.endDate, weather: { profile_revision: '1', response: { status: 'ok', limitations: [], recommendations: [{ id: 'day', name: 'Daily forecast', source_url, observed_at: '2026-10-12T00:00:00Z', weather: { coverage: 'forecast', local_date: '2027-01-01', minimum_celsius: 12, maximum_celsius: 20, precipitation_percent: 55, missing_dates: [], suggestions: [] } }] } } }]);
+  await render(<TripReadiness trip={trip} />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Check weather & entry guidance' }));
+  expect(await screen.findByRole('button', { name: label })).toBeTruthy();
+  expect(screen.queryByText(/Daytime rain/)).toBeNull();
+  expect(screen.queryByText(/next ten days/)).toBeNull();
 });

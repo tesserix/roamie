@@ -1,13 +1,17 @@
 mod accounts;
+mod audio;
 #[cfg(test)]
 mod audit_tests;
 mod auth;
 #[cfg(test)]
 mod auth_tests;
 mod database;
+mod decisions;
 mod destinations;
+mod documents;
 mod error;
 mod fx;
+mod gateway;
 mod gemini;
 mod lang;
 mod memories;
@@ -16,6 +20,7 @@ mod nearby;
 mod ocr;
 mod receipts;
 mod signs;
+mod speech;
 mod statements;
 mod talk;
 #[cfg(test)]
@@ -51,7 +56,9 @@ struct AppState {
     fx: fx::Fx,
     places: Option<nearby::Places>,
     ocr: Option<ocr::Ocr>,
+    jev: Option<decisions::Jev>,
     memories: memories::Renderer,
+    audio: audio::Gate,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -91,17 +98,24 @@ async fn main() -> anyhow::Result<()> {
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(25))
         .build()?;
-    let ai = gemini::Gemini::new(
-        http.clone(),
-        &env_or("GCP_PROJECT", "tesseracthub-480811"),
-        &env_or("VERTEX_LOCATION", "global"),
-        &env_or("GEMINI_MODEL", "gemini-2.5-flash"),
-    )
-    .await
-    .inspect_err(
-        |e| tracing::warn!(error = %e, "no Google credentials; talk and receipts will return 503"),
-    )
-    .ok();
+    let gateway = gateway::Gateway::from_env()?;
+    anyhow::ensure!(
+        cfg!(debug_assertions) || gateway.is_some(),
+        "AI_GATEWAY_ORIGIN required in release builds"
+    );
+    let ai = if let Some(gateway) = gateway.clone() {
+        Some(gemini::Gemini::with_gateway(gateway))
+    } else {
+        gemini::Gemini::new(
+            http.clone(),
+            &env_or("GCP_PROJECT", "tesseracthub-480811"),
+            &env_or("VERTEX_LOCATION", "global"),
+            &env_or("GEMINI_MODEL", "gemini-2.5-flash"),
+        )
+        .await
+        .inspect_err(|_| tracing::warn!("development model credentials unavailable"))
+        .ok()
+    };
     let places = std::env::var("PLACES_API_KEY")
         .ok()
         .filter(|k| !k.is_empty())
@@ -112,11 +126,17 @@ async fn main() -> anyhow::Result<()> {
     if places.is_none() {
         tracing::warn!("PLACES_API_KEY unset; nearby will return 503");
     }
-    let ocr = ocr_from_env(&http)
-        .inspect_err(
-            |e| tracing::warn!(error = %e, "OCR not configured; sign translation will return 503"),
-        )
-        .ok();
+    let ocr = if std::env::var("OCR_UPLOAD_URL").is_ok() {
+        Some(ocr_from_env(&http)?)
+    } else {
+        None
+    };
+    let jev = gateway.map(decisions::Jev::with_gateway);
+    anyhow::ensure!(
+        ocr.is_none() || jev.is_some(),
+        "AI_GATEWAY_ORIGIN required when OCR is configured"
+    );
+    audio::check_runtime().expect("speech detection runtime must initialize");
     let state = Arc::new(AppState {
         trip_manager: trip_manager::Manager::from_env()?,
         travel_mcp_key: std::env::var("TRAVEL_MCP_API_KEY").ok(),
@@ -124,11 +144,13 @@ async fn main() -> anyhow::Result<()> {
         development_auth_disabled,
         database,
         ocr,
+        jev,
         http,
         ai,
         fx: fx::Fx::new(fx::FX_BASE),
         places,
         memories: memories::Renderer::new(),
+        audio: audio::Gate::new(),
     });
 
     let host = if development_auth_disabled {
@@ -158,10 +180,11 @@ fn router(state: Arc<AppState>) -> Router {
                 .layer(RequestBodyLimitLayer::new(32768)),
         )
         .route("/talk/turn", post(talk_turn))
+        .route(
+            "/talk/speech",
+            post(speech::synthesize).layer(RequestBodyLimitLayer::new(8192)),
+        )
         .route("/translate/text", post(translate_text))
-        .route("/signs/translate", post(sign_translate))
-        .route("/receipts/extract", post(receipt_extract))
-        .route("/statements/extract", post(statement_extract))
         .route("/destinations/search", post(destinations::search))
         .route("/nearby", get(nearby_search))
         .route("/fx", get(fx_latest))
@@ -171,11 +194,39 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/trips/plan", post(trips::plan))
         .route("/memories/capabilities", post(memories::capabilities))
         .layer(timeout(60))
+        .layer(axum::extract::DefaultBodyLimit::max(12 * 1024 * 1024))
         .layer(RequestBodyLimitLayer::new(12 * 1024 * 1024))
         .route(
             "/trip-manager",
             post(trip_manager::recommend)
                 .layer::<_, std::convert::Infallible>(RequestBodyLimitLayer::new(32768))
+                .layer(timeout(90)),
+        )
+        .route(
+            "/signs/translate",
+            post(sign_translate)
+                .layer::<_, std::convert::Infallible>(axum::extract::DefaultBodyLimit::max(
+                    12 * 1024 * 1024,
+                ))
+                .layer::<_, std::convert::Infallible>(RequestBodyLimitLayer::new(12 * 1024 * 1024))
+                .layer(timeout(90)),
+        )
+        .route(
+            "/receipts/extract",
+            post(receipt_extract)
+                .layer::<_, std::convert::Infallible>(axum::extract::DefaultBodyLimit::max(
+                    12 * 1024 * 1024,
+                ))
+                .layer::<_, std::convert::Infallible>(RequestBodyLimitLayer::new(12 * 1024 * 1024))
+                .layer(timeout(90)),
+        )
+        .route(
+            "/statements/extract",
+            post(statement_extract)
+                .layer::<_, std::convert::Infallible>(axum::extract::DefaultBodyLimit::max(
+                    12 * 1024 * 1024,
+                ))
+                .layer::<_, std::convert::Infallible>(RequestBodyLimitLayer::new(12 * 1024 * 1024))
                 .layer(timeout(90)),
         )
         // Rendering outlasts the standard budget but must finish inside Cloudflare's 100s origin limit.
@@ -246,8 +297,12 @@ async fn talk_turn(
     State(s): State<Arc<AppState>>,
     Json(req): Json<talk::TurnRequest>,
 ) -> Result<Json<talk::TurnResponse>> {
+    req.utterance()?;
+    if let Some(audio) = &req.audio {
+        s.audio.verify(audio).await?;
+    }
     let ai = s.ai.as_ref().ok_or(Error::Unavailable("Translation"))?;
-    Ok(Json(talk::interpret(ai, &req).await?))
+    Ok(Json(talk::interpret(ai, s.jev.as_ref(), &req).await?))
 }
 
 async fn translate_text(
@@ -262,10 +317,10 @@ async fn sign_translate(
     State(s): State<Arc<AppState>>,
     Json(req): Json<signs::SignRequest>,
 ) -> Result<Json<signs::SignResponse>> {
-    let (Some(ocr), Some(ai)) = (s.ocr.as_ref(), s.ai.as_ref()) else {
+    let (Some(ocr), Some(jev), Some(ai)) = (s.ocr.as_ref(), s.jev.as_ref(), s.ai.as_ref()) else {
         return Err(Error::Unavailable("Photo translation"));
     };
-    Ok(Json(signs::translate(ocr, ai, &req).await?))
+    Ok(Json(signs::translate(ocr, jev, ai, &req).await?))
 }
 
 async fn receipt_extract(
@@ -275,7 +330,9 @@ async fn receipt_extract(
     let ai =
         s.ai.as_ref()
             .ok_or(Error::Unavailable("Receipt scanning"))?;
-    Ok(Json(receipts::extract(ai, &req).await?))
+    Ok(Json(
+        receipts::extract(ai, s.ocr.as_ref(), s.jev.as_ref(), &req).await?,
+    ))
 }
 
 async fn statement_extract(
@@ -285,7 +342,9 @@ async fn statement_extract(
     let ai =
         s.ai.as_ref()
             .ok_or(Error::Unavailable("Statement import"))?;
-    Ok(Json(statements::extract(ai, &req).await?))
+    Ok(Json(
+        statements::extract(ai, s.ocr.as_ref(), s.jev.as_ref(), &req).await?,
+    ))
 }
 
 async fn nearby_search(

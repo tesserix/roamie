@@ -1,0 +1,163 @@
+{
+  "gatewayExport": false,
+  "protocolVersion": "2026-07-28",
+  "schemaDigest": "abab8d0d9ec36568c3d9fc720c2ecd71c4fd5c30015a969d460f3c5d9da106e9",
+  "tenant": "roamie",
+  "tools": [
+    {
+      "effect": "read",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "forecast_days": {
+            "default": 7,
+            "maximum": 16,
+            "minimum": 1,
+            "title": "Forecast Days",
+            "type": "integer"
+          },
+          "latitude": {
+            "maximum": 90,
+            "minimum": -90,
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "maximum": 180,
+            "minimum": -180,
+            "title": "Longitude",
+            "type": "number"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "title": "ForecastQuery",
+        "type": "object"
+      },
+      "name": "get_weather_forecast",
+      "outputSchema": {
+        "$defs": {
+          "ForecastDay": {
+            "additionalProperties": false,
+            "properties": {
+              "local_date": {
+                "format": "date",
+                "maxLength": 10,
+                "title": "Local Date",
+                "type": "string"
+              },
+              "maximum_celsius": {
+                "maxLength": 32,
+                "title": "Maximum Celsius",
+                "type": "string"
+              },
+              "minimum_celsius": {
+                "maxLength": 32,
+                "title": "Minimum Celsius",
+                "type": "string"
+              },
+              "precipitation_probability_percent": {
+                "maximum": 100,
+                "minimum": 0,
+                "title": "Precipitation Probability Percent",
+                "type": "integer"
+              },
+              "uv_index": {
+                "maxLength": 32,
+                "title": "Uv Index",
+                "type": "string"
+              },
+              "weather_code": {
+                "maximum": 99,
+                "minimum": 0,
+                "title": "Weather Code",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "local_date",
+              "weather_code",
+              "maximum_celsius",
+              "minimum_celsius",
+              "precipitation_probability_percent",
+              "uv_index"
+            ],
+            "title": "ForecastDay",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "const": "Weather data by Open-Meteo (CC BY 4.0)",
+            "default": "Weather data by Open-Meteo (CC BY 4.0)",
+            "maxLength": 100,
+            "title": "Attribution",
+            "type": "string"
+          },
+          "days": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/ForecastDay"
+            },
+            "maxItems": 16,
+            "title": "Days",
+            "type": "array"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Observed At"
+          },
+          "source_url": {
+            "const": "https://open-meteo.com/en/docs",
+            "default": "https://open-meteo.com/en/docs",
+            "maxLength": 100,
+            "title": "Source Url",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Timezone"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ForecastResult",
+        "type": "object"
+      },
+      "requiredScopes": [
+        "weather:forecast:read"
+      ]
+    }
+  ]
+}

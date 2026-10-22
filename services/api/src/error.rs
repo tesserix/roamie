@@ -71,7 +71,12 @@ impl IntoResponse for Error {
                 format!("{what} is not available right now."),
             ),
             Error::Upstream(_) | Error::Auth(_) | Error::Http(_) => {
-                tracing::error!(error = %self, "upstream failure");
+                let kind = match &self {
+                    Error::Upstream(_) => "provider_response",
+                    Error::Auth(_) => "provider_authentication",
+                    _ => "provider_transport",
+                };
+                tracing::error!(kind, "upstream failure");
                 (
                     StatusCode::BAD_GATEWAY,
                     "upstream",
@@ -80,5 +85,46 @@ impl IntoResponse for Error {
             }
         };
         (status, Json(json!({ "error": code, "message": message }))).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+
+    struct Log(Arc<Mutex<Vec<u8>>>);
+    impl Write for Log {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().expect("test log").extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn upstream_logs_never_include_provider_payloads_or_signed_urls() {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let sink = bytes.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_writer(move || Log(sink.clone()))
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            let response =
+                Error::Upstream("https://storage.example?signature=synthetic-private-value".into())
+                    .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        });
+        let log = String::from_utf8(bytes.lock().expect("test log").clone()).expect("utf8");
+        assert!(
+            log.contains("upstream failure"),
+            "logging must remain enabled"
+        );
+        assert!(!log.contains("synthetic-private-value"), "{log}");
     }
 }

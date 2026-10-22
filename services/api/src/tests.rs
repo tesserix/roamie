@@ -66,7 +66,9 @@ pub(crate) fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc
             base: base.into(),
         }),
         ocr: None,
+        jev: None,
         memories: crate::memories::Renderer::new(),
+        audio: crate::audio::Gate::new(),
         http,
     })
 }
@@ -106,6 +108,27 @@ async fn healthz_is_ok() {
 }
 
 #[tokio::test]
+async fn authenticated_responses_cannot_be_reused_from_http_caches() {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/memories/capabilities")
+        .body(Body::empty())
+        .expect("request");
+    let response = router(state("http://unused", "http://unused", None))
+        .oneshot(request)
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store")
+    );
+}
+
+#[tokio::test]
 async fn partner_speech_is_translated_into_my_language() {
     let (ai, _) = upstream(
         StatusCode::OK,
@@ -132,6 +155,42 @@ async fn partner_speech_is_translated_into_my_language() {
 }
 
 #[tokio::test]
+#[cfg(media_tests)]
+async fn translation_voice_follows_the_speakers_voice_register() {
+    use base64::Engine;
+    let speech = base64::engine::general_purpose::STANDARD
+        .encode(include_bytes!("../testdata/speech-th.m4a"));
+    let spoken =
+        json!({ "mine": "en", "partner": "th", "audio": {"mimeType":"audio/mp4","data":speech} });
+    let typed = json!({ "mine": "en", "partner": "th", "text": "สวัสดี" });
+    for (register, request, want) in [
+        (json!("lower"), &spoken, json!("male")),
+        (json!("higher"), &spoken, json!("female")),
+        (json!("unknown"), &spoken, Value::Null),
+        (Value::Null, &spoken, Value::Null),
+        (json!("lower"), &typed, Value::Null),
+    ] {
+        let (ai, _) = upstream(
+            StatusCode::OK,
+            model_reply(json!({
+                "language": "th", "confidence": 0.97, "transcript": "สวัสดี",
+                "to_mine": "Hello", "to_partner": "สวัสดี", "speaker_voice": register
+            })),
+        )
+        .await;
+        let (status, body) = call(
+            state(&ai, "http://unused", None),
+            "POST",
+            "/v1/talk/turn",
+            Some(request.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["voice"], want, "register {register} for {request}");
+    }
+}
+
+#[tokio::test]
 async fn talk_without_input_is_rejected() {
     let (status, body) = call(
         state("http://unused", "http://unused", None),
@@ -142,6 +201,84 @@ async fn talk_without_input_is_rejected() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"], "invalid");
+}
+
+#[tokio::test]
+#[cfg(media_tests)]
+async fn quiet_audio_cannot_become_a_new_turn_even_when_history_contains_a_phrase() {
+    use base64::Engine;
+    let mut pcm = vec![0_i16; 32000];
+    for sample in &mut pcm[16000..16080] {
+        *sample = 12000;
+    }
+    let mut wav = b"RIFF".to_vec();
+    wav.extend_from_slice(&(36 + pcm.len() as u32 * 2).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16_u32.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&16000_u32.to_le_bytes());
+    wav.extend_from_slice(&32000_u32.to_le_bytes());
+    wav.extend_from_slice(&2_u16.to_le_bytes());
+    wav.extend_from_slice(&16_u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(pcm.len() as u32 * 2).to_le_bytes());
+    wav.extend(pcm.iter().flat_map(|sample| sample.to_le_bytes()));
+    let (ai, hits) = upstream(
+        StatusCode::OK,
+        model_reply(json!({"language":"en","confidence":0.99,"transcript":"Water and a receipt, please.","to_mine":"Water and a receipt, please.","to_partner":"水と領収書をお願いします。"})),
+    ).await;
+    let (status, body) = call(
+        state(&ai, "http://unused", None), "POST", "/v1/talk/turn",
+        Some(json!({"mine":"en","partner":"ja","audio":{"mimeType":"audio/wav","data":base64::engine::general_purpose::STANDARD.encode(wav)},"history":[{"original":"Water and a receipt, please.","translation":"水と領収書をお願いします。"}]})),
+    ).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["error"], "no_speech");
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+#[cfg(media_tests)]
+async fn real_multilingual_audio_reaches_translation_after_speech_detection() {
+    use base64::Engine;
+    for audio in [
+        include_bytes!("../testdata/speech-en.m4a").as_slice(),
+        include_bytes!("../testdata/speech-ja.m4a").as_slice(),
+        include_bytes!("../testdata/speech-hi.m4a").as_slice(),
+        include_bytes!("../testdata/speech-th.m4a").as_slice(),
+        include_bytes!("../testdata/short-en.m4a").as_slice(),
+        include_bytes!("../testdata/short-ja.m4a").as_slice(),
+        include_bytes!("../testdata/short-hi.m4a").as_slice(),
+        include_bytes!("../testdata/short-th.m4a").as_slice(),
+    ] {
+        let (ai, hits) = upstream(StatusCode::OK, model_reply(json!({"language":"en","confidence":0.99,"transcript":"Hello","to_mine":"Hello","to_partner":"こんにちは"}))).await;
+        let (status, body) = call(state(&ai,"http://unused",None), "POST", "/v1/talk/turn", Some(json!({"mine":"en","partner":"ja","audio":{"mimeType":"audio/mp4","data":base64::engine::general_purpose::STANDARD.encode(audio)}}))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["transcript"], "Hello");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[tokio::test]
+#[cfg(media_tests)]
+async fn malformed_audio_is_rejected_without_contacting_translation() {
+    let (ai, hits) = upstream(StatusCode::OK, json!({})).await;
+    for data in [
+        "not-base64".to_owned(),
+        "AAAA".to_owned(),
+        "A".repeat(3 * 1024 * 1024),
+    ] {
+        let (status, body) = call(
+            state(&ai, "http://unused", None),
+            "POST",
+            "/v1/talk/turn",
+            Some(json!({"mine":"en","partner":"ja","audio":{"mimeType":"audio/mp4","data":data}})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["error"], "invalid");
+    }
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
@@ -656,6 +793,14 @@ const OCR_SECRET: &str = "00112233445566778899aabbccddeeff";
 /// A fake Document Intelligence: walks one upload and one job through their lifecycle,
 /// rejecting any request whose workload signature does not verify.
 async fn ocr_service(upload_status: &'static str, observations: Value) -> String {
+    ocr_service_with_status(upload_status, "completed", observations).await
+}
+
+async fn ocr_service_with_status(
+    upload_status: &'static str,
+    job_status: &'static str,
+    observations: Value,
+) -> String {
     use axum::http::{HeaderMap, Method, Uri};
     use axum::routing::{get, post, put};
 
@@ -695,6 +840,7 @@ async fn ocr_service(upload_status: &'static str, observations: Value) -> String
     let completed = Arc::new(AtomicBool::new(false));
     let seen = completed.clone();
     let app = axum::Router::new()
+        .route("/v1/systemone", post(|| async { axum::Json(json!({"model":"jev-1.13.0","answers":{"readability":{"type":"choice","choice":"accept","confidence":0.9,"probabilities":{"accept":0.9,"review":0.08,"retake":0.02}}},"usage":{"input_tokens":40,"output_tokens":10}})) }))
         .route(
             "/v1/ocr/uploads",
             post(move |h, m, u| guard(h, m, u, json!({
@@ -704,7 +850,8 @@ async fn ocr_service(upload_status: &'static str, observations: Value) -> String
         )
         .route(
             "/storage",
-            put(move || async move {
+            put(move |bytes: axum::body::Bytes| async move {
+                assert!(!bytes.is_empty(), "storage must receive the upload before acknowledging it");
                 // The signer is create-only, so storage refuses a second write to the same object.
                 if stored.swap(true, Ordering::SeqCst) {
                     StatusCode::FORBIDDEN
@@ -733,7 +880,7 @@ async fn ocr_service(upload_status: &'static str, observations: Value) -> String
         )
         .route(
             "/v1/ocr/jobs/{id}",
-            get(move |h, m, u| guard(h, m, u, json!({ "job_id": "job_1", "status": "completed", "created_at": "x" }))),
+            get(move |h, m, u| guard(h, m, u, json!({ "job_id": "job_1", "status": job_status, "created_at": "x" }))),
         )
         .route(
             "/v1/ocr/jobs/{id}/result",
@@ -746,8 +893,179 @@ async fn ocr_service(upload_status: &'static str, observations: Value) -> String
     base
 }
 
+#[tokio::test]
+async fn photo_translation_preserves_ocr_review_status() {
+    let ocr = ocr_service_with_status(
+        "accepted",
+        "review_required",
+        json!([observation("出口", 0)]),
+    )
+    .await;
+    let (ai, _) = upstream(StatusCode::OK, model_reply(json!({"language":"ja", "gist":"Exit", "lines":[{"index":0,"translation":"Exit","romanized":"deguchi"}]}))).await;
+    let (status, body) = call(
+        with_ocr(state(&ai, "http://unused", None), &ocr),
+        "POST",
+        "/v1/signs/translate",
+        Some(sign_photo()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["reviewRequired"], true, "{body}");
+    assert_eq!(body["ocrJobId"], "job_1");
+}
+
+#[tokio::test]
+async fn photo_translation_accepts_a_photo_above_two_megabytes() {
+    let ocr = ocr_service("accepted", json!([observation("出口", 0)])).await;
+    let (ai, _) = upstream(StatusCode::OK, model_reply(json!({"language":"ja", "gist":"Exit", "lines":[{"index":0,"translation":"Exit","romanized":"deguchi"}]}))).await;
+    let mut photo = sign_photo();
+    photo["data"] = Value::String(format!("/9j/{}", "AAAA".repeat(550_000)));
+    let (status, body) = call(
+        with_ocr(state(&ai, "http://unused", None), &ocr),
+        "POST",
+        "/v1/signs/translate",
+        Some(photo),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[tokio::test]
+async fn receipt_extraction_reads_ocr_evidence_before_the_model() {
+    let ocr = ocr_service("accepted", json!([observation("CAFE TOTAL 12.50 AUD", 0)])).await;
+    let (ai, _) = upstream(StatusCode::OK, model_reply(json!({"merchant":"Cafe", "total":"99.00", "currency":"AUD", "date":"2026-10-12", "category":"food", "confidence":0.99}))).await;
+    let (status, body) = call(
+        with_ocr(state(&ai, "http://unused", None), &ocr),
+        "POST",
+        "/v1/receipts/extract",
+        Some(json!({"data":"/9j/AAAA", "mimeType":"image/jpeg", "localCurrency":"AUD"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["amountMinor"],
+        Value::Null,
+        "an invented total cannot become money"
+    );
+    assert_eq!(body["source"]["ocrJobId"], "job_1");
+    assert_eq!(body["source"]["reviewRequired"], true);
+}
+
+#[tokio::test]
+async fn statement_extraction_cannot_import_amounts_absent_from_ocr() {
+    let ocr = ocr_service(
+        "accepted",
+        json!([observation("2026-10-12 CAFE 12.50 AUD", 0)]),
+    )
+    .await;
+    let (ai, _) = upstream(StatusCode::OK, model_reply(json!({"transactions":[{"date":"2026-10-12","merchant":"Cafe","amount":"99.00","currency":"AUD","kind":"purchase","category":"food"}]}))).await;
+    let (status, body) = call(with_ocr(state(&ai, "http://unused", None), &ocr), "POST", "/v1/statements/extract", Some(json!({"data":"JVBERi0xLjQ=", "mimeType":"application/pdf", "from":"2026-10-01","to":"2026-10-20"}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["transactions"], json!([]));
+    assert_eq!(body["unreadable"], 1);
+    assert_eq!(body["source"]["reviewRequired"], true);
+}
+
+#[tokio::test]
+async fn an_unavailable_judge_stops_photo_translation_before_the_model() {
+    let ocr = ocr_service("accepted", json!([observation("出口", 0)])).await;
+    let (judge, _) = upstream(
+        StatusCode::SERVICE_UNAVAILABLE,
+        json!({"private":"must not leak"}),
+    )
+    .await;
+    let (ai, hits) = upstream(StatusCode::OK, model_reply(json!({}))).await;
+    let mut configured = with_ocr(state(&ai, "http://unused", None), &ocr);
+    Arc::get_mut(&mut configured).expect("single owner").jev =
+        Some(crate::decisions::Jev::for_test(judge));
+    let (status, body) = call(
+        configured,
+        "POST",
+        "/v1/signs/translate",
+        Some(sign_photo()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+    assert!(!body.to_string().contains("must not leak"));
+}
+
+#[tokio::test]
+async fn a_judge_cannot_hide_low_confidence_ocr() {
+    let mut line = observation("出口", 0);
+    line["confidence"] = json!(0.2);
+    let ocr = ocr_service("accepted", json!([line])).await;
+    let (ai, _) = upstream(StatusCode::OK, model_reply(json!({"language":"ja","gist":"Exit","lines":[{"index":0,"translation":"Exit","romanized":"deguchi"}]}))).await;
+    let (status, body) = call(
+        with_ocr(state(&ai, "http://unused", None), &ocr),
+        "POST",
+        "/v1/signs/translate",
+        Some(sign_photo()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["reviewRequired"], true);
+}
+
+#[tokio::test]
+async fn a_retake_decision_never_reaches_the_translation_model() {
+    let ocr = ocr_service("accepted", json!([observation("garbled", 0)])).await;
+    let (judge, _) = upstream(StatusCode::OK, json!({"model":"jev-1.13.0","answers":{"readability":{"type":"choice","choice":"retake","confidence":0.9,"probabilities":{"accept":0.02,"review":0.08,"retake":0.9}}},"usage":{"input_tokens":40,"output_tokens":10}})).await;
+    let (ai, hits) = upstream(StatusCode::OK, model_reply(json!({}))).await;
+    let mut configured = with_ocr(state(&ai, "http://unused", None), &ocr);
+    Arc::get_mut(&mut configured).expect("single owner").jev =
+        Some(crate::decisions::Jev::for_test(judge));
+    let (status, _) = call(
+        configured,
+        "POST",
+        "/v1/signs/translate",
+        Some(sign_photo()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn receipt_review_redacts_card_numbers_before_any_ai_provider() {
+    let ocr = ocr_service(
+        "accepted",
+        json!([observation("TOTAL 12.50 AUD CARD 4111 1111 1111 1111", 0)]),
+    )
+    .await;
+    let app = axum::Router::new().fallback(|axum::Json(body): axum::Json<Value>| async move {
+        assert!(!body.to_string().contains("4111 1111 1111 1111"), "AI must not receive a full card number");
+        if body.get("questions").is_some() {
+            axum::Json(json!({"model":"jev-1.13.0","answers":{"readability":{"type":"choice","choice":"accept","confidence":0.9,"probabilities":{"accept":0.9,"review":0.08,"retake":0.02}}},"usage":{"input_tokens":40,"output_tokens":10}}))
+        } else {
+            axum::Json(model_reply(json!({"merchant":"Cafe","total":"12.50","currency":"AUD","date":"2026-10-12","category":"food","confidence":0.9})))
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let address = format!("http://{}", listener.local_addr().expect("address"));
+    let task = tokio::spawn(async move { axum::serve(listener, app).await });
+    let mut configured = with_ocr(state(&address, "http://unused", None), &ocr);
+    Arc::get_mut(&mut configured).expect("single owner").jev =
+        Some(crate::decisions::Jev::for_test(address));
+    let (status, body) = call(
+        configured,
+        "POST",
+        "/v1/receipts/extract",
+        Some(json!({"data":"/9j/AAAA","mimeType":"image/jpeg","localCurrency":"AUD"})),
+    )
+    .await;
+    task.abort();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["amountMinor"], 1250);
+}
+
 fn with_ocr(state: Arc<AppState>, base: &str) -> Arc<AppState> {
     let mut s = Arc::into_inner(state).expect("sole owner");
+    s.jev = Some(crate::decisions::Jev::for_test(format!(
+        "{base}/v1/systemone"
+    )));
     s.ocr = Some(crate::ocr::Ocr {
         http: s.http.clone(),
         upload_base: base.into(),
@@ -912,8 +1230,10 @@ async fn production_api_requires_identity_before_parsing_input() {
     Arc::get_mut(&mut app)
         .expect("unique state")
         .development_auth_disabled = false;
-    let (status, _) = call(app, "POST", "/v1/translate/text", Some(json!({}))).await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    for path in ["/v1/translate/text", "/v1/talk/turn", "/v1/talk/speech"] {
+        let (status, _) = call(app.clone(), "POST", path, Some(json!({}))).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{path}");
+    }
 }
 
 #[tokio::test]
@@ -1042,4 +1362,327 @@ async fn planning_evidence_requires_mcp_identity_and_preserves_place_sources() {
         }
     }
     assert_eq!(hits.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn verified_receipt_request_uses_gateway_for_judgment_and_generation() {
+    use axum::{http::HeaderMap, routing::post, Json, Router};
+    let oauth = crate::auth_tests::token(json!({}));
+    let expected = format!("Bearer {oauth}");
+    let captured = expected.clone();
+    let judged = Arc::new(AtomicBool::new(false));
+    let model_judged = judged.clone();
+    let app = Router::new()
+        .route("/v1/decisions", post(move |headers: HeaderMap, Json(body): Json<Value>| async move {
+            assert_eq!(headers["authorization"], captured);
+            assert_eq!(headers["x-roamie-ai-service"], "roamie-api");
+            assert_eq!(headers["x-roamie-ai-capability"], "receipts/extract");
+            assert_eq!(body["model"], "jev-1.13.0");
+            assert!(!body.to_string().contains("4111"));
+            judged.store(true, Ordering::SeqCst);
+            Json(json!({"model":"jev-1.13.0","answers":{"readability":{"type":"choice","choice":"accept","confidence":0.9,"probabilities":{"accept":0.9,"review":0.08,"retake":0.02}}},"usage":{"input_tokens":40,"output_tokens":10}}))
+        }))
+        .route("/v1/chat/completions", post(move |headers: HeaderMap, Json(body): Json<Value>| async move {
+            assert!(model_judged.load(Ordering::SeqCst));
+            assert_eq!(headers["authorization"], expected);
+            assert_eq!(body["model"], "roamie-structured");
+            assert!(!body.to_string().contains("inlineData"));
+            assert!(!body.to_string().contains("4111"));
+            Json(json!({"choices":[{"message":{"content":json!({"merchant":"Cafe Test","total":"12.50","currency":"AUD","date":"2026-10-12","category":"food","confidence":0.95}).to_string()}}]}))
+        }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let gateway =
+        crate::gateway::Gateway::for_test(format!("http://{}", listener.local_addr().unwrap()));
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let ocr = ocr_service(
+        "accepted",
+        json!([observation(
+            "Cafe Test TOTAL AUD 12.50 2026-10-12 Card 4111 1111 1111 1111",
+            0
+        )]),
+    )
+    .await;
+    let mut state = with_ocr(state("http://unused", "http://unused", None), &ocr);
+    let mutable = Arc::get_mut(&mut state).unwrap();
+    mutable.development_auth_disabled = false;
+    mutable.auth = Some(crate::auth_tests::verifier(crate::auth_tests::profile()).0);
+    mutable.ai = Some(gemini::Gemini::with_gateway(gateway.clone()));
+    mutable.jev = Some(crate::decisions::Jev::with_gateway(gateway));
+    let request = Request::post("/v1/receipts/extract")
+        .header("authorization", format!("Bearer {oauth}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({"data":"/9j/AAAA","mimeType":"image/jpeg","localCurrency":"AUD"}).to_string(),
+        ))
+        .unwrap();
+    let response = router(state).oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["amountMinor"], 1250);
+    assert_eq!(body["source"]["decisionModel"], "jev-1.13.0");
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn odia_speech_uses_the_gateway_and_returns_bounded_wav_audio() {
+    use axum::{http::HeaderMap, routing::post, Json, Router};
+    let mut wav = b"RIFF".to_vec();
+    wav.extend_from_slice(&40_u32.to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16_u32.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&24000_u32.to_le_bytes());
+    wav.extend_from_slice(&48000_u32.to_le_bytes());
+    wav.extend_from_slice(&2_u16.to_le_bytes());
+    wav.extend_from_slice(&16_u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&4_u32.to_le_bytes());
+    wav.extend_from_slice(&[0, 0, 0, 0]);
+    use base64::Engine;
+    let data = base64::engine::general_purpose::STANDARD.encode(wav);
+    let expected = data.clone();
+    let app = Router::new().route("/v1/speech", post(move |headers: HeaderMap, Json(body): Json<Value>| async move {
+        assert_eq!(headers["authorization"], "Bearer signed-synthetic-customer");
+        assert!(body["contents"][0]["parts"][0]["text"].as_str().unwrap().contains("ଧନ୍ୟବାଦ"));
+        assert_eq!(body["generationConfig"]["responseModalities"][0], "AUDIO");
+        Json(json!({"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"audio/wav","data":data}}]}}]}))
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let gateway =
+        crate::gateway::Gateway::for_test(format!("http://{}", listener.local_addr().unwrap()));
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut state = state("http://unused", "http://unused", None);
+    Arc::get_mut(&mut state).unwrap().ai = Some(gemini::Gemini::with_gateway(gateway));
+    let (status, body) = crate::gateway::scope(
+        "signed-synthetic-customer".into(),
+        "talk/speech".into(),
+        call(
+            state,
+            "POST",
+            "/v1/talk/speech",
+            Some(json!({"text":"ଧନ୍ୟବାଦ","language":"or"})),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["mimeType"], "audio/wav");
+    assert_eq!(body["data"], expected);
+    task.abort();
+    let _ = task.await;
+}
+
+#[tokio::test]
+async fn speech_uses_a_warm_female_or_smooth_male_studio_voice() {
+    use axum::{routing::post, Json, Router};
+    use base64::Engine;
+    let mut wav = b"RIFF\x24\0\0\0WAVE".to_vec();
+    wav.resize(44, 0);
+    let data = base64::engine::general_purpose::STANDARD.encode(wav);
+    for (request, want) in [
+        (json!({"text":"Hello","language":"en"}), "Sulafat"),
+        (
+            json!({"text":"Hello","language":"en","voice":"female"}),
+            "Sulafat",
+        ),
+        (
+            json!({"text":"Hello","language":"en","voice":"male"}),
+            "Algieba",
+        ),
+    ] {
+        let data = data.clone();
+        let app = Router::new().route("/v1/speech", post(move |Json(body): Json<Value>| async move {
+            assert_eq!(body["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"], want);
+            Json(json!({"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"audio/wav","data":data}}]}}]}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let gateway =
+            crate::gateway::Gateway::for_test(format!("http://{}", listener.local_addr().unwrap()));
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let mut state = state("http://unused", "http://unused", None);
+        Arc::get_mut(&mut state).unwrap().ai = Some(gemini::Gemini::with_gateway(gateway));
+        let (status, body) = crate::gateway::scope(
+            "signed-synthetic-customer".into(),
+            "talk/speech".into(),
+            call(state, "POST", "/v1/talk/speech", Some(request)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        task.abort();
+        let _ = task.await;
+    }
+}
+
+#[tokio::test]
+async fn speech_rejects_an_unknown_voice() {
+    let (status, _) = call(
+        state("http://unused", "http://unused", None),
+        "POST",
+        "/v1/talk/speech",
+        Some(json!({"text":"Hello","language":"en","voice":"robot"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn conversation_judgment_uses_recent_context_and_flags_uncertain_translation() {
+    use axum::{routing::post, Json, Router};
+    let app=Router::new().route("/v1/systemone",post(|Json(body):Json<Value>|async move {
+        assert_eq!(body["state"]["purpose"],"conversation translation fidelity and clarity");
+        assert_eq!(body["state"]["targetLanguage"],"or");
+        assert_eq!(body["state"]["recentConversation"][0]["translation"],"Would you like tea?");
+        Json(json!({"model":"jev-1.13.0","answers":{"readability":{"type":"choice","choice":"review","confidence":0.7,"probabilities":{"accept":0.2,"review":0.7,"retake":0.1}}},"usage":{"input_tokens":40,"output_tokens":10}}))
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}/v1/systemone", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let (model, _)=upstream(StatusCode::OK,model_reply(json!({"language":"en","confidence":0.98,"transcript":"Yes please","to_mine":"Yes please","to_partner":"ହଁ, ଦୟାକରି","to_partner_romanized":"Han dayakari"}))).await;
+    let mut s = state(&model, "http://unused", None);
+    Arc::get_mut(&mut s).unwrap().jev = Some(crate::decisions::Jev::for_test(endpoint));
+    let (status,body)=call(s,"POST","/v1/talk/turn",Some(json!({"mine":"en","partner":"or","text":"Yes please","history":[{"original":"ଆପଣ ଚାହା ନେବେ କି?","translation":"Would you like tea?"}]}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["reviewRequired"], true);
+    assert_eq!(body["decisionModel"], "jev-1.13.0");
+    assert_eq!(body["target"], "or");
+    task.abort();
+    let _ = task.await;
+}
+
+#[tokio::test]
+async fn locked_partner_preserves_bengali_reply_target_and_allows_source_language_changes() {
+    for (detected, expected, from_me) in [("ja", "bn", false), ("hi", "ja", true)] {
+        let (ai, _) = upstream(StatusCode::OK, model_reply(json!({"language":detected,"confidence":0.99,"transcript":"test","to_mine":"Bengali reply","to_partner":"Japanese reply"}))).await;
+        let (status, body) = call(state(&ai,"http://unused",None),"POST","/v1/talk/turn",Some(json!({"mine":"bn","partner":"ja","partnerLocked":true,"autoMine":true,"expectedSpeaker":"partner","text":"test"}))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["target"], expected);
+        assert_eq!(body["partner"], "ja");
+        assert_eq!(body["fromMe"], from_me);
+        assert_eq!(body["mine"], if from_me { detected } else { "bn" });
+    }
+}
+
+#[tokio::test]
+async fn auto_mine_recognizes_a_new_reply_language_while_explicit_mine_stays_fixed() {
+    let (model,_)=upstream(StatusCode::OK,model_reply(json!({"language":"hi","confidence":0.98,"transcript":"हाँ, धन्यवाद","to_mine":"Yes, thank you","to_partner":"ହଁ, ଧନ୍ୟବାଦ","to_partner_romanized":"Han dhanyabad"}))).await;
+    for (automatic, target, mine, from_me) in [(true, "or", "hi", true), (false, "en", "en", false)]
+    {
+        let (status,body)=call(state(&model,"http://unused",None),"POST","/v1/talk/turn",Some(json!({"mine":"en","partner":"or","autoMine":automatic,"expectedSpeaker":"mine","text":"हाँ, धन्यवाद","history":[{"original":"ଆପଣ ଚାହା ନେବେ କି?","translation":"Would you like tea?"}]}))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["target"], target);
+        assert_eq!(body["mine"], mine);
+        assert_eq!(body["fromMe"], from_me);
+    }
+}
+
+#[tokio::test]
+async fn conversation_review_redacts_card_numbers_from_all_evidence() {
+    use axum::{routing::post, Json, Router};
+    let app = Router::new().route("/v1/systemone", post(|Json(body): Json<Value>| async move {
+        let evidence = body["state"].to_string();
+        assert!(!evidence.contains("4111 1111 1111 1111"));
+        assert!(!evidence.contains("4111111111111111"));
+        assert!(evidence.contains("••••1111"));
+        Json(json!({"model":"jev-1.13.0","answers":{"readability":{"type":"choice","choice":"accept","confidence":0.95,"probabilities":{"accept":0.95,"review":0.04,"retake":0.01}}},"usage":{"input_tokens":40,"output_tokens":10}}))
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}/v1/systemone", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let (model, _) = upstream(StatusCode::OK, model_reply(json!({"language":"en","confidence":0.98,"transcript":"My card is 4111 1111 1111 1111","to_mine":"My card is 4111 1111 1111 1111","to_partner":"Carte 4111111111111111"}))).await;
+    let mut s = state(&model, "http://unused", None);
+    Arc::get_mut(&mut s).unwrap().jev = Some(crate::decisions::Jev::for_test(endpoint));
+    let (status, body) = call(s, "POST", "/v1/talk/turn", Some(json!({"mine":"en","partner":"fr","text":"My card is 4111 1111 1111 1111","history":[{"original":"4111 1111 1111 1111","translation":"4111111111111111"}]}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["reviewRequired"], false);
+    task.abort();
+    let _ = task.await;
+}
+
+#[tokio::test]
+async fn speech_rejects_invalid_input_before_provider_and_malformed_audio() {
+    let (model, hits) = upstream(StatusCode::OK, json!({})).await;
+    for request in [
+        json!({"text":" ","language":"or"}),
+        json!({"text":"x".repeat(1001),"language":"or"}),
+        json!({"text":"Hello","language":"en","model":"user-selected"}),
+    ] {
+        let (status, _) = call(
+            state(&model, "http://unused", None),
+            "POST",
+            "/v1/talk/speech",
+            Some(request),
+        )
+        .await;
+        assert!(status.is_client_error());
+    }
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+    for inline in [
+        json!({"mimeType":"audio/mp3","data":"UklGRg=="}),
+        json!({"mimeType":"audio/wav","data":"not base64"}),
+        json!({"mimeType":"audio/wav","data":"UklGRg=="}),
+        json!({"mimeType":"audio/wav","data":"A".repeat(3 * 1024 * 1024)}),
+    ] {
+        let (url, _) = upstream(
+            StatusCode::OK,
+            json!({"candidates":[{"content":{"parts":[{"inlineData":inline}]}}]}),
+        )
+        .await;
+        let (status, _) = call(
+            state(&url, "http://unused", None),
+            "POST",
+            "/v1/talk/speech",
+            Some(json!({"text":"Hello","language":"en"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+}
+
+#[tokio::test]
+async fn conversation_retake_unavailable_and_low_confidence_are_safe() {
+    for (judge_status, choice, confidence, expected, review) in [
+        (
+            StatusCode::OK,
+            "retake",
+            0.98,
+            StatusCode::BAD_REQUEST,
+            false,
+        ),
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "accept",
+            0.98,
+            StatusCode::SERVICE_UNAVAILABLE,
+            false,
+        ),
+        (StatusCode::OK, "accept", 0.5, StatusCode::OK, true),
+    ] {
+        let (judge, _) = upstream(judge_status,json!({"model":"jev-1.13.0","answers":{"readability":{"type":"choice","choice":choice,"confidence":0.95,"probabilities":{"accept":if choice == "accept" {0.95}else{0.01},"review":0.04,"retake":if choice == "retake" {0.95}else{0.01}}}},"usage":{"input_tokens":40,"output_tokens":10}})).await;
+        let (model, _) = upstream(StatusCode::OK,model_reply(json!({"language":"en","confidence":confidence,"transcript":"Yes","to_mine":"Yes","to_partner":"Oui"}))).await;
+        let mut s = state(&model, "http://unused", None);
+        Arc::get_mut(&mut s).unwrap().jev = Some(crate::decisions::Jev::for_test(judge));
+        let (status, body) = call(
+            s,
+            "POST",
+            "/v1/talk/turn",
+            Some(json!({"mine":"en","partner":"fr","text":"Yes"})),
+        )
+        .await;
+        assert_eq!(status, expected, "{body}");
+        if status == StatusCode::OK {
+            assert_eq!(body["reviewRequired"], review);
+        }
+    }
+}
+
+#[tokio::test]
+async fn typed_conversation_preserves_the_input_and_reviews_a_rewritten_transcript() {
+    let (model, _) = upstream(StatusCode::OK,model_reply(json!({"language":"or","confidence":0.99,"transcript":"ଠିକ୍ ଅଛି, ଧନ୍ୟବାଦ।","to_mine":"ठीक है, धन्यवाद।","to_partner":"D'accord, merci."}))).await;
+    let (status, body)=call(state(&model,"http://unused",None),"POST","/v1/talk/turn",Some(json!({"mine":"hi","partner":"fr","autoMine":true,"expectedSpeaker":"mine","text":"ठीक है, धन्यवाद।"}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["transcript"], "ठीक है, धन्यवाद।");
+    assert_eq!(body["reviewRequired"], true);
 }

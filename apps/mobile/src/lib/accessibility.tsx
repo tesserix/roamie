@@ -2,8 +2,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo } from 'react-native';
 
-type Preferences = { quiet: boolean; highContrast: boolean; vibration: boolean };
-const defaults: Preferences = { quiet: false, highContrast: false, vibration: false };
+export type VoicePreference = 'match' | 'female' | 'male';
+type Preferences = { quiet: boolean; highContrast: boolean; vibration: boolean; voice: VoicePreference };
+const defaults: Preferences = { quiet: false, highContrast: false, vibration: false, voice: 'match' };
+const VOICES: VoicePreference[] = ['match', 'female', 'male'];
 const KEY = 'roamie.accessibility.v1';
 const Context = createContext({ ...defaults, screenReader: false, reducedMotion: false, ready: true, error: '', update: (_change: Partial<Preferences>) => {} });
 
@@ -16,7 +18,7 @@ export function AccessibilityProvider({ children }: { children: ReactNode }) {
     let live = true;
     AsyncStorage.getItem(KEY).then(raw => {
       const saved = raw ? JSON.parse(raw) : defaults;
-      if (live) setPreferences({ quiet: saved?.quiet === true, highContrast: saved?.highContrast === true, vibration: saved?.vibration === true });
+      if (live) setPreferences({ quiet: saved?.quiet === true, highContrast: saved?.highContrast === true, vibration: saved?.vibration === true, voice: VOICES.includes(saved?.voice) ? saved.voice : 'match' });
     }).catch(() => { if (live) setError('Could not load your accessibility preferences.'); }).finally(() => { if (live) setReady(true); });
     Promise.resolve(AccessibilityInfo.isScreenReaderEnabled()).then(value => { if (live) setScreenReader(!!value); }).catch(() => {});
     Promise.resolve(AccessibilityInfo.isReduceMotionEnabled()).then(value => { if (live) setReducedMotion(!!value); }).catch(() => {});

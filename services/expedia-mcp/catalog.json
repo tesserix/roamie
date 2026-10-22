@@ -1,0 +1,640 @@
+{
+  "gatewayExport": false,
+  "protocolVersion": "2026-07-28",
+  "schemaDigest": "1849e1507f70c21759352ca94cad7d63e1a53d3cc997ee3de89500f2b0abe8b0",
+  "tenant": "roamie",
+  "tools": [
+    {
+      "effect": "read",
+      "inputSchema": {
+        "$defs": {
+          "Day": {
+            "format": "date",
+            "maxLength": 10,
+            "minLength": 10,
+            "type": "string"
+          },
+          "Labels": {
+            "items": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "Nonnegative": {
+            "maximum": 100000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "Place": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "amenities": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Labels"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "check_in": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Day"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "check_out": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Day"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "destination": {
+            "$ref": "#/$defs/Place"
+          },
+          "distance": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Nonnegative"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "guest_rating": {
+            "anyOf": [
+              {
+                "maximum": 10,
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Guest Rating"
+          },
+          "min_bedrooms": {
+            "anyOf": [
+              {
+                "maximum": 20,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Min Bedrooms"
+          },
+          "number_of_travelers": {
+            "anyOf": [
+              {
+                "maximum": 20,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Number Of Travelers"
+          },
+          "property_types": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Labels"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "query_text": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Query Text",
+            "type": "string"
+          },
+          "sort_type": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sort Type"
+          },
+          "star_ratings": {
+            "anyOf": [
+              {
+                "items": {
+                  "maximum": 5,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "maxItems": 5,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Star Ratings"
+          }
+        },
+        "required": [
+          "destination"
+        ],
+        "title": "HotelQuery",
+        "type": "object"
+      },
+      "name": "get_hotel_recommendations",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "data_json": {
+            "anyOf": [
+              {
+                "maxLength": 65536,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Data Json"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ToolResult",
+        "type": "object"
+      },
+      "requiredScopes": [
+        "travel:recommendations:read"
+      ]
+    },
+    {
+      "effect": "read",
+      "inputSchema": {
+        "$defs": {
+          "Day": {
+            "format": "date",
+            "maxLength": 10,
+            "minLength": 10,
+            "type": "string"
+          },
+          "Place": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "airline_code": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Airline Code"
+          },
+          "departure_date": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Day"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "destination": {
+            "$ref": "#/$defs/Place"
+          },
+          "number_of_stops": {
+            "anyOf": [
+              {
+                "maximum": 4,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Number Of Stops"
+          },
+          "origin": {
+            "$ref": "#/$defs/Place"
+          },
+          "query_text": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Query Text",
+            "type": "string"
+          },
+          "sort_type": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sort Type"
+          }
+        },
+        "required": [
+          "origin",
+          "destination"
+        ],
+        "title": "FlightQuery",
+        "type": "object"
+      },
+      "name": "get_flight_recommendations",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "data_json": {
+            "anyOf": [
+              {
+                "maxLength": 65536,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Data Json"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ToolResult",
+        "type": "object"
+      },
+      "requiredScopes": [
+        "travel:recommendations:read"
+      ]
+    },
+    {
+      "effect": "read",
+      "inputSchema": {
+        "$defs": {
+          "Day": {
+            "format": "date",
+            "maxLength": 10,
+            "minLength": 10,
+            "type": "string"
+          },
+          "Labels": {
+            "items": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "Nonnegative": {
+            "maximum": 100000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "Place": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "categories": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Labels"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "destination": {
+            "$ref": "#/$defs/Place"
+          },
+          "duration": {
+            "anyOf": [
+              {
+                "maximum": 10080,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Duration"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Day"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "price_max": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Nonnegative"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "query_text": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Query Text",
+            "type": "string"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Day"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "destination"
+        ],
+        "title": "ActivityQuery",
+        "type": "object"
+      },
+      "name": "get_activity_recommendations",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "data_json": {
+            "anyOf": [
+              {
+                "maxLength": 65536,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Data Json"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ToolResult",
+        "type": "object"
+      },
+      "requiredScopes": [
+        "travel:recommendations:read"
+      ]
+    },
+    {
+      "effect": "read",
+      "inputSchema": {
+        "$defs": {
+          "Clock": {
+            "maxLength": 5,
+            "minLength": 5,
+            "type": "string"
+          },
+          "Day": {
+            "format": "date",
+            "maxLength": 10,
+            "minLength": 10,
+            "type": "string"
+          },
+          "Labels": {
+            "items": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "Place": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "car_classes": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Labels"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "dropoff_date": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Day"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "dropoff_location": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Place"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "dropoff_time": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Clock"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "pickup_date": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Day"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "pickup_location": {
+            "$ref": "#/$defs/Place"
+          },
+          "pickup_time": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Clock"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "query_text": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Query Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pickup_location"
+        ],
+        "title": "CarQuery",
+        "type": "object"
+      },
+      "name": "get_car_recommendations",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "data_json": {
+            "anyOf": [
+              {
+                "maxLength": 65536,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Data Json"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ToolResult",
+        "type": "object"
+      },
+      "requiredScopes": [
+        "travel:recommendations:read"
+      ]
+    }
+  ]
+}

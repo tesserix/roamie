@@ -1,4 +1,4 @@
-import { beforeEach, expect, jest, test } from '@jest/globals';
+import { afterEach, beforeEach, expect, jest, test } from '@jest/globals';
 import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 import { Alert } from 'react-native';
@@ -9,7 +9,9 @@ jest.mock('expo-secure-store', () => ({ getItemAsync: jest.fn(), setItemAsync: j
 jest.mock('expo-auth-session', () => ({ revokeAsync: jest.fn(), TokenTypeHint: { RefreshToken: 'refresh_token' } }));
 jest.mock('expo-notifications', () => ({ cancelAllScheduledNotificationsAsync: jest.fn() }));
 
-beforeEach(async () => { jest.clearAllMocks(); await session.clear(); });
+const originalFetch = global.fetch;
+beforeEach(async () => { jest.clearAllMocks(); await session.clear(); global.fetch = jest.fn<typeof global.fetch>().mockResolvedValue({ ok: true, status: 200 } as Response); });
+afterEach(() => { global.fetch = originalFetch; });
 
 test('notification failure cannot prevent clearing the customer and stored credentials', async () => {
   const config: AuthConfig = { issuer: 'https://auth.tesserix.app', organizationId: 'org', projectId: 'project', clientIds: { ios: 'ios', android: 'android' }, providers: { google: 'g', apple: 'a' } };

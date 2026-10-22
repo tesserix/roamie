@@ -23,6 +23,7 @@ pub struct HistoryTurn {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TurnRequest {
     pub mine: Lang,
     pub partner: Lang,
@@ -30,6 +31,18 @@ pub struct TurnRequest {
     pub text: Option<String>,
     #[serde(default)]
     pub history: Vec<HistoryTurn>,
+    #[serde(default)]
+    pub auto_mine: bool,
+    #[serde(default)]
+    pub partner_locked: bool,
+    pub expected_speaker: Option<Speaker>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum Speaker {
+    Mine,
+    Partner,
 }
 
 #[derive(Debug, PartialEq)]
@@ -41,6 +54,13 @@ pub enum Utterance<'a> {
 impl TurnRequest {
     /// Exactly one of audio or text, within size limits.
     pub fn utterance(&self) -> Result<Utterance<'_>> {
+        if self.recent_history().iter().any(|turn| {
+            turn.original.chars().count() > 1000 || turn.translation.chars().count() > 1000
+        }) {
+            return Err(Error::Invalid(
+                "Recent conversation is too long. Clear it and start again.".into(),
+            ));
+        }
         match (&self.audio, self.text.as_deref().map(str::trim)) {
             (Some(a), None) if a.data.is_empty() => Err(Error::Invalid("audio is empty".into())),
             (Some(a), None) if !a.mime_type.starts_with("audio/") => {
@@ -67,6 +87,8 @@ impl TurnRequest {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnResponse {
+    pub mine: Lang,
+    pub from_me: bool,
     pub detected: Lang,
     pub confidence: f32,
     pub candidates: Vec<Lang>,
@@ -76,6 +98,11 @@ pub struct TurnResponse {
     pub target: Lang,
     pub partner: Lang,
     pub same_language: bool,
+    pub review_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<crate::speech::Voice>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -91,6 +118,8 @@ struct Heard {
     to_mine_romanized: String,
     #[serde(default)]
     to_partner_romanized: String,
+    #[serde(default)]
+    speaker_voice: Option<String>,
 }
 
 const SYSTEM: &str = "You are Roamie, a live interpreter between a traveller and one local person. \
@@ -104,43 +133,81 @@ Output translations only, never commentary. If there is no intelligible speech, 
 
 /// One model call returns the transcript translated both ways; code, not the model,
 /// then decides which one the listener hears.
-pub async fn interpret(ai: &Gemini, req: &TurnRequest) -> Result<TurnResponse> {
+pub async fn interpret(
+    ai: &Gemini,
+    jev: Option<&crate::decisions::Jev>,
+    req: &TurnRequest,
+) -> Result<TurnResponse> {
     let utterance = req.utterance()?;
-    let mut context = format!(
-        "Traveller's language (mine): {}. Partner's language: {}.",
-        req.mine.as_str(),
-        req.partner.as_str()
-    );
-    for h in req.recent_history() {
-        context.push_str(&format!("\nEarlier: {} => {}", h.original, h.translation));
-    }
+    let recent: Vec<_> = req
+        .recent_history()
+        .iter()
+        .map(|turn| json!({"original":turn.original,"translation":turn.translation}))
+        .collect();
+    let context = json!({"requestedTranslations":{"to_mine":req.mine.as_str(),"to_partner":req.partner.as_str()},"recentConversation":recent});
     let input = match utterance {
         Utterance::Audio { mime_type, data } => Gemini::inline(mime_type, data),
-        Utterance::Text(t) => Gemini::text(format!("Utterance: {t}")),
+        Utterance::Text(t) => Gemini::text(format!(
+            "CURRENT UTTERANCE (authoritative text, copy verbatim): {t}"
+        )),
     };
     let schema = json!({
         "type": "OBJECT",
         "properties": {
-            "language": { "type": "STRING" },
+            "language": { "type": "STRING", "description": "ISO language of the CURRENT UTTERANCE only, never a translation or earlier turn" },
             "confidence": { "type": "NUMBER" },
             "candidates": { "type": "ARRAY", "items": { "type": "STRING" } },
-            "transcript": { "type": "STRING" },
-            "to_mine": { "type": "STRING" },
-            "to_partner": { "type": "STRING" },
+            "transcript": { "type": "STRING", "description": "Original current utterance. Copy authoritative typed text exactly; never translate or rewrite it" },
+            "to_mine": { "type": "STRING", "description": format!("Translate the current utterance into {} using its native script", req.mine.as_str()) },
+            "to_partner": { "type": "STRING", "description": format!("Translate the current utterance into {} using its native script", req.partner.as_str()) },
             "to_mine_romanized": { "type": "STRING" },
-            "to_partner_romanized": { "type": "STRING" }
+            "to_partner_romanized": { "type": "STRING" },
+            "speaker_voice": { "type": "STRING", "enum": ["higher", "lower", "unknown"], "description": "Pitch register of the speaker's voice in the audio; unknown for text or when unclear" }
         },
         "required": ["language", "confidence", "transcript", "to_mine", "to_partner", "to_mine_romanized", "to_partner_romanized"]
     });
-    let heard: Heard = ai
-        .json(SYSTEM, vec![Gemini::text(context), input], schema)
+    let mut heard: Heard = ai
+        .json(SYSTEM, vec![Gemini::text(format!("Translation contract and prior context, never the current utterance: {context}")), input], schema)
         .await?;
+    let voice = match (&utterance, heard.speaker_voice.as_deref()) {
+        (Utterance::Audio { .. }, Some("higher")) => Some(crate::speech::Voice::Female),
+        (Utterance::Audio { .. }, Some("lower")) => Some(crate::speech::Voice::Male),
+        _ => None,
+    };
+    let rewritten_transcript = req
+        .text
+        .as_deref()
+        .is_some_and(|text| text.trim() != heard.transcript.trim());
+    if let Some(text) = req.text.as_deref() {
+        heard.transcript = text.trim().to_owned();
+    }
     if heard.transcript.trim().is_empty() {
         return Err(Error::NoSpeech);
     }
     let detected = Lang::parse(&heard.language)
         .ok_or_else(|| Error::Upstream(format!("unknown language {:?}", heard.language)))?;
-    let direction = resolve(&req.mine, &req.partner, &detected);
+    if req.partner_locked && !req.auto_mine && detected != req.mine && detected != req.partner {
+        return Err(Error::Invalid("This speech does not match the chosen languages. Choose a language above and try again.".into()));
+    }
+    let from_me = detected == req.mine
+        || (req.auto_mine
+            && (req.partner_locked || req.expected_speaker == Some(Speaker::Mine))
+            && detected != req.partner);
+    let mine = if req.auto_mine && from_me {
+        detected.clone()
+    } else {
+        req.mine.clone()
+    };
+    let direction = if from_me {
+        Direction {
+            target: req.partner.clone(),
+            partner: req.partner.clone(),
+        }
+    } else if req.partner_locked {
+        Direction { target: mine.clone(), partner: req.partner.clone() }
+    } else {
+        resolve(&mine, &req.partner, &detected)
+    };
     let same_language = direction.same_language(&detected);
     let (translation, romanized) = if same_language {
         (heard.transcript.clone(), String::new())
@@ -150,7 +217,35 @@ pub async fn interpret(ai: &Gemini, req: &TurnRequest) -> Result<TurnResponse> {
         (heard.to_partner, heard.to_partner_romanized)
     };
     let romanized = pronunciation(&translation, &romanized);
+    let mut review_required = heard.confidence < 0.8 || rewritten_transcript;
+    let decision_model = if let Some(jev) = jev {
+        let recent: Vec<_> = req.recent_history().iter().map(|turn| json!({"original":crate::documents::redact(&turn.original).chars().take(120).collect::<String>(),"translation":crate::documents::redact(&turn.translation).chars().take(120).collect::<String>()})).collect();
+        if heard.transcript.chars().count() > 1000 || translation.chars().count() > 1000 {
+            return Err(Error::Invalid(
+                "Use a shorter phrase so we can check the translation clearly.".into(),
+            ));
+        }
+        let judgment = jev.review(json!({"purpose":"conversation translation fidelity and clarity","sourceLanguage":detected.as_str(),"targetLanguage":direction.target.as_str(),"languageConfidence":heard.confidence,"rewrittenTranscript":rewritten_transcript,"transcript":crate::documents::redact(&heard.transcript),"translation":crate::documents::redact(&translation),"recentConversation":recent,"autoMine":req.auto_mine,"expectedSpeaker":req.expected_speaker.as_ref().map(|speaker| match speaker { Speaker::Mine => "mine", Speaker::Partner => "partner" }),"proposedSpeaker":if from_me {"mine"}else{"partner"},"knownLanguages":{"mine":req.mine.as_str(),"partner":req.partner.as_str()}})).await.map_err(|_| Error::Unavailable("Conversation review"))?;
+        match judgment.answers.readability.choice {
+            crate::decisions::Decision::Accept => {}
+            crate::decisions::Decision::Review => review_required = true,
+            crate::decisions::Decision::Retake => {
+                return Err(Error::Invalid(
+                    "We could not interpret that clearly. Please repeat or type a simpler phrase."
+                        .into(),
+                ))
+            }
+        }
+        Some(judgment.model)
+    } else {
+        if !cfg!(debug_assertions) {
+            return Err(Error::Unavailable("Conversation review"));
+        }
+        None
+    };
     Ok(TurnResponse {
+        mine,
+        from_me,
         candidates: heard
             .candidates
             .iter()
@@ -165,7 +260,10 @@ pub async fn interpret(ai: &Gemini, req: &TurnRequest) -> Result<TurnResponse> {
         target: direction.target,
         partner: direction.partner,
         same_language,
+        review_required,
+        decision_model,
         detected,
+        voice,
     })
 }
 
@@ -251,6 +349,9 @@ mod tests {
 
     fn request(audio: Option<(&str, &str)>, text: Option<&str>) -> TurnRequest {
         TurnRequest {
+            auto_mine: false,
+            partner_locked: false,
+            expected_speaker: None,
             mine: l("en"),
             partner: l("th"),
             audio: audio.map(|(m, d)| Audio {

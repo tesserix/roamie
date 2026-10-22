@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 import { AccountVerificationError, developmentAuthDisabled, authDeadline, fetchCustomer, loadAuthConfig, providersFor, session, type AuthConfig, type Customer, type NativePlatform, type Provider } from './auth-client';
 
 WebBrowser.maybeCompleteAuthSession();
-type Auth = { customer: Customer | null; ready: boolean; busy: boolean; error: string | null; config: AuthConfig | null; retry: () => Promise<void>; signIn: (provider: Provider) => Promise<void> };
+type Auth = { customer: Customer | null; ready: boolean; busy: boolean; error: string | null; config: AuthConfig | null; retry: () => Promise<void>; signIn: (provider?: Provider) => Promise<void> };
 const Context = createContext<Auth | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -35,8 +35,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => session.subscribe(() => setCustomer(session.current())), []);
   useEffect(() => { void retry(); }, [retry]);
 
-  async function signIn(provider: Provider) {
-    if (!config || busy || !providersFor(Platform.OS).includes(provider) || !config.providers[provider]) return;
+  async function signIn(provider?: Provider) {
+    if (!config || busy || !providersFor(Platform.OS).length || (provider && (!providersFor(Platform.OS).includes(provider) || !config.providers[provider]))) return;
     setBusy(true); setError(null);
     try {
       await session.clear();
@@ -47,9 +47,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const request = new AuthSession.AuthRequest({
         clientId: config.clientIds[platform], redirectUri,
         responseType: AuthSession.ResponseType.Code, usePKCE: true,
+        prompt: provider ? undefined : AuthSession.Prompt.Login,
         scopes: ['openid', 'email', 'profile', 'offline_access', 'urn:zitadel:iam:user:resourceowner',
           `urn:zitadel:iam:org:id:${config.organizationId}`, `urn:zitadel:iam:org:project:id:${config.projectId}:aud`,
-          `urn:zitadel:iam:org:idp:id:${config.providers[provider]}`],
+          ...(provider ? [`urn:zitadel:iam:org:idp:id:${config.providers[provider]}`] : [])],
       });
       const result = await request.promptAsync(discovery);
       if (result.type === 'cancel' || result.type === 'dismiss') return;

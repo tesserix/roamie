@@ -14,6 +14,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  travel-mcp:
+    uses: ./.github/workflows/travel-mcp-verify.yml
+
   dependency-policy:
     runs-on: ubuntu-24.04
     steps:
@@ -23,7 +26,7 @@ jobs:
       - run: rustup toolchain install 1.97 --profile minimal && rustup default 1.97
       - run: bash scripts/ci/check-rsa-dependency.sh
 
-  memory-video:
+  media:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -31,7 +34,7 @@ jobs:
           persist-credentials: false
       - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg fonts-dejavu-core
       - run: rustup toolchain install 1.97 --profile minimal && rustup default 1.97
-      - run: cargo test --locked -p roamie-api real_mp4
+      - run: cargo test --locked -p roamie-api
         env:
           RUSTFLAGS: --cfg media_tests
 
@@ -73,7 +76,7 @@ jobs:
           POSTGRES_PASSWORD: isolated-ci-only
         ports: [5432:5432]
         options: >-
-          --health-cmd pg_isready --health-interval 5s
+          --health-cmd "pg_isready -h 127.0.0.1" --health-interval 5s
           --health-timeout 5s --health-retries 12
     env:
       ROAMIE_TEST_DATABASE_URL: postgres://roamie_migration_test:isolated-ci-only@localhost:5432/roamie_integration_test?sslmode=disable
@@ -101,4 +104,4 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22.19.0
-      - run: node --test scripts/ci/mobile-release.test.mjs
+      - run: node --test scripts/ci/*.test.mjs

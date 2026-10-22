@@ -6,3 +6,9 @@ __pycache__
 dist
 .git
 .env
+**/.env
+**/.env.*
+**/*.p8
+**/*.p12
+**/*.mobileprovision
+**/credentials.json

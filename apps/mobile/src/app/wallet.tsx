@@ -7,7 +7,6 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -21,6 +20,7 @@ import {
 import { Badge, Button, Icon, IconButton, Message, Screen, SectionLabel, TAB_CLEARANCE } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
 import { StatementReview } from '@/components/statement-review';
+import { ApplePaySetup } from '@/components/apple-pay-setup';
 import { ApiError, fxRates, readReceipt, readStatement } from '@/lib/api';
 import { nudge } from '@/lib/budget-nudge';
 import { session } from '@/lib/auth-client';
@@ -42,7 +42,7 @@ const CATEGORIES: { value: string; label: string; icon: SFSymbol }[] = [
 const categoryOf = (v: string) => CATEGORIES.find((k) => k.value === v) ?? CATEGORIES[5];
 
 type Draft = { amount: string; currency: string; category: string; note: string };
-type Review = { rows: StatementRow[]; range: string };
+type Review = { rows: StatementRow[]; range: string; notice?: string };
 
 // Base64 inflates by a third, so 8 MB keeps the upload under the API's 12 MB body limit.
 const MAX_STATEMENT_BYTES = 8_000_000;
@@ -61,6 +61,7 @@ export default function Wallet() {
   const [importing, setImporting] = useState(false);
   const [review, setReview] = useState<Review | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [applePaySetup, setApplePaySetup] = useState(false);
 
   useEffect(() => {
     fxRates(home)
@@ -118,6 +119,7 @@ export default function Wallet() {
         note: r.merchant,
       });
       if (r.amountMinor === null) setError("Couldn't read the total. Type it in.");
+      else if (r.source?.reviewRequired) setError('Some receipt text is uncertain. Check the amount and currency against the original before saving.');
     } catch (e) {
       open();
       setError(e instanceof ApiError ? e.message : "Couldn't read that receipt. Type it in instead.");
@@ -148,7 +150,7 @@ export default function Wallet() {
       if (!file.exists || file.size <= 0 || file.size > MAX_STATEMENT_BYTES) throw new ApiError('Choose a PDF or photo up to 8 MB. Download only the months of your trip.');
       const mimeType = asset.mimeType ?? (asset.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
       const statement = await readStatement(await file.base64(), mimeType, trip.startDate, trip.endDate);
-      setReview({ rows: reviewStatement(statement.transactions, expenses, home, rates), range: `${day(trip.startDate)} – ${day(trip.endDate)}` });
+      setReview({ rows: reviewStatement(statement.transactions, expenses, home, rates), range: `${day(trip.startDate)} – ${day(trip.endDate)}`, notice: statement.source?.reviewRequired || statement.unreadable ? `Check each selected transaction against the original. ${statement.unreadable} unreadable transaction(s) were excluded.` : undefined });
     } catch (e) {
       Alert.alert("Couldn't read that statement", e instanceof ApiError ? e.message : 'Try a clearer PDF or photo.');
     } finally {
@@ -170,14 +172,7 @@ export default function Wallet() {
   }
 
   function setUpApplePay() {
-    Alert.alert(
-      'Add Apple Pay payments automatically',
-      '1. In Shortcuts, open Automation and tap New Automation.\n2. Choose Transaction, pick your cards and choose Run Immediately.\n3. Add the Roamie action "Log card payment" and set Merchant and Amount from the transaction.\n\nPayments you make during a trip then appear here next time you open Roamie.',
-      [
-        { text: 'Not now', style: 'cancel' },
-        { text: 'Open Shortcuts', onPress: () => { void Linking.openURL('shortcuts://'); } },
-      ],
-    );
+    setApplePaySetup(true);
   }
 
   function menu() {
@@ -230,9 +225,10 @@ export default function Wallet() {
         )}
       />
       <Modal visible={!!review} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setReview(null)}>
-        {review ? <StatementReview rows={review.rows} home={home} range={review.range} onAdd={(rows) => { void addStatement(rows); }} onClose={() => setReview(null)} /> : null}
+        {review ? <StatementReview rows={review.rows} home={home} range={review.range} notice={review.notice} onAdd={(rows) => { void addStatement(rows); }} onClose={() => setReview(null)} /> : null}
       </Modal>
       <AddSheet draft={draft} error={error} onChange={setDraft} onSave={save} onClose={() => setDraft(null)} />
+      {applePaySetup ? <ApplePaySetup home={home} tripCount={trips.length} onClose={() => setApplePaySetup(false)} /> : null}
     </Screen>
   );
 }

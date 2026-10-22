@@ -15,7 +15,7 @@ type Tokens = { accessToken: string; refreshToken?: string; expiresIn?: number; 
 type SavedSession = { refreshToken: string; customer: Customer; config: AuthConfig; platform: NativePlatform };
 type Session = SavedSession & { accessToken: string; expiresAt: number };
 
-export const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? (__DEV__ ? 'http://localhost:8080' : 'https://roamie-api.tesserix.app');
+export const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://roamie-api.tesserix.app';
 export function developmentAuthDisabled(): boolean {
   if (!__DEV__ || process.env.EXPO_PUBLIC_AUTH_ENABLED !== 'false') return false;
   const url = new URL(API_BASE);
@@ -174,8 +174,16 @@ export const session = {
     const previous = active;
     await session.clear();
     if (!previous) return true;
+    const controller = new AbortController();
     try {
-      return await authDeadline(AuthSession.revokeAsync({ clientId: previous.config.clientIds[previous.platform], token: previous.refreshToken, tokenTypeHint: AuthSession.TokenTypeHint.RefreshToken }, { revocationEndpoint: `${previous.config.issuer}/oauth/v2/revoke` }));
+      const response = await authDeadline(fetch(`${previous.config.issuer}/oauth/v2/revoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ client_id: previous.config.clientIds[previous.platform], token: previous.refreshToken, token_type_hint: 'refresh_token' }).toString(),
+        signal: controller.signal,
+      }));
+      return response.ok;
     } catch { return false; }
+    finally { controller.abort(); }
   },
 };

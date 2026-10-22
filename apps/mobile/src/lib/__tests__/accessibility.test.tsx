@@ -14,7 +14,7 @@ test('quiet translation and high contrast can be enabled and are remembered',asy
  await fireEvent(screen.getByRole('switch',{name:'Quiet translation'}),'valueChange',true);
  await fireEvent(screen.getByRole('switch',{name:'High contrast'}),'valueChange',true);
  expect(screen.getByRole('switch',{name:'Quiet translation'}).props.value).toBe(true);
- await waitFor(()=>expect(AsyncStorage.setItem).toHaveBeenLastCalledWith('roamie.accessibility.v1',JSON.stringify({quiet:true,highContrast:true,vibration:false})));
+ await waitFor(()=>expect(AsyncStorage.setItem).toHaveBeenLastCalledWith('roamie.accessibility.v1',JSON.stringify({quiet:true,highContrast:true,vibration:false,voice:'match'})));
  await fireEvent.press(screen.getByRole('button',{name:'Done'}));
  expect(screen.queryByRole('switch',{name:'Quiet translation'})).toBeNull();
 });
@@ -36,10 +36,19 @@ test('saved quiet and contrast preferences are restored on the next visit',async
  expect(screen.getByRole('switch',{name:'Quiet translation'}).props.value).toBe(true);
 });
 
+test('translation voice matches the speaker by default and a fixed choice is saved',async()=>{
+ await render(<AccessibilityProvider><ProfileSettings /></AccessibilityProvider>);
+ await fireEvent.press(screen.getByRole('button',{name:'Profile settings'}));
+ expect(screen.getByRole('radio',{name:'Match speaker'}).props.accessibilityState.checked).toBe(true);
+ await fireEvent.press(screen.getByRole('radio',{name:'Male'}));
+ expect(screen.getByRole('radio',{name:'Male'}).props.accessibilityState.checked).toBe(true);
+ await waitFor(()=>expect(AsyncStorage.setItem).toHaveBeenLastCalledWith('roamie.accessibility.v1',JSON.stringify({quiet:false,highContrast:false,vibration:false,voice:'male'})));
+});
+
 test('vibration is off by default and the opt-in is saved',async()=>{
  await render(<AccessibilityProvider><ProfileSettings /></AccessibilityProvider>);
  await fireEvent.press(screen.getByRole('button',{name:'Profile settings'}));
  expect(screen.getByRole('switch',{name:'Vibration feedback'}).props.value).toBe(false);
  await fireEvent(screen.getByRole('switch',{name:'Vibration feedback'}),'valueChange',true);
- await waitFor(()=>expect(AsyncStorage.setItem).toHaveBeenLastCalledWith('roamie.accessibility.v1',JSON.stringify({quiet:false,highContrast:false,vibration:true})));
+ await waitFor(()=>expect(AsyncStorage.setItem).toHaveBeenLastCalledWith('roamie.accessibility.v1',JSON.stringify({quiet:false,highContrast:false,vibration:true,voice:'match'})));
 });

@@ -29,6 +29,7 @@ sqlx.workspace = true
 uuid.workspace = true
 
 jsonwebtoken.workspace = true
+ort.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

@@ -88,6 +88,43 @@ struct Job {
     status: String,
 }
 
+#[derive(Debug)]
+pub struct Extraction {
+    pub job_id: String,
+    pub status: String,
+    pub document: DocResult,
+}
+
+impl Extraction {
+    pub fn review_required(&self) -> bool {
+        self.status != "completed"
+            || self
+                .minimum_confidence()
+                .is_none_or(|confidence| confidence < 0.8)
+    }
+
+    pub fn minimum_confidence(&self) -> Option<f32> {
+        let mut minimum = 1.0f32;
+        let mut found = false;
+        for observation in self
+            .document
+            .pages
+            .iter()
+            .flat_map(|page| &page.observations)
+            .filter(|o| {
+                matches!(o.level.as_str(), "line" | "paragraph") && !o.text.trim().is_empty()
+            })
+        {
+            let confidence = observation
+                .confidence
+                .filter(|v| v.is_finite() && (0.0..=1.0).contains(v))?;
+            minimum = minimum.min(confidence);
+            found = true;
+        }
+        found.then_some(minimum)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct DocResult {
     pub pages: Vec<Page>,
@@ -104,6 +141,8 @@ pub struct Observation {
     pub text: String,
     pub polygon: Polygon,
     pub reading_order: u32,
+    #[serde(default)]
+    pub confidence: Option<f32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -161,7 +200,13 @@ pub fn sign(
 
 impl Ocr {
     /// Runs one photo through upload, inspection and extraction, bounded by `deadline`.
-    pub async fn read(&self, bytes: Vec<u8>, mime: &str) -> Result<Vec<Line>> {
+    pub async fn read(&self, bytes: Vec<u8>, mime: &str) -> Result<Extraction> {
+        tokio::time::timeout(self.deadline, self.extract(bytes, mime))
+            .await
+            .map_err(|_| Error::Unavailable("Photo reading timed out"))?
+    }
+
+    async fn extract(&self, bytes: Vec<u8>, mime: &str) -> Result<Extraction> {
         let until = Instant::now() + self.deadline;
         let digest = hex::encode(Sha256::digest(&bytes));
         let key = format!("roamie-{}-{}", &digest[..32], now() / 600);
@@ -231,7 +276,7 @@ impl Ocr {
                 Some(&format!("{key}-j")),
             )
             .await?;
-        let jid = job.job_id;
+        let jid = job.job_id.clone();
         if !done(&job.status) {
             self.wait(
                 until,
@@ -258,7 +303,23 @@ impl Ocr {
                 None,
             )
             .await?;
-        Ok(lines(result))
+        let final_job: Job = self
+            .call(
+                Method::GET,
+                &self.job_base,
+                format!("/v1/ocr/jobs/{jid}"),
+                None,
+                None,
+            )
+            .await?;
+        if !done(&final_job.status) || final_job.job_id != jid {
+            return Err(Error::Unavailable("Photo reading"));
+        }
+        Ok(Extraction {
+            job_id: jid,
+            status: final_job.status,
+            document: result,
+        })
     }
 
     async fn wait<T: DeserializeOwned>(
@@ -317,15 +378,17 @@ impl Ocr {
         let res = req.send().await?;
         let status = res.status();
         if !status.is_success() {
-            let code = res
-                .json::<Value>()
-                .await
-                .ok()
-                .and_then(|v| v["code"].as_str().map(str::to_string))
-                .unwrap_or_default();
-            return Err(Error::Upstream(format!("ocr {status} {code}")));
+            return Err(Error::Unavailable("Photo reading"));
         }
-        Ok(res.json().await?)
+        let mut res = res;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = res.chunk().await? {
+            if bytes.len() + chunk.len() > 4 * 1024 * 1024 {
+                return Err(Error::Unavailable("Photo reading"));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        serde_json::from_slice(&bytes).map_err(|_| Error::Unavailable("Photo reading"))
     }
 }
 
@@ -401,6 +464,7 @@ mod tests {
             level: level.into(),
             text: text.into(),
             reading_order: order,
+            confidence: Some(0.9),
             polygon: Polygon {
                 points: vec![p(0.1, 0.1), p(0.5, 0.1), p(0.5, 0.2)],
             },

@@ -3,58 +3,65 @@ import { ActivityIndicator, Pressable, ScrollView, Share, StyleSheet, Text, Text
 
 import { LanguagePicker } from '@/components/language-picker';
 import { type Shown, ShowThem } from '@/components/show-them';
-import { Icon, IconButton, SpeakButton } from '@/components/ui';
+import { Button, Icon, IconButton, SpeakButton } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
 import { ApiError, type TextTranslation, translateText } from '@/lib/api';
 import { signalFeedback } from '@/lib/feedback';
 import { useAccessibility } from '@/lib/accessibility';
 import { languageName } from '@/lib/languages';
+import { useTranslationPreferences } from '@/lib/translation-preferences';
 
 const DEBOUNCE_MS = 700;
 const MAX = 5000;
 
 type Pick = 'from' | 'to' | null;
 
-export function TextTranslate({ mine, partner, bottom }: { mine: string; partner: string | null; bottom: number }) {
+export function TextTranslate({ mine, partner, bottom, offlineOnly = false }: { mine: string; partner: string | null; bottom: number; offlineOnly?: boolean }) {
   const c = useColors();
   const { vibration } = useAccessibility();
+  const { mode } = useTranslationPreferences();
   const feedback = useRef(vibration);
   useEffect(() => { feedback.current = vibration; }, [vibration]);
-  const [from, setFrom] = useState<string | null>(null);
+  const [from, setFrom] = useState<string | null>(offlineOnly ? mine : null);
   const [to, setTo] = useState(partner ?? mine);
   const [text, setText] = useState('');
-  const [result, setResult] = useState<TextTranslation | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ query: string; from: string | null; to: string; value: TextTranslation } | null>(null);
+  const [pending, setPending] = useState<{ query: string; from: string | null; to: string; attempt: number } | null>(null);
+  const [failure, setFailure] = useState<{ query: string; from: string | null; to: string; attempt: number; message: string } | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [picking, setPicking] = useState<Pick>(null);
   const [shown, setShown] = useState<Shown | null>(null);
 
   const query = text.trim();
+  const busy = pending?.query === query && pending.from === from && pending.to === to && pending.attempt === attempt;
+  const error = failure?.query === query && failure.from === from && failure.to === to && failure.attempt === attempt ? failure.message : null;
   useEffect(() => {
     if (!query) return;
     let live = true;
+    const controller = new AbortController();
     const t = setTimeout(async () => {
-      setBusy(true);
+      setPending({ query, from, to, attempt });
       try {
-        const res = await translateText(query, to, from ?? undefined);
+        const res = await translateText(query, to, from ?? undefined, controller.signal, offlineOnly);
         if (live) {
-          setResult(res);
+          setResult({ query, from, to, value: res });
           signalFeedback(feedback.current);
-          setError(null);
+          setFailure(null);
         }
       } catch (e) {
-        if (live) setError(e instanceof ApiError ? e.message : 'Something went wrong. Please try again.');
+        if (live) setFailure({ query, from, to, attempt, message: e instanceof ApiError ? e.message : 'Something went wrong. Please try again.' });
       } finally {
-        if (live) setBusy(false);
+        if (live) setPending(null);
       }
-    }, DEBOUNCE_MS);
+    }, offlineOnly || mode === 'offline' ? 250 : DEBOUNCE_MS);
     return () => {
       live = false;
+      controller.abort();
       clearTimeout(t);
     };
-  }, [query, from, to]);
+  }, [query, from, to, attempt, offlineOnly, mode]);
 
-  const shownResult = query ? result : null;
+  const shownResult = result?.query === query && result.from === from && result.to === to ? result.value : null;
   const source = from ?? shownResult?.detected ?? null;
 
   function swap() {
@@ -96,7 +103,7 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
           <View style={styles.row}>
             {text ? (
               <>
-                {source ? <SpeakButton text={query} lang={source} tone="plain" /> : null}
+                {source ? <SpeakButton text={query} lang={source} tone="plain" offlineOnly={offlineOnly} /> : null}
                 <Text style={[font.caption, { color: c.faint, flex: 1, textAlign: 'right' }]}>
                   {text.length} / {MAX}
                 </Text>
@@ -107,9 +114,10 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
         </View>
 
         {error ? (
-          <Text accessibilityRole="alert" style={[font.body, { color: c.danger, paddingHorizontal: space.xs }]}>
-            {error}
-          </Text>
+          <View style={{ gap: space.sm }}>
+            <Text accessibilityRole="alert" style={[font.body, { color: c.danger, paddingHorizontal: space.xs }]}>{error}</Text>
+            <Button label="Retry translation" kind="secondary" onPress={() => setAttempt(value => value + 1)} />
+          </View>
         ) : null}
 
         {shownResult ? (
@@ -121,13 +129,14 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
             <Text selectable style={{ color: c.text, fontSize: 24, lineHeight: 32, fontWeight: '600' }}>
               {shownResult.translation}
             </Text>
+            {shownResult.engine === 'device' ? <Text style={[font.caption, { color: c.muted }]}>Translated on this phone</Text> : null}
             {shownResult.romanized ? (
               <Text selectable style={[font.body, { color: c.muted, fontStyle: 'italic' }]}>
                 {shownResult.romanized}
               </Text>
             ) : null}
             <View style={[styles.row, { paddingTop: space.xs }]}>
-              <SpeakButton text={shownResult.translation} lang={to} />
+              <SpeakButton text={shownResult.translation} lang={to} offlineOnly={offlineOnly} />
               <IconButton icon="square.and.arrow.up" label="Share or copy" onPress={() => Share.share({ message: shownResult.translation })} />
               <View style={{ flex: 1 }} />
               <Pressable
@@ -165,7 +174,7 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
         onPick={(code) => (picking === 'from' ? setFrom(code) : setTo(code))}
         onClose={() => setPicking(null)}
       />
-      <ShowThem shown={shown} onClose={() => setShown(null)} />
+      <ShowThem shown={shown} onClose={() => setShown(null)} offlineOnly={offlineOnly} />
     </>
   );
 }
@@ -200,6 +209,6 @@ const styles = StyleSheet.create({
   card: { borderRadius: radius.lg, padding: space.md, gap: space.sm },
   input: { fontSize: 22, lineHeight: 30, minHeight: 110, textAlignVertical: 'top' },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 40 },
-  show: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, height: 36, borderRadius: radius.pill },
+  show: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, minHeight: 44, borderRadius: radius.pill },
   alt: { flexDirection: 'row', alignItems: 'center', gap: space.sm, borderWidth: 1, borderRadius: radius.md, paddingLeft: space.md, paddingVertical: 4 },
 });

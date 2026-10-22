@@ -1,56 +1,29 @@
-# Welcome to your Expo app 👋
+# Roamie mobile
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo SDK 57 with Expo Router, React Native 0.86 and TypeScript. Screens live in
+`src/app`; shared components and behavior live in `src/components` and `src/lib`.
+The app includes native modules and the iOS card-payment shortcut, so use a
+Roamie development build for complete device testing.
 
-## Get started
+Use the Node 22 version in `.nvmrc`, then `npm ci` and `npm start`.
+Run `npm test`, `npm run lint`, `npx tsc --noEmit` and
+`npx expo-doctor@1.20.4` before building.
 
-1. Install dependencies
+See [mobile builds and TestFlight](../../docs/mobile-builds.md) for internal
+phone builds, standalone simulator builds, signing setup and the manual GitHub
+workflows. See [production readiness](../../docs/production-readiness.md) for
+verified behavior and outstanding release gates.
 
-   ```bash
-   npm install
-   ```
+Local wallet and trip data are account-scoped. Tokens remain in SecureStore.
+Uncertain OCR results require checking the original; importing a receipt or
+statement requires the traveller's confirmation. SOS remains available without
+sign-in. Production app calls always use authenticated HTTPS.
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-### Other setup steps
-
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Offline translation requires a new native build. Open **Offline translation**
+before sign-in, or **Offline languages** in the main translator, to prepare
+supported language pairs. Base speech plus its detector downloads about 61 MB;
+Small is an optional 191 MB alternative with memory checks. Download packs before
+going offline. Apple text translation requires a physical iPhone with iOS 18+;
+coverage differs by platform and Odia speech is not supported by these models.
+See the [implementation plan and validation](../../docs/adr/0013-offline-translation.md)
+for device requirements, supported capabilities and outstanding release gates.

@@ -6,13 +6,13 @@ export default function AppTabs() {
   const c = useColors();
   return (
     <NativeTabs tintColor={c.accent}>
-      <NativeTabs.Trigger name="trips">
-        <NativeTabs.Trigger.Label>Trips</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="calendar" md="calendar_month" />
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>Translate</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="bubble.left.and.bubble.right.fill" md="translate" />
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="trips">
+        <NativeTabs.Trigger.Label>Trips</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="calendar" md="calendar_month" />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="wallet">
         <NativeTabs.Trigger.Label>Budget</NativeTabs.Trigger.Label>

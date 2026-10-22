@@ -1,10 +1,12 @@
-import { requestRecordingPermissionsAsync, setAudioModeAsync } from 'expo-audio';
+import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync, setAudioModeAsync, type RecordingOptions } from 'expo-audio';
 import { File } from 'expo-file-system';
 import { stopSpeaking } from './voice';
+import { waitForMicrophoneForeground } from './microphone';
+import { SPEECH_RECORDING } from './recording';
 
 type Recorder = {
   uri: string | null;
-  prepareToRecordAsync: () => Promise<void>;
+  prepareToRecordAsync: (options: RecordingOptions) => Promise<void>;
   record: () => void;
   stop: () => Promise<void>;
   getStatus: () => { isRecording: boolean; durationMillis: number; metering?: number; mediaServicesDidReset: boolean };
@@ -14,11 +16,14 @@ type Callbacks = {
   onPhase: (phase: 'idle' | 'starting' | 'listening' | 'thinking') => void;
   onActive: (active: boolean) => void;
   onError: (message: string) => void;
+  onRecovery: (message: string) => void;
+  isForeground: () => boolean;
 };
 
 export class HandsFreeConversation {
   private active = false;
   private running = false;
+  private requestingPermission = false;
   private revision = 0;
   private wake: (() => void) | null = null;
   private cancel: (() => void) | null = null;
@@ -31,6 +36,10 @@ export class HandsFreeConversation {
     this.wake?.();
     this.cancel?.();
     stopSpeaking();
+  }
+
+  onAppBackground() {
+    if (!this.requestingPermission) this.stop();
   }
 
   private pause(ms: number) {
@@ -50,27 +59,41 @@ export class HandsFreeConversation {
     this.callbacks.onActive(true);
     this.callbacks.onPhase('starting');
     let prepared = false;
+    let interruptions = 0;
     try {
-      const permission = await requestRecordingPermissionsAsync();
+      const existing = await getRecordingPermissionsAsync();
+      if (!current()) return;
+      let permission = existing;
+      if (!permission.granted) {
+        this.requestingPermission = true;
+        try {
+          permission = await requestRecordingPermissionsAsync();
+          if (permission.granted) await waitForMicrophoneForeground(current, this.callbacks.isForeground, milliseconds => this.pause(milliseconds));
+        }
+        finally { this.requestingPermission = false; }
+      }
       if (!current()) return;
       if (!permission.granted) throw new Error('Allow microphone access in Settings, or use Type instead.');
+      if (!this.callbacks.isForeground()) throw new Error('Return to Roamie, then start hands-free again.');
       stopSpeaking();
       while (current()) {
         this.callbacks.onPhase('starting');
         await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
         if (!current()) break;
-        await this.recorder.prepareToRecordAsync();
+        await this.recorder.prepareToRecordAsync(SPEECH_RECORDING);
         prepared = true;
         if (!current()) break;
         this.recorder.record();
         this.callbacks.onPhase('listening');
+        if (interruptions) this.callbacks.onRecovery('Still listening. Please repeat.');
+        let interrupted = false;
         let voicedMs = 0, lastVoice = 0, heardSpeech = false, previous = 0;
         const started = Date.now();
         while (current()) {
           await this.pause(100);
           if (!current()) break;
           const status = this.recorder.getStatus();
-          if (!status.isRecording || status.mediaServicesDidReset) throw new Error('Microphone interrupted. Start the conversation again.');
+          if (!status.isRecording || status.mediaServicesDidReset) { interrupted = true; break; }
           if (status.metering == null || !Number.isFinite(status.metering)) throw new Error('Hands-free is unavailable on this device. Use tap to talk instead.');
           const elapsed = Date.now() - started;
           if (status.metering > -42) {
@@ -80,16 +103,33 @@ export class HandsFreeConversation {
           } else if (!heardSpeech) voicedMs = 0;
           previous = elapsed;
           if (heardSpeech && (elapsed - lastVoice >= 1200 || elapsed >= 30000)) break;
-          if (elapsed >= 30000) throw new Error('No speech heard. Start hands-free when you are ready.');
+          if (elapsed >= 30000) break;
         }
         if (!current()) break;
-        this.callbacks.onPhase('thinking');
+        if (interrupted) {
+          if (++interruptions > 2) throw new Error('Microphone interrupted repeatedly. Check microphone access, then try again or use Type.');
+          this.callbacks.onPhase('starting');
+          this.callbacks.onRecovery('Microphone interrupted. Reconnecting…');
+          await this.recorder.stop().catch(() => {});
+          prepared = false;
+          this.removeRecording();
+          await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+          if (current()) await this.pause(600);
+          continue;
+        }
+        this.callbacks.onPhase(heardSpeech ? 'thinking' : 'starting');
         await this.recorder.stop();
         prepared = false;
+        if (!heardSpeech) {
+          this.removeRecording();
+          if (current()) await this.pause(350);
+          continue;
+        }
         await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
         if (!current()) break;
         if (!this.recorder.uri) throw new Error('No recording available. Start the conversation again.');
         await Promise.race([this.callbacks.onTurn(this.recorder.uri, current), canceled]);
+        interruptions = 0;
         this.removeRecording();
         if (current()) await this.pause(350);
       }

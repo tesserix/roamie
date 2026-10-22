@@ -1,5 +1,5 @@
 import { afterEach, expect, jest, test } from '@jest/globals';
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { Platform } from 'react-native';
 import * as AuthSession from 'expo-auth-session';
 import SignIn from '../../components/sign-in';
@@ -29,6 +29,15 @@ test.each<typeof Platform.OS>(['ios', 'android'])('%s shows only supported socia
 });
 
 afterEach(() => { jest.restoreAllMocks(); });
+test.each<typeof Platform.OS>(['ios', 'android'])('%s keeps account privacy actions out of sign-in', async platform => {
+ jest.replaceProperty(Platform, 'OS', platform);
+ await session.clear();
+ global.fetch = jest.fn<typeof fetch>().mockResolvedValue({ok:true,json:async()=>({issuer:'https://auth.tesserix.app',organizationId:'org',projectId:'project',clientIds:{ios:'ios',android:'android'},providers:{google:'g',apple:'a'}})} as Response);
+ await render(<AuthProvider><SignIn /></AuthProvider>);
+ await screen.findByRole('button', {name:'Continue with email'});
+ expect(screen.queryByRole('link', {name:'Privacy policy'})).toBeNull();
+ expect(screen.queryByRole('link', {name:'Delete my account'})).toBeNull();
+});
 test.each<[typeof Platform.OS, string, string]>([
  ['ios','google','g'], ['ios','apple','a'], ['android','google','g'],
 ])('%s %s selects the provider directly with PKCE and the registered callback',async(platform,provider,id)=>{
@@ -42,4 +51,38 @@ test.each<[typeof Platform.OS, string, string]>([
  expect(AuthSession.AuthRequest).toHaveBeenCalledWith(expect.objectContaining({clientId:platform,usePKCE:true,redirectUri:'roamie:/auth/callback',responseType:'code',scopes:expect.arrayContaining(['urn:zitadel:iam:org:id:org','urn:zitadel:iam:org:project:id:project:aud','urn:zitadel:iam:org:idp:id:'+id])}));
  const options=jest.mocked(AuthSession.AuthRequest).mock.calls.at(-1)?.[0];
  expect(options?.prompt).toBeUndefined();
+});
+
+test('offline communication cards remain available when sign-in cannot connect', async () => {
+ await session.clear();
+ global.fetch = jest.fn<typeof fetch>().mockRejectedValue(new Error('offline'));
+ await render(<AuthProvider><SignIn/></AuthProvider>);
+ await fireEvent.press(await screen.findByRole('button', {name:'Communication cards'}));
+ await fireEvent.press(screen.getByRole('button', {name:'Please write your reply'}));
+ expect(screen.getByLabelText('Card message in English')).toBeTruthy();
+ expect(screen.getByRole('button', {name:'Show message'})).toBeTruthy();
+});
+
+test('offline translation is reachable while authentication is still restoring', async () => {
+  await session.clear();
+  let fail!: (error: Error) => void;
+  global.fetch = jest.fn<typeof fetch>().mockImplementation(() => new Promise((_resolve, reject) => { fail = reject; }));
+  await render(<AuthProvider><SignIn /></AuthProvider>);
+  expect(screen.getByRole('button', { name: 'Offline translation' })).toBeTruthy();
+  await act(async () => { fail(new Error('offline')); });
+});
+
+test.each<typeof Platform.OS>(['ios', 'android'])('%s supports hosted email and password sign-in with PKCE', async platform => {
+ jest.replaceProperty(Platform, 'OS', platform);
+ await session.clear();
+ global.fetch = jest.fn<typeof fetch>().mockResolvedValue({ok:true,json:async()=>({issuer:'https://auth.tesserix.app',organizationId:'org',projectId:'project',clientIds:{ios:'ios',android:'android'},providers:{google:'g',apple:'a'}})} as Response);
+ await render(<AuthProvider><SignIn/></AuthProvider>);
+ const email = await screen.findByRole('button', {name:'Continue with email'});
+ await waitFor(() => expect(email.props.accessibilityState?.disabled).not.toBe(true));
+ await fireEvent.press(email);
+ const options = jest.mocked(AuthSession.AuthRequest).mock.calls.at(-1)?.[0];
+ expect(options).toMatchObject({clientId:platform,usePKCE:true,redirectUri:'roamie:/auth/callback',responseType:'code'});
+ expect(options?.scopes).toEqual(expect.arrayContaining(['openid','email','profile','offline_access','urn:zitadel:iam:org:id:org','urn:zitadel:iam:org:project:id:project:aud']));
+ expect(options?.scopes?.some(scope => scope.startsWith('urn:zitadel:iam:org:idp:id:'))).toBe(false);
+ expect(options?.prompt).toBe('login');
 });

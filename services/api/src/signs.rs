@@ -2,6 +2,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::decisions::{Decision, Jev};
 use crate::error::{Error, Result};
 use crate::gemini::Gemini;
 use crate::lang::Lang;
@@ -25,6 +26,9 @@ pub struct SignResponse {
     pub detected: Lang,
     pub gist: String,
     pub lines: Vec<SignLine>,
+    pub review_required: bool,
+    pub ocr_job_id: String,
+    pub review: crate::decisions::Judgment,
 }
 
 #[derive(Debug, Serialize)]
@@ -75,18 +79,33 @@ impl SignRequest {
     }
 }
 
-pub async fn translate(ocr: &Ocr, ai: &Gemini, req: &SignRequest) -> Result<SignResponse> {
+pub async fn translate(
+    ocr: &Ocr,
+    jev: &Jev,
+    ai: &Gemini,
+    req: &SignRequest,
+) -> Result<SignResponse> {
     let image = req.image()?;
-    let found = ocr.read(image, &req.mime_type).await?;
+    let extraction = ocr.read(image, &req.mime_type).await?;
+    let source_review = extraction.review_required();
+    let minimum_confidence = extraction.minimum_confidence();
+    let found = crate::ocr::lines(extraction.document);
     if found.is_empty() {
         return Err(Error::Unreadable);
     }
     let numbered = found
         .iter()
         .enumerate()
-        .map(|(i, l)| format!("{i}: {}", l.text))
+        .map(|(i, l)| format!("{i}: {}", crate::documents::redact(&l.text)))
         .collect::<Vec<_>>()
         .join("\n");
+    let review = jev
+        .review(json!({"purpose":"sign translation", "text":numbered, "status":extraction.status,"minimum_confidence":minimum_confidence,"review_required":source_review}))
+        .await?;
+    if review.answers.readability.choice == Decision::Retake {
+        return Err(Error::Unreadable);
+    }
+    let review_required = source_review || review.answers.readability.choice == Decision::Review;
     let schema = json!({
         "type": "OBJECT",
         "properties": {
@@ -120,6 +139,9 @@ pub async fn translate(ocr: &Ocr, ai: &Gemini, req: &SignRequest) -> Result<Sign
         detected,
         gist: a.gist.trim().to_string(),
         lines: merge(found, a.lines),
+        review_required,
+        ocr_job_id: extraction.job_id,
+        review,
     })
 }
 
