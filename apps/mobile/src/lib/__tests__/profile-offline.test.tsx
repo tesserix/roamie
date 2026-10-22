@@ -17,6 +17,7 @@ jest.mock('../../../modules/roamie-offline', () => {
   const native = {
     downloadedLanguages: async () => [...downloaded],
     supportedTextLanguages: async () => ['en', 'fr', 'vi', 'th', 'ko'],
+    isTranslationReady: async (from: string, to: string) => [from, to].every(language => language === 'en' || downloaded.has(language)),
     canRemoveLanguagePacks: async () => true,
     offlineVoices: async () => [],
     ocrLanguages: async () => ['en', 'fr', 'vi', 'ko'],
@@ -58,7 +59,7 @@ test.each(['ios', 'android'].flatMap(platform => [['vi', 'Vietnamese'], ['th', '
   expect(download).toBeEnabled();
   await fireEvent.press(download);
   expect(await screen.findByText('Text pack downloaded')).toBeTruthy();
-  expect(screen.getByText('✓ Text in both directions: Ready')).toBeTruthy();
+  expect(await screen.findByText(`English ↔ ${name} · Ready on this phone`)).toBeTruthy();
   expect(offlineNative()!.downloadLanguage).toHaveBeenCalledWith(code, false);
 });
 
@@ -72,7 +73,7 @@ test('a failed download explains the problem and can be retried from Profile', a
   expect(await screen.findByRole('alert')).toHaveTextContent('The download was interrupted. Please retry.');
   expect(screen.getByRole('button', { name: label })).toBeEnabled();
   await fireEvent.press(screen.getByRole('button', { name: label }));
-  expect(await screen.findByText('✓ Text in both directions: Ready')).toBeTruthy();
+  expect(await screen.findByText('English ↔ Vietnamese · Ready on this phone')).toBeTruthy();
   expect(screen.queryByRole('alert')).toBeNull();
 });
 

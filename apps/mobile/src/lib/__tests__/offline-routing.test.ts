@@ -56,7 +56,7 @@ test('the explicit guest offline tool cannot use cloud even when the saved prefe
 
 test('cloud preference does not silently run the local model', async () => {
   await saveTranslationPreferences({ mode: 'cloud' });
-  await expect(translateText('Hello', 'fr', 'en')).rejects.toMatchObject({ code: 'offline_unavailable' });
+  await expect(translateText('Hello', 'fr', 'en')).rejects.toThrow('Cloud mode is selected and this phone is offline');
   expect(native.translate).not.toHaveBeenCalled();
 });
 

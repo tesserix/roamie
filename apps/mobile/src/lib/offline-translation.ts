@@ -7,6 +7,22 @@ export const modelLanguage = (language: string) => language === 'fil' ? 'tl' : l
 export const appLanguage = (language: string) => language === 'tl' ? 'fil' : language;
 export const supportsLocalText = (language: string, supported?: string[]) => supported ? supported.includes(modelLanguage(language)) : SUPPORTED.has(modelLanguage(language));
 
+export type OfflineTextStatus = { state: 'ready' | 'missing' | 'unsupported' | 'unavailable' | 'choose_languages'; unsupported: string[] };
+
+export async function offlineTextStatus(from: string, to: string | null): Promise<OfflineTextStatus> {
+  const native = offlineNative();
+  if (!native) return { state: 'unavailable', unsupported: [] };
+  if (!to || from === to) return { state: 'choose_languages', unsupported: [] };
+  const supported = await native.supportedTextLanguages();
+  const unsupported = [from, to].filter(language => !supportsLocalText(language, supported));
+  if (unsupported.length) return { state: 'unsupported', unsupported };
+  const directions = await Promise.all([
+    native.isTranslationReady(modelLanguage(from), modelLanguage(to)),
+    native.isTranslationReady(modelLanguage(to), modelLanguage(from)),
+  ]);
+  return { state: directions.every(Boolean) ? 'ready' : 'missing', unsupported: [] };
+}
+
 export function checkTranslationCanceled(signal?: AbortSignal) {
   if (signal?.aborted) throw new Error('Translation cancelled.');
 }

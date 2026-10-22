@@ -67,6 +67,30 @@ test('clear speech is recognised locally with its language and temporary audio i
   expect(FileSystem.deleteAsync).toHaveBeenCalledWith('file:///cache/converted.wav', { idempotent: true });
 });
 
+test('offline conversation trusts the installed pair when the downloaded-language list is incomplete', async () => {
+  const native = requireOptionalNativeModule<Record<string, unknown>>('RoamieOffline')!;
+  native.downloadedLanguages = jest.fn(async () => []);
+  native.isTranslationReady = jest.fn(async () => true);
+  native.translate = jest.fn(async () => 'Hello');
+  await expect(talkTurn({ mine: 'en', partner: 'fr', partnerLocked: true, audio: { uri: 'file:///cache/recording.m4a', mimeType: 'audio/mp4' }, history: [], offlineOnly: true })).resolves.toMatchObject({
+    engine: 'device', transcript: 'Bonjour', translation: 'Hello', target: 'en',
+  });
+  expect(cloudFetch).not.toHaveBeenCalled();
+});
+
+test('offline conversation identifies a missing selected speech model without blaming installed languages', async () => {
+  const native = requireOptionalNativeModule<Record<string, unknown>>('RoamieOffline')!;
+  native.isTranslationReady = jest.fn(async () => true);
+  jest.mocked(FileSystem.getInfoAsync).mockImplementation(async uri => ({ exists: false, isDirectory: false, uri }));
+  await expect(talkTurn({ mine: 'en', partner: 'fr', partnerLocked: true, audio: { uri: 'file:///cache/recording.m4a', mimeType: 'audio/mp4' }, history: [], offlineOnly: true })).rejects.toThrow('Base speech model is not downloaded');
+  expect(cloudFetch).not.toHaveBeenCalled();
+});
+
+test('offline conversation names the language pair that is not ready', async () => {
+  await expect(talkTurn({ mine: 'en', partner: 'fr', partnerLocked: true, audio: { uri: 'file:///cache/recording.m4a', mimeType: 'audio/mp4' }, history: [], offlineOnly: true })).rejects.toThrow('English ↔ French language packs are not ready');
+  expect(cloudFetch).not.toHaveBeenCalled();
+});
+
 test('aborting a turn stops inference and cannot return a late transcript', async () => {
   let complete!: (result: { result: string; language: string; isAborted: boolean }) => void;
   const promise = new Promise(resolve => { complete = resolve; });

@@ -1,7 +1,8 @@
 import { ApiError as RequestError, apiRequest } from './trip-api';
 import type { StatementLine } from './statement';
 import { offlineNative } from '../../modules/roamie-offline';
-import { appLanguage, checkTranslationCanceled, localTextTranslation, supportsLocalText } from './offline-translation';
+import { appLanguage, checkTranslationCanceled, localTextTranslation, offlineTextStatus, supportsLocalText, type OfflineTextStatus } from './offline-translation';
+import { languageName } from './languages';
 import { restoreTranslationPreferences, translationPreferences } from './translation-preferences';
 const OFFLINE = "Can't reach Roamie. Check your connection and try again.";
 
@@ -113,10 +114,21 @@ async function routedTranslation<T>(local: () => Promise<T | null>, cloud: () =>
   if (available) {
     const network = await (await import('expo-network')).getNetworkStateAsync().catch(() => null);
     checkTranslationCanceled(signal);
-    if (network?.isConnected === false || network?.isInternetReachable === false) throw new ApiError(localError instanceof Error ? localError.message : missing, undefined, 'offline_unavailable');
+    if (network?.isConnected === false || network?.isInternetReachable === false) {
+      const message = mode === 'cloud' ? 'Cloud mode is selected and this phone is offline. Open Profile → Offline languages and select Automatic or Offline only to use downloaded models.' : localError instanceof Error ? localError.message : missing;
+      throw new ApiError(message, undefined, 'offline_unavailable');
+    }
   }
   if (translationPreferences().mode === 'offline') throw new ApiError(missing, undefined, 'offline_unavailable');
   return cloud();
+}
+
+function offlineTextProblem(status: OfflineTextStatus, from: string, to: string) {
+  const next = 'Open Profile → Offline languages to check downloads.';
+  if (status.state === 'unsupported') return `${status.unsupported.map(languageName).join(', ')} offline text is not supported on this phone. Connect to the internet to translate it.`;
+  if (status.state === 'choose_languages') return 'Choose two different conversation languages for offline translation.';
+  if (status.state === 'unavailable') return 'Install the latest Roamie build to use offline translation.';
+  return `${languageName(from)} ↔ ${languageName(to)} language packs are not ready on this phone. ${next}`;
 }
 
 export async function talkTurn(req: TurnRequest, signal?: AbortSignal, onRetry?: () => void): Promise<TurnResponse> {
@@ -128,8 +140,8 @@ export async function talkTurn(req: TurnRequest, signal?: AbortSignal, onRetry?:
     if (req.audio) {
       if (!req.audio.uri || req.mine === 'or' || req.partner === 'or') return null;
       if (req.offlineOnly || translationPreferences().mode === 'offline') {
-        const installed = new Set(['en', ...await offlineNative()!.downloadedLanguages()]);
-        if (![req.mine, req.partner].every(language => supportsLocalText(language) && installed.has(language === 'fil' ? 'tl' : language))) return null;
+        const status = await offlineTextStatus(req.mine, req.partner);
+        if (status.state !== 'ready') throw new Error(offlineTextProblem(status, req.mine, req.partner));
       }
       const { transcribeOffline, LocalSpeechError } = await import('./offline-speech');
       try {
@@ -151,10 +163,10 @@ export async function talkTurn(req: TurnRequest, signal?: AbortSignal, onRetry?:
     if (req.partnerLocked && !fromMe && detected !== req.partner) throw new Error('The speech did not match the chosen languages. Check the languages and try again.');
     const target = fromMe ? req.partner : mine;
     const result = await localTextTranslation(text, target, detected, signal);
-    if (!result) return null;
+    if (!result) throw new Error(offlineTextProblem(await offlineTextStatus(detected, target), detected, target));
     return { engine: 'device', fromMe, mine, detected, candidates: [detected], transcript: text, translation: result.translation, romanized: '', target, partner: fromMe ? req.partner : detected, sameLanguage: detected === target };
   }, () => cloudTalkTurn(cloudInput, signal, onRetry), signal, req.offlineOnly,
-  'Offline conversation needs both language packs and a downloaded speech model. Open Offline languages to prepare them.');
+  'Offline conversation is not ready. Open Profile → Offline languages to check the language packs and speech model.');
 }
 
 export type VoiceGender = 'female' | 'male';
