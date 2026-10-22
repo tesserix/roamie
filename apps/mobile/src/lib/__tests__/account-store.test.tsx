@@ -33,3 +33,20 @@ test('a damaged wallet is preserved instead of overwritten by an empty wallet', 
   expect(await screen.findByText('We could not open your saved wallet. Your data has not been changed.')).toBeTruthy();
   expect(AsyncStorage.setItem).not.toHaveBeenCalled();
 });
+
+test('remembered conversation languages stay with their own account', async () => {
+  function Pair() {
+    const { ready, talkPair } = useStore();
+    return <Text>{ready ? talkPair ? `${talkPair.mine} → ${talkPair.partner}` : 'No conversation languages' : 'Loading'}</Text>;
+  }
+  const stored = new Map([[accountStorageKey('alice'), JSON.stringify({ profile: null, expenses: [], talkPair: { mine: 'en', partner: 'bn' } })]]);
+  jest.mocked(AsyncStorage.getItem).mockImplementation(async key => stored.get(key) ?? null);
+  jest.mocked(AsyncStorage.setItem).mockImplementation(async (key, value) => { stored.set(key, value); });
+  const app = await render(<StoreProvider key="alice" accountId="alice"><Pair /></StoreProvider>);
+  expect(await screen.findByText('en → bn')).toBeTruthy();
+  await app.rerender(<StoreProvider key="bob" accountId="bob"><Pair /></StoreProvider>);
+  expect(await screen.findByText('No conversation languages')).toBeTruthy();
+  expect(screen.queryByText('en → bn')).toBeNull();
+  await waitFor(() => expect(JSON.parse(stored.get(accountStorageKey('bob'))!).talkPair).toBeNull());
+  expect(JSON.parse(stored.get(accountStorageKey('alice'))!).talkPair).toEqual({ mine: 'en', partner: 'bn' });
+});

@@ -2,6 +2,7 @@ import { fetch } from 'expo/fetch';
 import { API_BASE, session } from './auth-client';
 import { resolveDestination } from './trip-api';
 import { stayDates, type Trip } from './trips';
+import { assertAIConsent, requireAIConsent, usesAI } from './ai-consent';
 
 export type PlanningFact = { id: string; name: string; source_url: string; observed_at: string;
   weather?: { coverage: string; local_date?: string | null; minimum_celsius?: number | null; maximum_celsius?: number | null; precipitation_percent?: number | null; missing_dates: string[]; suggestions: string[] } | null;
@@ -13,7 +14,12 @@ type Saved = { revision: string; preferences: Record<string, unknown> };
 
 async function call<T>(path: string, method: string, payload: unknown, signal: AbortSignal): Promise<T | null> {
   const customer = session.current()?.sub;
+  const revision = session.revision?.();
+  if (!customer) throw new Error('Sign in again to check your trip.');
   const token = await session.accessToken();
+  if (usesAI(path, method)) await assertAIConsent(customer);
+  if (customer !== session.current()?.sub || revision !== session.revision?.()) throw new Error('Your account changed. Please retry.');
+  if (signal.aborted) throw new Error('Trip check cancelled or timed out.');
   const res = await fetch(API_BASE + path, { method, signal, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) });
   if (!customer || customer !== session.current()?.sub) throw new Error('Your account changed. Please retry.');
   if (method === 'GET' && res.status === 409 && (await res.json()).error === 'profile_changed') return null;
@@ -25,6 +31,10 @@ async function call<T>(path: string, method: string, payload: unknown, signal: A
 
 export async function checkTripReadiness(trip: Trip, signal: AbortSignal): Promise<DestinationCheck[]> {
   if (!__DEV__ && !API_BASE.startsWith('https://')) throw new Error('A secure connection is required.');
+  const customer = session.current()?.sub, revision = session.revision?.();
+  if (!customer) throw new Error('Sign in again to check your trip.');
+  await requireAIConsent(customer, signal);
+  if (customer !== session.current()?.sub || revision !== session.revision?.()) throw new Error('Your account changed. Please retry.');
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal.addEventListener('abort', abort);

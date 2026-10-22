@@ -3,6 +3,7 @@ resolver = "2"
 members = ["services/api"]
 
 [workspace.dependencies]
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "download-binaries", "copy-dylibs"] }
 time = { version = "0.3", features = ["macros", "parsing"] }
 ts-rs = "11"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
@@ -30,4 +31,3 @@ sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio
 uuid = { version = "1", features = ["v7", "serde"] }
 
 jsonwebtoken = { version = "10.3", default-features = false, features = ["aws_lc_rs"] }
-ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "download-binaries", "copy-dylibs"] }

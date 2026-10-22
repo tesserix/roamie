@@ -1,0 +1,134 @@
+# Independent language recognition for translation
+
+The October 12 beta reproduced English input identified as Hindi when Hindi was
+also the requested target. Conversation combined recognition, two translations,
+and recent turns in one prompt. The resulting source label controlled routing,
+so a target/source mix-up could return the original input or address the wrong
+participant. An initial new traveller language also required an expected-speaker
+hint that the first turn never supplied.
+
+Recognize the current utterance without target languages or prior turns, then
+translate with that source fixed. Audio is sent only to recognition; translation
+uses its transcript. Typed input remains authoritative. Conversation context is
+limited to the last six turns and used only for translation and JEV fidelity
+review. Explicit source settings remain fixed. In AUTO, a first language distinct
+from the known partner initializes the traveller; subsequently known language
+matches take precedence over expected turn order. A new language follows the
+expected participant, with JEV reviewing uncertainty before playback.
+
+This adds one small model call per automatic text translation and conversation
+turn; explicit text remains one call. No new service, storage, or API version is
+needed. Existing 60-second route cancellation bounds the two 45-second provider
+calls and 1.5-second JEV review together. No peak traffic or latency SLO is supplied;
+record actual synthetic latency before rollout and do not claim a latency SLO.
+Provider outages return an error; there is no direct-provider production fallback.
+Conversation JEV review remains required in release builds.
+
+A stronger combined prompt alone was rejected because source and target still
+share model context. Speaker identity cannot be established by language alone:
+same-language speakers and interruptions that change language can be ambiguous.
+We retain review instead of claiming voice identification.
+
+Deploy the API only after the existing gateway/JEV prerequisites are available.
+No data migration or mobile API change is required. Rollback uses the previous
+API image, but also restores its prior gateway configuration. Test fixtures cover
+source/target confusion, Hindi/Odia direction, first-turn AUTO, language changes,
+and explicit traveller-language preservation.
+
+## Verification and rollout — 2026-10-12
+
+Roamie PRs #136–138 and GitOps PRs #1364–1366 are merged. Unrelated worktrees
+were preserved. The deployed API source is `474f5854d2d3e2d8e4e91526c15b6f7847aecb9d`,
+image digest `sha256:df471bec9011fc18573f5c7476f39563587e58a8a1e6a34f590dbf4742c397ee`.
+Argo reports the API and Registry route sync Synced/Healthy at GitOps revision
+`f5e343dba531fa33e609919af9260e367d3a91a1`.
+
+The private gateway has workload identity, strict mobile JWT authentication and
+API workload authorization. Anonymous model access returned 401; signed model
+and JEV requests returned 200. The Kora JEV key was copied create-only into the
+Roamie OpenBao path and verified equal without exposing its value. The gateway's
+ExternalSecret is synced; the API never receives the provider credential.
+
+Recognition remains isolated from requested languages and conversation history.
+JEV's review instruction now explicitly distinguishes an intentional AUTO
+language change from inconsistent translation. The speech gateway allowlist now
+matches the application's Sulafat/Algieba voices; its former Kore-only rule
+caused playback 503s. Registry owns the updated policy.
+
+Executed checks:
+
+- `cargo test`: 114 passed; seven existing database-only tests require a disposable
+  database. The image pipeline separately passed authenticated TLS/Postgres smoke.
+- `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` and build passed.
+- Mobile Jest: 192 tests across 40 suites; TypeScript and Expo lint passed;
+  Expo Doctor passed 21/21 checks; seven release configuration tests passed.
+- Speech gateway regression failed before the allowlist fix, then passed.
+  `uv run --with pytest --with pyyaml python -m pytest` on gateway/Registry tests
+  passed 17 tests, and API/gateway configuration checks passed nine tests.
+  Helm lint passed for all three changed charts; server dry-run accepted the
+  generated Registry resources. All GitOps PR checks passed before merge.
+- Image workflow 38238782129 passed build, scan and signing. Its OCI revision
+  matches the deployed source commit.
+- Seven authenticated production cases passed: English AUTO to Hindi,
+  Hindi AUTO to Odia, Odia AUTO to Hindi, first Hindi traveller, Odia partner reply,
+  traveller switching to English, and preservation of explicit Hindi.
+  Conversation responses named `jev-1.13.0` and required no review for these
+  unambiguous cases. Observed sample request durations were 3.6–4.8 seconds.
+- Synthetic Hindi speech was recognized/transcribed as Hindi and translated to
+  Odia. A full Odia sentence generated by the production speech endpoint was
+  recognized/transcribed as Odia and translated to Hindi with JEV acceptance.
+  Both female and male production speech requests returned valid WAV files.
+- iOS simulator UI showed Hindi detected automatically, an Odia translation,
+  the correct Odia Show them display, and playback entering Stop reading state.
+  This used the existing simulator binary against the new backend, not the
+  signed TestFlight build. Device microphone/acoustic playback quality was not
+  independently assessed.
+- Console AI usage shows product `roamie`, service `roamie-api`, and reviewer
+  traffic. Some model requests remain unpriced/partially priced; the displayed
+  cost is not complete billing evidence.
+
+## Mobile distribution
+
+Version 0.1.2 uses mobile source `e02cd76505aeeea9bd7fb5c55296b0edb92ab0fd`.
+The later server changes do not require a mobile rebuild.
+
+- iOS build 7: EAS build `f0045eeb-f21f-43b7-95e4-0eea239e2ed9`, uploaded to
+  Apple and processed VALID. Assigned to Internal Testing, Roamie Internal and
+  Roamie External with automatic notifications enabled. Internal state is
+  IN_BETA_TESTING; external state is WAITING_FOR_BETA_REVIEW. Apple approval is
+  still required for external testers. The obsolete build-6 AUTO workaround
+  was removed after deployed verification.
+- Android version code 3: production AAB build
+  `899ce5cb-e477-4c80-9b56-4270208be86e`, published through Play Console to the
+  internal testing track. EAS automated submission failed because its service
+  account lacks app permissions; no account permissions were broadened.
+- Android preview APK `ed361502-9248-47ce-967b-9a49c0642327` installed successfully
+  on a separate API-36 emulator. The existing emulator's app had a different
+  signing key and was preserved. Android UI acceptance is not completed.
+- Android tester opt-in: https://play.google.com/apps/internaltest/4700443123919803208
+
+## Remaining limits
+
+A standalone synthesized “dhanyabad” was attributed to Hindi despite requesting
+Odia speech; that word is shared across languages and does not establish speaker
+identity. Full Odia sentences passed. Do not claim every short or acoustically
+ambiguous utterance is disambiguated, or that these samples prove microphone
+quality, background-noise robustness or production latency SLOs.
+
+Rollback should revert the GitOps API digest and relevant gateway policy as an
+approved Git change. No database schema changes were introduced. Open-Meteo
+primary/Google weather fallback configuration was preserved.
+
+## Superseded in part — 2026-10-20
+
+Separate recognition doubled serial model time: gateway p50 was about 4.1 s
+per call, so a turn took 7–9 s. Roamie #148 returns to one call per turn that
+recognizes, transcribes and translates into both requested languages. The
+prompt now states that requested languages say nothing about the source, and
+JEV still reviews every turn before playback. With thinking disabled (#147),
+direct Vertex runs (prompt identical to the release) identified every sample:
+Hindi and Vietnamese speech against misleading target pairs, the October 12
+case (English speech with Hindi requested) in 15 of 15 runs, and romanized
+Hindi text as Hindi in 2 of 2, at 3.1–4.7 s per call. Typed input stays
+authoritative. Re-run that case before any prompt change. Rollback: revert
+#148; it changes no API or schema.

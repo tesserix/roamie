@@ -1,4 +1,5 @@
 [advisories]
 # SQLx 0.8 records its disabled MySQL driver's rsa dependency in Cargo.lock.
 # CI rejects rsa in the resolved build graph and expires this exception.
-ignore = ["RUSTSEC-2023-0071"]
+# SQLx 0.8 reaches the patched webpki-roots 1.x through its 0.26 shim; CI checks 1.x stays patched.
+ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0381"]

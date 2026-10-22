@@ -1,9 +1,10 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
-import { Text, View, useColorScheme } from 'react-native';
+import { StatusBar, View } from 'react-native';
+import { Text } from '@/components/typography';
 
-import { AccessibilityProvider } from '@/lib/accessibility';
+import { AccessibilityProvider, useAppColorScheme } from '@/lib/accessibility';
 import AppTabs from '@/components/app-tabs';
 import { TravelLoading } from '@/components/travel-brand';
 import Welcome from '@/components/welcome';
@@ -45,11 +46,16 @@ function Account() {
   return <StoreProvider key={customer.sub} accountId={customer.sub}><TripsProvider accountId={customer.sub}><Root /></TripsProvider></StoreProvider>;
 }
 
-export default function Layout() {
-  const scheme = useColorScheme();
+function AppAppearance() {
+  const scheme = useAppColorScheme();
   return (
     <ThemeProvider value={scheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AccessibilityProvider><AuthProvider><Account /></AuthProvider></AccessibilityProvider>
+      <StatusBar barStyle={scheme === 'dark' ? 'light-content' : 'dark-content'} />
+      <AuthProvider><Account /></AuthProvider>
     </ThemeProvider>
   );
+}
+
+export default function Layout() {
+  return <AccessibilityProvider><AppAppearance /></AccessibilityProvider>;
 }

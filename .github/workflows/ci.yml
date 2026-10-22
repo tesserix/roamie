@@ -25,6 +25,7 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install 1.97 --profile minimal && rustup default 1.97
       - run: bash scripts/ci/check-rsa-dependency.sh
+      - run: bash scripts/ci/check-webpki-roots.sh
 
   media:
     runs-on: ubuntu-24.04
@@ -45,12 +46,16 @@ jobs:
       rust_enabled: true
       rust_toolchain: "1.97"
       rust_coverage_min_lines: 70
+      rust_database_enabled: true
+      rust_database_setup_script: scripts/ci/setup-rust-coverage-db.sh
+      rust_database_environment_prefix: ROAMIE_TEST_
       expo_enabled: true
       expo_working_directory: apps/mobile
       expo_install_directory: apps/mobile
       expo_lockfile_path: apps/mobile/package-lock.json
       expo_node_version: 22.19.0
       expo_package_manager: npm
+      expo_audit_config_path: apps/mobile/audit-ci.jsonc
       containers_enabled: true
       # The release requires TLS Postgres and identity config; exercise it below.
       container_images: >-

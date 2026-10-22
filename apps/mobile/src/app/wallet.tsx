@@ -3,29 +3,20 @@ import { File, Paths } from 'expo-file-system';
 import type { SFSymbol } from 'expo-symbols';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useState } from 'react';
-import {
-  Alert,
-  FlatList,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 
 import { Badge, Button, Icon, IconButton, Message, Screen, SectionLabel, TAB_CLEARANCE } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
 import { StatementReview } from '@/components/statement-review';
 import { ApplePaySetup } from '@/components/apple-pay-setup';
+import { GroupBudget } from '@/components/group-budget';
 import { ApiError, fxRates, readReceipt, readStatement } from '@/lib/api';
 import { nudge } from '@/lib/budget-nudge';
 import { session } from '@/lib/auth-client';
 import { signOut } from '@/lib/sign-out';
 import { crossed, decimals, format, toHome, toMinor } from '@/lib/money';
+import { jpegData, statementData } from '@/lib/photo';
 import { reviewStatement, type StatementRow } from '@/lib/statement';
 import { type Expense, useStore } from '@/lib/store';
 import { useTrips } from '@/lib/trip-store';
@@ -56,12 +47,13 @@ export default function Wallet() {
   const lastCurrency = expenses[0]?.currency ?? home;
   const [draft, setDraft] = useState<Draft | null>(null);
   const [rates, setRates] = useState<Record<string, number> | null>(null);
-  const { trips } = useTrips();
+  const { trips, accountId } = useTrips();
   const [scanning, setScanning] = useState(false);
   const [importing, setImporting] = useState(false);
   const [review, setReview] = useState<Review | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [applePaySetup, setApplePaySetup] = useState(false);
+  const [groupBudget, setGroupBudget] = useState(false);
 
   useEffect(() => {
     fxRates(home)
@@ -97,7 +89,7 @@ export default function Wallet() {
 
   async function scan() {
     const camera = await ImagePicker.requestCameraPermissionsAsync();
-    const options: ImagePicker.ImagePickerOptions = { base64: true, quality: 0.5, mediaTypes: ['images'] };
+    const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'] };
     let picked: ImagePicker.ImagePickerResult;
     try {
       picked = camera.granted
@@ -107,10 +99,11 @@ export default function Wallet() {
       picked = await ImagePicker.launchImageLibraryAsync(options);
     }
     const asset = picked.canceled ? null : picked.assets[0];
-    if (!asset?.base64) return;
+    if (!asset) return;
     setScanning(true);
     try {
-      const r = await readReceipt(asset.base64, asset.mimeType ?? 'image/jpeg', lastCurrency);
+      const photo = await jpegData(asset.uri);
+      const r = await readReceipt(photo.data, photo.mimeType, lastCurrency);
       const currency = r.currency || lastCurrency;
       open({
         currency,
@@ -148,8 +141,8 @@ export default function Wallet() {
     setImporting(true);
     try {
       if (!file.exists || file.size <= 0 || file.size > MAX_STATEMENT_BYTES) throw new ApiError('Choose a PDF or photo up to 8 MB. Download only the months of your trip.');
-      const mimeType = asset.mimeType ?? (asset.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
-      const statement = await readStatement(await file.base64(), mimeType, trip.startDate, trip.endDate);
+      const upload = await statementData(asset);
+      const statement = await readStatement(upload.data, upload.mimeType, trip.startDate, trip.endDate);
       setReview({ rows: reviewStatement(statement.transactions, expenses, home, rates), range: `${day(trip.startDate)} – ${day(trip.endDate)}`, notice: statement.source?.reviewRequired || statement.unreadable ? `Check each selected transaction against the original. ${statement.unreadable} unreadable transaction(s) were excluded.` : undefined });
     } catch (e) {
       Alert.alert("Couldn't read that statement", e instanceof ApiError ? e.message : 'Try a clearer PDF or photo.');
@@ -189,6 +182,7 @@ export default function Wallet() {
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.sm }}>
       <BudgetCard spent={spent} budget={budget} pct={pct} home={home} />
+      <Button label="Split with a group" icon="wallet.pass.fill" kind="secondary" onPress={() => setGroupBudget(true)} />
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         <Button label="Add expense" icon="plus" onPress={() => open()} style={{ flex: 1 }} />
         <Button label="Scan" icon="doc.text.viewfinder" kind="secondary" busy={scanning} onPress={scan} style={{ flex: 0.7 }} />
@@ -198,6 +192,8 @@ export default function Wallet() {
       {expenses.length ? <SectionLabel>Recent</SectionLabel> : null}
     </View>
   );
+
+  if (groupBudget) return <GroupBudget home={home} accountId={accountId} displayName={session.current()?.name ?? ''} trips={trips} onClose={() => setGroupBudget(false)} />;
 
   return (
     <Screen title="Wallet" subtitle={`Everything in ${home}`} right={<IconButton icon="ellipsis" label="More" tone="soft" onPress={menu} />}>

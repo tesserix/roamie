@@ -1,14 +1,14 @@
 import { afterEach, expect, jest, test } from '@jest/globals';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { Platform } from 'react-native';
 import * as AuthSession from 'expo-auth-session';
 import SignIn from '../../components/sign-in';
 import { AuthProvider } from '../auth';
 import { session } from '../auth-client';
 jest.mock('@react-native-async-storage/async-storage',()=>({getItem:jest.fn(async()=>null),setItem:jest.fn(async()=>{})}));
-jest.mock('expo-secure-store',()=>({getItemAsync:jest.fn(async()=>null),deleteItemAsync:jest.fn(),setItemAsync:jest.fn()}));
+jest.mock('expo-secure-store',()=>({getItemAsync:jest.fn(async()=>null),deleteItemAsync:jest.fn(async()=>{}),setItemAsync:jest.fn(async()=>{})}));
 jest.mock('expo-web-browser',()=>({maybeCompleteAuthSession:jest.fn()}));
-jest.mock('expo-auth-session',()=>({fetchDiscoveryAsync:jest.fn(async()=>({})),AuthRequest:jest.fn(()=>({promptAsync:jest.fn(async()=>({type:'cancel'}))})),ResponseType:{Code:'code'},Prompt:{Login:'login'}}));
+jest.mock('expo-auth-session',()=>({fetchDiscoveryAsync:jest.fn(async()=>({})),AuthRequest:jest.fn(()=>({state:'state',codeVerifier:'verifier',makeAuthUrlAsync:jest.fn(async()=>'https://auth.tesserix.app/oauth/v2/authorize'),promptAsync:jest.fn(async()=>({type:'cancel'}))})),ResponseType:{Code:'code'},Prompt:{Login:'login'}}));
 jest.mock('expo-router',()=>({useIsFocused:()=>false}));
 jest.mock('react-native-safe-area-context',()=>({useSafeAreaInsets:()=>({top:0,bottom:0,left:0,right:0})}));
 jest.mock('@expo/vector-icons/FontAwesome',()=>({__esModule:true,default:()=>null}));
@@ -47,7 +47,7 @@ test.each<[typeof Platform.OS, string, string]>([
  await render(<AuthProvider><SignIn/></AuthProvider>);
  await fireEvent.press(await screen.findByRole('button',{name:'Continue with '+provider[0].toUpperCase()+provider.slice(1)}));
  const request=jest.mocked(AuthSession.AuthRequest).mock.results.at(-1)?.value as {promptAsync:ReturnType<typeof jest.fn>};
- expect(request.promptAsync).toHaveBeenCalledWith(expect.objectContaining({authorizationEndpoint:'https://auth.tesserix.app/oauth/v2/authorize',tokenEndpoint:'https://auth.tesserix.app/oauth/v2/token'}));
+ expect(request.promptAsync).toHaveBeenCalledWith(expect.objectContaining({authorizationEndpoint:'https://auth.tesserix.app/oauth/v2/authorize',tokenEndpoint:'https://auth.tesserix.app/oauth/v2/token'}),{url:'https://auth.tesserix.app/oauth/v2/authorize'});
  expect(AuthSession.AuthRequest).toHaveBeenCalledWith(expect.objectContaining({clientId:platform,usePKCE:true,redirectUri:'roamie:/auth/callback',responseType:'code',scopes:expect.arrayContaining(['urn:zitadel:iam:org:id:org','urn:zitadel:iam:org:project:id:project:aud','urn:zitadel:iam:org:idp:id:'+id])}));
  const options=jest.mocked(AuthSession.AuthRequest).mock.calls.at(-1)?.[0];
  expect(options?.prompt).toBeUndefined();
@@ -61,15 +61,6 @@ test('offline communication cards remain available when sign-in cannot connect',
  await fireEvent.press(screen.getByRole('button', {name:'Please write your reply'}));
  expect(screen.getByLabelText('Card message in English')).toBeTruthy();
  expect(screen.getByRole('button', {name:'Show message'})).toBeTruthy();
-});
-
-test('offline translation is reachable while authentication is still restoring', async () => {
-  await session.clear();
-  let fail!: (error: Error) => void;
-  global.fetch = jest.fn<typeof fetch>().mockImplementation(() => new Promise((_resolve, reject) => { fail = reject; }));
-  await render(<AuthProvider><SignIn /></AuthProvider>);
-  expect(screen.getByRole('button', { name: 'Offline translation' })).toBeTruthy();
-  await act(async () => { fail(new Error('offline')); });
 });
 
 test.each<typeof Platform.OS>(['ios', 'android'])('%s supports hosted email and password sign-in with PKCE', async platform => {

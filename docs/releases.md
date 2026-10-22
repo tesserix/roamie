@@ -7,11 +7,11 @@ The API image uses the Tesserix Debian runtime; MCP uses the lean Tesserix Pytho
 from build contexts and publish immutable commit tags through existing workflows.
 API compilation uses BuildKit dependency/target caches and copies only API source.
 
-**Release images** publishes and smoke-tests the API. Advancing the Kargo-watched
-`deploy` branch now requires a manual run on `main` with `promote_deploy=true` and
-passes through the GitHub `production` environment. Configure its reviewers before
-relying on an approval gate. Publishing an image alone no longer advances deploy.
-Database migration remains a separate approved operation.
+**Release images** publishes and smoke-tests the API, then tags that exact digest
+`deploy-<sha7>` and pulls it through the `ghcr-remote` mirror. Kargo promotes only
+`deploy-*` tags, by digest, so every verified API release on `main` reaches prod
+without a manual step; an image that fails the smoke test is never tagged. Argo runs
+the image's `migrate` Job as a sync hook before the new pods roll.
 
 A `vX.Y.Z` tag must reference a main-branch commit and match the API, app config and
 mobile package versions. **Release record** runs full CI, verifies published API

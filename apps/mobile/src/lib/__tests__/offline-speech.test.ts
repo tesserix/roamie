@@ -12,7 +12,7 @@ jest.mock('expo-modules-core', () => ({ ...jest.requireActual<object>('expo-modu
 jest.mock('expo-device', () => ({ totalMemory: 8 * 1024 ** 3, deviceYearClass: 2022, isDevice: true }));
 jest.mock('expo-network', () => ({ getNetworkStateAsync: jest.fn(async () => ({ isConnected: true, isInternetReachable: true })) }));
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
-jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}) }));
+jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async (key: string) => key.startsWith('roamie.ai-consent.') ? 'allowed' : null), setItem: jest.fn(async () => {}) }));
 jest.mock('../auth-client', () => ({ API_BASE: 'https://example.test', session: { current: () => ({ sub: 'offline-audio-test' }), accessToken: jest.fn(async () => 'test-token') } }));
 jest.mock('expo-file-system/legacy', () => ({ documentDirectory: 'file:///documents/', getInfoAsync: jest.fn(), deleteAsync: jest.fn(async () => {}) }));
 jest.mock('whisper.rn/index', () => ({ initWhisper: jest.fn(), initWhisperVad: jest.fn() }));

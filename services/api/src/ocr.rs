@@ -13,6 +13,7 @@ use crate::error::{Error, Result};
 const MAX_LINES: usize = 80;
 
 /// Client for the shared Document Intelligence OCR service, signed as the Roamie product.
+#[derive(Clone)]
 pub struct Ocr {
     pub http: reqwest::Client,
     pub upload_base: String,
@@ -21,6 +22,7 @@ pub struct Ocr {
     pub secret: Vec<u8>,
     pub tenant: String,
     pub deadline: Duration,
+    pub owner: Option<(sqlx::PgPool, String)>,
 }
 
 impl std::fmt::Debug for Ocr {
@@ -185,6 +187,21 @@ pub fn valid_tenant(tenant: &str) -> bool {
     })
 }
 
+/// Mirrors the OCR service's upload check, which rejects a file whose leading bytes contradict its declared type.
+pub fn content_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"%PDF-") {
+        Some("application/pdf")
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Some("image/jpeg")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
 pub fn sign(
     secret: &[u8],
     key_id: &str,
@@ -199,6 +216,13 @@ pub fn sign(
 }
 
 impl Ocr {
+    pub fn for_customer(&self, pool: sqlx::PgPool, subject: &str) -> Self {
+        Self {
+            owner: Some((pool, subject.into())),
+            ..self.clone()
+        }
+    }
+
     /// Runs one photo through upload, inspection and extraction, bounded by `deadline`.
     pub async fn read(&self, bytes: Vec<u8>, mime: &str) -> Result<Extraction> {
         tokio::time::timeout(self.deadline, self.extract(bytes, mime))
@@ -209,7 +233,16 @@ impl Ocr {
     async fn extract(&self, bytes: Vec<u8>, mime: &str) -> Result<Extraction> {
         let until = Instant::now() + self.deadline;
         let digest = hex::encode(Sha256::digest(&bytes));
-        let key = format!("roamie-{}-{}", &digest[..32], now() / 600);
+        let key = match &self.owner {
+            Some((pool, subject)) => {
+                let scoped = hex::encode(Sha256::digest(format!("{subject}\n{digest}")));
+                let key = format!("roamie-{}-{}", &scoped[..32], now() / 600);
+                sqlx::query("INSERT INTO ocr_resources(subject,request_key) VALUES($1,$2) ON CONFLICT DO NOTHING")
+                    .bind(subject).bind(&key).execute(pool).await?;
+                key
+            }
+            None => format!("roamie-{}-{}", &digest[..32], now() / 600),
+        };
 
         let upload: Upload = self
             .call(
@@ -221,6 +254,16 @@ impl Ocr {
             )
             .await?;
         let id = &upload.upload_id;
+        if let Some((pool, subject)) = &self.owner {
+            sqlx::query(
+                "UPDATE ocr_resources SET upload_id=$3 WHERE subject=$1 AND request_key=$2",
+            )
+            .bind(subject)
+            .bind(&key)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        }
         // The idempotency key replays a recent upload of the same photo, which is already stored.
         let current: Upload = self
             .call(
@@ -277,6 +320,14 @@ impl Ocr {
             )
             .await?;
         let jid = job.job_id.clone();
+        if let Some((pool, subject)) = &self.owner {
+            sqlx::query("UPDATE ocr_resources SET job_id=$3 WHERE subject=$1 AND request_key=$2")
+                .bind(subject)
+                .bind(&key)
+                .bind(&jid)
+                .execute(pool)
+                .await?;
+        }
         if !done(&job.status) {
             self.wait(
                 until,
@@ -364,7 +415,7 @@ impl Ocr {
         );
         let mut req = self
             .http
-            .request(method, format!("{base}{path}"))
+            .request(method.clone(), format!("{base}{path}"))
             .header("X-OCR-Key-Id", &self.key_id)
             .header("X-OCR-Tenant-Id", &self.tenant)
             .header("X-OCR-Timestamp", ts.to_string())
@@ -378,6 +429,12 @@ impl Ocr {
         let res = req.send().await?;
         let status = res.status();
         if !status.is_success() {
+            tracing::warn!(
+                status = status.as_u16(),
+                method = method.as_str(),
+                path,
+                "OCR request rejected"
+            );
             return Err(Error::Unavailable("Photo reading"));
         }
         let mut res = res;
@@ -388,7 +445,10 @@ impl Ocr {
             }
             bytes.extend_from_slice(&chunk);
         }
-        serde_json::from_slice(&bytes).map_err(|_| Error::Unavailable("Photo reading"))
+        serde_json::from_slice(&bytes).map_err(|error| {
+            tracing::warn!(category = ?error.classify(), method = method.as_str(), path, "OCR response invalid");
+            Error::Unavailable("Photo reading")
+        })
     }
 }
 

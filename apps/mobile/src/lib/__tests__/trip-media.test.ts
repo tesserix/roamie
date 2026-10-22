@@ -1,5 +1,6 @@
 import { beforeEach, expect, jest, test } from '@jest/globals';
-import { photoData, deletePhotos, discardVideo, chooseMusic, exportTrip } from '../trip-media';
+import { Platform } from 'react-native';
+import { photoData, suggestPhotos, saveToPhotos, deletePhotos, discardVideo, chooseMusic, exportTrip } from '../trip-media';
 import { createTrip } from '../trips';
 const mockPick = jest.fn<() => Promise<unknown>>();
 let mockSize = 100;
@@ -12,8 +13,11 @@ jest.mock('expo-file-system', () => ({
  File: class { uri: string; exists = true; size = mockSize; constructor(uri: string | {uri:string}, name?:string) { this.uri = typeof uri === 'string' ? uri : uri.uri + name; } base64 = mockRead; delete() { mockDelete(this.uri); } move() {} },
 }));
 jest.mock('expo-image-manipulator', () => ({}));
-jest.mock('expo-image-picker', () => ({}));
-jest.mock('expo-media-library', () => ({}));
+const mockPhotoPicker = jest.fn(async () => ({canceled:true}));
+jest.mock('expo-image-picker', () => ({launchImageLibraryAsync: () => mockPhotoPicker()}));
+const mockMediaPermission = jest.fn(async () => ({granted:false}));
+const mockSaveAsset = jest.fn(async (_uri: string) => ({}));
+jest.mock('expo-media-library', () => ({requestPermissionsAsync: () => mockMediaPermission(),Asset:{create:(uri:string)=>mockSaveAsset(uri)}}));
 jest.mock('expo-print', () => ({printToFileAsync: (options: unknown) => mockPrint(options)}));
 jest.mock('expo-sharing', () => ({}));
 const trip = createTrip({title:'Trip',destination:'Hanoi',startDate:'2026-10-02',endDate:'2026-10-03',currency:'USD',budgetMinor:0,travellers:1,diet:'none',interests:''});
@@ -53,4 +57,24 @@ test('music selection handles cancellation, rejects oversize files and releases 
  mockSize = 100;
  mockPick.mockResolvedValueOnce({canceled:false,assets:[{uri:'file:///app/Cache/music.mp3',name:'music.mp3'}]});
  expect(await chooseMusic()).toEqual({name:'music.mp3',data:'YWJj'});
+});
+
+ test('Android memory selection opens the system picker without scanning the photo library', async () => {
+ const previous = Platform.OS;
+ Object.defineProperty(Platform, 'OS', {configurable:true, value:'android'});
+ try {
+  expect(await suggestPhotos('alice',trip)).toBeNull();
+  expect(mockPhotoPicker).toHaveBeenCalledTimes(1);
+ } finally { Object.defineProperty(Platform, 'OS', {configurable:true, value:previous}); }
+});
+
+test('modern Android saves an app-created memory without asking to read the library', async () => {
+ const previous = Object.getOwnPropertyDescriptors(Platform);
+ Object.defineProperty(Platform,'OS',{configurable:true,value:'android'});
+ Object.defineProperty(Platform,'Version',{configurable:true,value:36});
+ try {
+  await saveToPhotos('file:///app/Documents/memory.mp4');
+  expect(mockMediaPermission).not.toHaveBeenCalled();
+  expect(mockSaveAsset).toHaveBeenCalledWith('file:///app/Documents/memory.mp4');
+ } finally {Object.defineProperties(Platform,previous);}
 });

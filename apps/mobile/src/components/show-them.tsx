@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAccessibility } from '@/lib/accessibility';

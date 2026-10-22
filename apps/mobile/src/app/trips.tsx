@@ -1,5 +1,7 @@
+import { useTextScale } from '@/lib/accessibility';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -116,7 +118,8 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
   const [showManager,setShowManager] = useState(false);
   const {profile} = useStore();
   const store = useTrips(), c = useColors(), insets = useSafeAreaInsets();
-  const { width, fontScale } = useWindowDimensions();
+  const { width } = useWindowDimensions();
+  const fontScale = useTextScale();
   const [day, setDay] = useState(0), [tab, setTab] = useState<'calendar' | 'memories'>('calendar'), [editor, setEditor] = useState<TripStop | 'new' | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(''), [seconds, setSeconds] = useState<60 | 90>(60), [video, setVideo] = useState<string | null>(null), [pdf, setPdf] = useState<string | null>(null), [suggested, setSuggested] = useState<MemoryPhoto[] | null>(null);
   const [videoStage, setVideoStage] = useState<'preparing' | 'rendering' | null>(null);
   const [videoNotice, setVideoNotice] = useState('');
@@ -227,7 +230,7 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
         </Card>)}
         <Button label="Add a stop" kind="secondary" disabled={!!busy} onPress={() => setEditor('new')} /><Text style={[font.caption, { color: c.muted }]}>{trip.notice}</Text>
       </> : <>
-        <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text style={[font.title, { color: c.text }]}>Trip memories</Text><Text style={[font.body, { color: c.muted }]}>Choose 1–15 photos, add a few words, and make something worth keeping.</Text><Button label="Choose photos" disabled={!!busy} onPress={() => pick(false)} /><Button label="Suggest from trip dates" kind="secondary" disabled={!!busy} onPress={() => pick(true)} /><Text style={[font.caption, { color: c.muted }]}>Suggestions use up to 300 accessible photos from your trip dates on this phone. Review them before saving.</Text></Card>
+        <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text style={[font.title, { color: c.text }]}>Trip memories</Text><Text style={[font.body, { color: c.muted }]}>Choose 1–15 photos, add a few words, and make something worth keeping.</Text><Button label="Choose photos" disabled={!!busy} onPress={() => pick(false)} />{Platform.OS === 'ios' && <><Button label="Suggest from trip dates" kind="secondary" disabled={!!busy} onPress={() => pick(true)} /><Text style={[font.caption, { color: c.muted }]}>Suggestions use up to 300 accessible photos from your trip dates on this phone. Review them before saving.</Text></>}</Card>
         {suggested && <Card style={{ padding: 20, borderRadius: 24, gap: 14 }}><Text style={[font.headline, { color: c.text }]}>Your selection · {suggested.length} photos</Text><Button label="Use these photos" disabled={!!busy} onPress={() => { void work('Saving photos…', () => acceptPhotos(suggested)); }} /><Button label="Discard selection" kind="secondary" onPress={() => { deletePhotos(store.accountId, trip.id, suggested); pendingPhotos.current = []; setSuggested(null); }} /></Card>}
         {trip.photos.length > 0 && !suggested && <Card>
           <Text style={[font.title, { color: c.text }]}>Make a memory video</Text>

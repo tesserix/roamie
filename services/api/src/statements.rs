@@ -90,7 +90,6 @@ pub async fn extract(
                 ocr,
                 jev.ok_or(Error::Unavailable("Photo review"))?,
                 &req.data,
-                &req.mime_type,
                 "statement transaction extraction",
                 true,
             )

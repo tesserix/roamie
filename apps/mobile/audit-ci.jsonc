@@ -1,0 +1,9 @@
+{
+  "$schema": "https://github.com/IBM/audit-ci/raw/main/docs/schema.json",
+  "high": true,
+  // Build and test tooling only, no patched release yet; remove once upstream ships a fix.
+  "allowlist": [
+    "GHSA-vfj7-8cjw-p6xm", // braces via micromatch (Metro, Jest)
+    "GHSA-86w9-cpqp-85rv" // node-forge via Expo CLI code signing
+  ]
+}

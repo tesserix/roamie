@@ -226,9 +226,3 @@ setup is not a phone release profile.
 Run `node --test scripts/ci/*.test.mjs` and `actionlint` at the repository root.
 A successful build does not verify Google/Apple sign-in, live OCR/JEV accuracy,
 notifications, physical-device permissions or Android visual behavior.
-
-Weather follow-up (2026-10-12): local provider attribution, precipitation label
-and forecast-window guidance changes are not in TestFlight 0.1.0 (5). The
-Open-Meteo backend adapter is also local only, pending commercial key and a
-compatible CI/GitOps release. Live evaluation succeeded for Tokyo and Kyoto;
-this is not evidence that production has switched providers.

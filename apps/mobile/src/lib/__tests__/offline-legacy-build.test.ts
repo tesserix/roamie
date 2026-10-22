@@ -8,6 +8,7 @@ jest.mock('expo-network', () => { throw new Error('ExpoNetwork is not installed 
 jest.mock('expo-device', () => ({ totalMemory: 4 * 1024 ** 3 }));
 jest.mock('expo-file-system/legacy', () => ({ documentDirectory: 'file:///documents/', getInfoAsync: jest.fn(async () => ({ exists: false })) }));
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
+jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async (key: string) => key.startsWith('roamie.ai-consent.') ? 'allowed' : null), setItem: jest.fn(async () => {}) }));
 jest.mock('../auth-client', () => ({ API_BASE: 'https://example.test', session: { current: () => ({ sub: 'legacy-user' }), accessToken: jest.fn(async () => 'test-token') } }));
 
 test('a binary without new native modules can check packs and continue using cloud translation', async () => {

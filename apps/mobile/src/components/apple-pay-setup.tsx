@@ -1,4 +1,5 @@
-import { Alert, Linking, Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Modal, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from './ui';

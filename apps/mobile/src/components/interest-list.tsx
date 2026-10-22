@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 
 import { Icon } from '@/components/ui';
 import { font, useColors } from '@/constants/theme';

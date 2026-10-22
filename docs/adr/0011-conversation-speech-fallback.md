@@ -54,6 +54,15 @@ explicit source preference. Manual language changes discard old reference contex
 Card-number-length runs in JEV evidence are masked before truncation. Transcripts
 are never stored on the server or included in gateway telemetry.
 
+The last accepted distinct source/partner pair is saved together in the existing
+account-scoped device store. Reopening Translate restores that pair before falling
+back to the profile language, without turning Auto into a manual selection.
+Explicit selections take precedence; Clear conversation and choosing You: Auto
+discard the remembered pair. Review-required, cancelled, and failed turns cannot
+replace it. Identical selected languages produce a correction prompt rather than
+an echoed utterance presented as a translation. This adds two language codes to
+one local storage write, no transcript persistence, API round trip, or migration.
+
 The native speech route exports fixed model identity and provider usage metadata
 without audio/text payloads. The existing console ledger stores it under Roamie,
 roamie-api and talk/speech. Speech remains explicitly unpriced until a verified
@@ -68,3 +77,69 @@ bind both translations to their requested languages/native scripts. A live
 Odia/Hindi/French/Hindi sequence reproduced context drift; the typed-text invariant
 and clearer translation contract prevent silent acceptance of a rewritten input.
 Audio transcripts remain model-derived and require the existing JEV check.
+
+Generative language labels are not authoritative. Live testing found Gemini
+2.5 Flash copied a Nepali reply into both Hindi/Nepali outputs while confidently
+labelling it Hindi. Shared scripts defeat both a turn-order guess and a
+language-specific script guard.
+
+Cloud Translation v3 detects the current exact typed text or current audio
+transcript, then translates from that language into the counterpart selected by
+the existing pair-routing rules. No language-specific routing rule is used.
+`expectedSpeaker`, history and the profile cannot override detection. The
+production workload uses ADC and a scoped `roles/cloudtranslate.user` grant;
+there is no API key. The service is already enabled in the project. ADC discovery
+is lazy and cached, so unavailable credentials cannot prevent unrelated API
+routes from starting.
+
+Gemini retains speech transcription, acoustic confidence, voice register and
+optional pronunciation guides. A guide is retained only when its associated
+translation matches the dedicated service's final text. The lower detection/
+transcription confidence, rewritten typed transcripts and
+echoed translations require review. Independent JEV review still runs. An
+unavailable or malformed provider fails safely without accepting an echo or
+changing memory.
+
+Each dedicated operation has a nine-second total deadline, four seconds per
+request, at most one transient retry, and a 64 KiB response limit. Transcription
+is bounded at 35 seconds so these operations and review fit inside the 60-second
+route deadline. Requests are idempotent; the account-scoped accepted turn cache
+and existing client retry remain in place.
+
+Provider preflight covered 35 selectable languages, 70 current utterance
+detections and 172 translations. It exposed one low-confidence Indonesian/Malay
+ambiguity and two transient network failures. Those observations are retained
+in QA evidence rather than treated as passing cases. This architecture prevents
+the reported successful same-language echo; it cannot promise perfect detection
+for every ambiguous phrase or eliminate upstream outages.
+
+Client regressions cover every ordered distinct pair in the 35-language picker
+(1,190 pairs), reopening Translate and replying in the other language. Recording
+mode tests cover both alternating turns and repeated turns by the same speaker,
+with six distinct payloads and two screen restarts per mode and pattern.
+
+
+The audio model now has a transcription-only contract with the selected pair as
+language hints; it cannot generate the two translations while recognizing speech.
+Current words/native script and optional pitch remain its outputs, and the dedicated
+service translates that transcript afterwards. History may disambiguate current
+words, but cannot supply an earlier utterance. Typed pronunciation guides retain
+the existing contract; audio guides are omitted rather than associated with an
+unrelated generated translation.
+
+Auto accepts the current source language when confidence and independent review
+allow it; the profile and remembered source are fallbacks, not restrictions on
+which language the traveller may speak. This applies both when the initial pair
+is equal and when the fallback differs from the partner. A clear third source
+can update Auto while retaining the selected partner. Explicit source selection
+continues to reject speech outside the chosen languages. Low-confidence results
+cannot update memory. Regressions verify accepted initialization and subsequent
+source changes across unrelated language families.
+
+Independent Gemini and Cloud Speech comparisons retained short Bengali recordings
+with ambiguous pronunciation and divergent words. They must not be counted as
+successful semantic tests merely because a recognizer returns the expected ISO
+code. A specialist recognizer did not consistently improve those cases and is
+not added to the production request path. Preserve raw audio, transcripts and
+meaning assertions in QA evidence; no provider can guarantee every accent or
+ambiguous fragment is recognized correctly.

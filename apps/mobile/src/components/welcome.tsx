@@ -1,6 +1,7 @@
 import { getLocales } from 'expo-localization';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandHeader, TravelHero } from './travel-brand';
@@ -14,7 +15,16 @@ import { LANGUAGES, languageName } from '@/lib/languages';
 import { toMinor } from '@/lib/money';
 import { signOut } from '@/lib/sign-out';
 import { type Diet, useStore } from '@/lib/store';
-import { DIET_OPTIONS } from '@/lib/diets';
+
+const DIETS: { value: Diet; label: string }[] = [
+  { value: 'none', label: 'Anything' },
+  { value: 'vegetarian', label: 'Vegetarian' },
+  { value: 'vegan', label: 'Vegan' },
+  { value: 'halal', label: 'Halal' },
+  { value: 'kosher', label: 'Kosher' },
+  { value: 'jain', label: 'Jain' },
+  { value: 'pescatarian', label: 'Pescatarian' },
+];
 
 export default function Welcome() {
   const c = useColors();
@@ -87,7 +97,7 @@ export default function Welcome() {
 
         <Section icon="fork.knife" title="What do you eat?">
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-            {DIET_OPTIONS.map((d) => (
+            {DIETS.map((d) => (
               <Chip key={d.value} label={d.label} selected={diet === d.value} onPress={() => setDiet(d.value)} />
             ))}
           </View>
@@ -103,7 +113,7 @@ export default function Welcome() {
         />
         <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 }}>
           <Icon name="lock.fill" size={13} color={c.muted} />
-          <Text style={[font.caption, { color: c.muted }]}>Your wallet stays on this phone. Connected planning uses your trip preferences.</Text>
+          <Text style={[font.caption, { color: c.muted }]}>Your personal wallet stays on this phone. Shared group expenses and contacts sync online when you choose to create or join a group.</Text>
         </View>
         <Pressable accessibilityRole="button" onPress={() => { void signOut(); }} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', alignItems: 'center', opacity: pressed ? 0.7 : 1 })}><Text style={[font.caption, { color: c.muted, textDecorationLine: 'underline' }]}>Change account</Text></Pressable>
       </ScrollView>

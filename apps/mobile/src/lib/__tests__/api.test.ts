@@ -3,6 +3,7 @@ import { fetch as mockExpoFetch } from 'expo/fetch';
 import { session } from '../auth-client';
 import { ApiError, talkTurn, translateText } from '../api';
 
+jest.mock('@react-native-async-storage/async-storage', () => ({getItem:jest.fn(async (key: string)=>key.startsWith('roamie.ai-consent.') ? 'allowed' : null),setItem:jest.fn(async()=>{})}));
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
 jest.mock('../auth-client', () => ({
   API_BASE: 'https://roamie-api.tesserix.app',

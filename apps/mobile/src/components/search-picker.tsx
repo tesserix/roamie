@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, View } from 'react-native';
+import { Text, TextInput } from '@/components/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { font, useColors } from '@/constants/theme';
 

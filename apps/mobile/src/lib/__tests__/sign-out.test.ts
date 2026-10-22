@@ -19,9 +19,11 @@ test('notification failure cannot prevent clearing the customer and stored crede
   jest.mocked(Notifications.cancelAllScheduledNotificationsAsync).mockRejectedValue(new Error('unavailable'));
   const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   try {
+    jest.mocked(SecureStore.deleteItemAsync).mockClear();
     await signOut();
     expect(session.current()).toBeNull();
-    expect(SecureStore.deleteItemAsync).toHaveBeenCalledTimes(2);
+    expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith('roamie.auth.v1');
+    expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith('roamie.auth.pending.v1');
     expect(alert).toHaveBeenCalled();
   } finally { alert.mockRestore(); }
 });

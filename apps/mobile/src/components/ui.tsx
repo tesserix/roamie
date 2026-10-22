@@ -1,6 +1,7 @@
 import { SymbolView, type AndroidSymbol, type SFSymbol } from 'expo-symbols';
 import type { ReactNode } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View, type ColorValue, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View, type ColorValue, type ViewStyle } from 'react-native';
+import { Text } from '@/components/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ProfileSettings } from './profile-settings';

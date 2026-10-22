@@ -1,29 +1,30 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text as OverlayText, useWindowDimensions, View } from 'react-native';
+import { Text } from '@/components/typography';
 
 import { Badge, Button, Chip, Icon, Message, SpeakButton } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
 import { type SignLine, translateSign } from '@/lib/api';
 import { languageName } from '@/lib/languages';
+import { type Photo, toJpeg } from '@/lib/photo';
 import { placeLabels } from '@/lib/sign-layout';
 import { LanguagePicker } from './language-picker';
 import { useTranslationPreferences } from '@/lib/translation-preferences';
 
-type Photo = { uri: string; width: number; height: number; base64?: string; mimeType: string };
 type Read =
   | { status: 'reading' }
   | { status: 'error'; message: string }
   | { status: 'ready'; detected: string; gist: string; lines: SignLine[]; reviewRequired?: boolean; engine?: 'device' | 'cloud' };
 
-const PICK: ImagePicker.ImagePickerOptions = { quality: 0.6, mediaTypes: ['images'] };
+const PICK: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'] };
 
 export function CameraTranslate({ mine, bottom, partner, offlineOnly = false }: { mine: string; bottom: number; partner?: string | null; offlineOnly?: boolean }) {
   const c = useColors();
   const { mode } = useTranslationPreferences();
   const { width, height } = useWindowDimensions();
-  const [photo, setPhoto] = useState<Photo | null>(null);
+  const [photo, setPhoto] = useState<Omit<Photo, 'base64'> | null>(null);
   const [settled, setSettled] = useState<{ key: string; read: Read } | null>(null);
   const [overlay, setOverlay] = useState(true);
   const [from, setFrom] = useState<string | null>(partner ?? null);
@@ -36,7 +37,7 @@ export function CameraTranslate({ mine, bottom, partner, offlineOnly = false }: 
   useEffect(() => {
     if (!photo) return;
     const controller = new AbortController();
-    void translateSign(photo.base64 ?? '', photo.mimeType, mine, { uri: photo.uri, from: from ?? undefined, signal: controller.signal, offlineOnly })
+    void translateSign('', photo.mimeType, mine, { uri: photo.uri, from: from ?? undefined, signal: controller.signal, offlineOnly })
       .then(result => { if (!controller.signal.aborted) setSettled({ key: requestKey, read: { status: 'ready', ...result } }); })
       .catch(error => { if (!controller.signal.aborted) setSettled({ key: requestKey, read: { status: 'error', message: error instanceof Error ? error.message : 'Could not read this photo. Please try again.' } }); });
     return () => controller.abort();
@@ -59,8 +60,15 @@ export function CameraTranslate({ mine, bottom, partner, offlineOnly = false }: 
       picked = await ImagePicker.launchImageLibraryAsync(PICK);
     }
     const a = picked.canceled ? null : picked.assets[0];
-    if (!a?.uri) return;
-    const next = { uri: a.uri, width: a.width, height: a.height, base64: a.base64 ?? undefined, mimeType: a.mimeType ?? 'image/jpeg' };
+    if (!a) return;
+    let next: Omit<Photo, 'base64'>;
+    try {
+      next = await toJpeg(a.uri, false);
+    } catch {
+      setPhoto(null);
+      setRead({ status: 'error', message: "Roamie couldn't open that photo. Try another one." });
+      return;
+    }
     setPhoto(next);
     setOverlay(true);
   }
@@ -108,9 +116,9 @@ export function CameraTranslate({ mine, bottom, partner, offlineOnly = false }: 
         {labels.map(({ fontSize, ...box }, i) => (
           <View key={i} style={[styles.label, box, { backgroundColor: c.surface }]}>
             {/* Sized to the photo, so system text scaling would only push it past the label. */}
-            <Text allowFontScaling={false} adjustsFontSizeToFit minimumFontScale={0.6} numberOfLines={1} style={{ color: c.text, fontWeight: '600', fontSize }}>
+            <OverlayText allowFontScaling={false} adjustsFontSizeToFit minimumFontScale={0.6} numberOfLines={1} style={{ color: c.text, fontWeight: '600', fontSize }}>
               {ready?.lines[i].translation}
-            </Text>
+            </OverlayText>
           </View>
         ))}
         {read.status === 'reading' ? (

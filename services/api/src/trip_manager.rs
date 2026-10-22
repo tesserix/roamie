@@ -9,7 +9,7 @@ use axum::{
     Extension, Json,
 };
 use hmac::{Hmac, Mac};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -29,12 +29,12 @@ pub struct Manager {
     customer_enabled: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
-    profile: Map<String, Value>,
-    specialist: String,
-    request: Value,
+    pub(crate) profile: Map<String, Value>,
+    pub(crate) specialist: String,
+    pub(crate) request: Value,
 }
 
 impl Manager {
@@ -101,7 +101,7 @@ impl Manager {
         Ok((bytes, hex::encode(mac.finalize().into_bytes()), revision))
     }
 
-    fn personal_identity(&self, subject: &str, trip_id: &str) -> Result<String> {
+    pub(crate) fn personal_identity(&self, subject: &str, trip_id: &str) -> Result<String> {
         let material = serde_json::to_vec(&json!(["roamie", subject, trip_id]))
             .map_err(|_| Error::Unavailable("Trip manager"))?;
         let mut mac = Hmac::<Sha256>::new_from_slice(self.identity_key.as_bytes())
@@ -137,7 +137,7 @@ impl Manager {
             .is_ok()
     }
 
-    fn can_serve_customer(&self, headers: &HeaderMap) -> bool {
+    pub(crate) fn can_serve_customer(&self, headers: &HeaderMap) -> bool {
         if self.customer_enabled {
             return true;
         }
@@ -148,7 +148,7 @@ impl Manager {
         self.authenticate(&validation)
     }
 
-    async fn recommend(&self, input: Request, subject: &str) -> Result<Value> {
+    pub(crate) async fn recommend(&self, input: Request, subject: &str) -> Result<Value> {
         let _permit = self
             .slots
             .try_acquire()
@@ -176,6 +176,12 @@ impl Manager {
             .await
             .map_err(|_| Error::Unavailable("Trip manager"))?;
         if !reply.status().is_success() {
+            if reply.status().as_u16() == 409 {
+                return Err(Error::ProfileChanged);
+            }
+            if reply.status().is_client_error() && reply.status().as_u16() != 429 {
+                return Err(Error::Invalid("The trip manager could not accept these preferences. Please check your trip details.".into()));
+            }
             return Err(Error::Unavailable("Trip manager"));
         }
         let mut bytes = Vec::new();
@@ -247,8 +253,14 @@ pub async fn recommend(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    pub(crate) fn manager_at(origin: &str) -> Manager {
+        let mut value = manager();
+        value.origin = origin.into();
+        value
+    }
+
     fn manager() -> Manager {
         Manager {
             origin: "http://unused".into(),

@@ -8,7 +8,6 @@ jest.mock('expo-device', () => ({ totalMemory: 8 * 1024 ** 3 }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}) }));
 jest.mock('expo-file-system/legacy', () => ({ documentDirectory: 'file:///documents/', getInfoAsync: jest.fn(async () => ({ exists: false })) }));
-jest.mock('../accessibility', () => ({ useAccessibility: () => ({ highContrast: false, reducedMotion: true, voice: 'match' }) }));
 jest.mock('../../../modules/roamie-offline', () => ({ __esModule: true, offlineNative: () => ({
   downloadedLanguages: async () => ['fr'],
   supportedTextLanguages: async () => ['en', 'fr'],

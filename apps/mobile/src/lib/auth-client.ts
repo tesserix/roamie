@@ -53,6 +53,26 @@ function persist(value: Session, expected: number): Promise<void> {
 
 function notify() { listeners.forEach(listener => listener()); }
 
+const PENDING_KEY = 'roamie.auth.pending.v1';
+const PENDING_TTL_MS = 30 * 60_000;
+type PendingSignIn = { state: string; codeVerifier: string; clientId: string; expiresAt: number };
+
+// Android may kill the app while the sign-in browser is open; the redirect then cold-starts it.
+export const pendingSignIn = {
+  save: (state: string, codeVerifier: string, clientId: string) => SecureStore.setItemAsync(PENDING_KEY,
+    JSON.stringify({ state, codeVerifier, clientId, expiresAt: Date.now() + PENDING_TTL_MS }), { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
+  clear: () => SecureStore.deleteItemAsync(PENDING_KEY),
+  async take(): Promise<PendingSignIn | null> {
+    const raw = await SecureStore.getItemAsync(PENDING_KEY);
+    if (!raw) return null;
+    await SecureStore.deleteItemAsync(PENDING_KEY);
+    try {
+      const pending = JSON.parse(raw) as PendingSignIn;
+      return pending.expiresAt > Date.now() ? pending : null;
+    } catch { return null; }
+  },
+};
+
 export async function authDeadline<T>(request: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -173,6 +193,7 @@ export const session = {
   async logout(): Promise<boolean> {
     const previous = active;
     await session.clear();
+    await pendingSignIn.clear();
     if (!previous) return true;
     const controller = new AbortController();
     try {

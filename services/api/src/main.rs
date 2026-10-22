@@ -1,3 +1,4 @@
+mod account_deletion;
 mod accounts;
 mod audio;
 #[cfg(test)]
@@ -5,6 +6,7 @@ mod audit_tests;
 mod auth;
 #[cfg(test)]
 mod auth_tests;
+mod cache;
 mod database;
 mod decisions;
 mod destinations;
@@ -13,11 +15,17 @@ mod error;
 mod fx;
 mod gateway;
 mod gemini;
+mod group_budget;
+mod group_budget_api;
 mod lang;
+mod mail;
 mod memories;
 mod money;
 mod nearby;
 mod ocr;
+mod phrasebook;
+mod planning_jobs;
+mod privacy;
 mod receipts;
 mod signs;
 mod speech;
@@ -26,6 +34,7 @@ mod talk;
 #[cfg(test)]
 mod tests;
 mod translate;
+mod translation;
 mod travel_mcp;
 mod travel_profiles;
 mod trip_manager;
@@ -34,7 +43,7 @@ mod trips;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{Query, State};
+use axum::extract::{Extension, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -46,6 +55,7 @@ use tower_http::trace::TraceLayer;
 use error::{Error, Result};
 
 struct AppState {
+    mail: Option<mail::Sender>,
     trip_manager: Option<trip_manager::Manager>,
     travel_mcp_key: Option<String>,
     auth: Option<auth::Verifier>,
@@ -53,12 +63,16 @@ struct AppState {
     database: Option<database::Database>,
     http: reqwest::Client,
     ai: Option<gemini::Gemini>,
+    translation: translation::Translation,
     fx: fx::Fx,
     places: Option<nearby::Places>,
     ocr: Option<ocr::Ocr>,
     jev: Option<decisions::Jev>,
     memories: memories::Renderer,
     audio: audio::Gate,
+    talk_turns: cache::Recent<talk::TurnResponse>,
+    text_translations: cache::Recent<translate::TextResponse>,
+    phrasebook: Option<phrasebook::Phrasebook>,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -103,6 +117,10 @@ async fn main() -> anyhow::Result<()> {
         cfg!(debug_assertions) || gateway.is_some(),
         "AI_GATEWAY_ORIGIN required in release builds"
     );
+    let model = match &gateway {
+        Some(_) => gemini::GATEWAY_MODEL.to_owned(),
+        None => env_or("GEMINI_MODEL", "gemini-2.5-flash"),
+    };
     let ai = if let Some(gateway) = gateway.clone() {
         Some(gemini::Gemini::with_gateway(gateway))
     } else {
@@ -110,7 +128,7 @@ async fn main() -> anyhow::Result<()> {
             http.clone(),
             &env_or("GCP_PROJECT", "tesseracthub-480811"),
             &env_or("VERTEX_LOCATION", "global"),
-            &env_or("GEMINI_MODEL", "gemini-2.5-flash"),
+            &model,
         )
         .await
         .inspect_err(|_| tracing::warn!("development model credentials unavailable"))
@@ -136,8 +154,15 @@ async fn main() -> anyhow::Result<()> {
         ocr.is_none() || jev.is_some(),
         "AI_GATEWAY_ORIGIN required when OCR is configured"
     );
+    let phrasebook = database
+        .as_ref()
+        .map(|db| phrasebook::Phrasebook::new(db.pool.clone(), &model));
     audio::check_runtime().expect("speech detection runtime must initialize");
+    let translation =
+        translation::Translation::new(http.clone(), &env_or("GCP_PROJECT", "tesseracthub-480811"));
     let state = Arc::new(AppState {
+        translation,
+        mail: mail::Sender::from_env()?,
         trip_manager: trip_manager::Manager::from_env()?,
         travel_mcp_key: std::env::var("TRAVEL_MCP_API_KEY").ok(),
         auth,
@@ -151,6 +176,9 @@ async fn main() -> anyhow::Result<()> {
         places,
         memories: memories::Renderer::new(),
         audio: audio::Gate::new(),
+        talk_turns: cache::Recent::default(),
+        text_translations: cache::Recent::default(),
+        phrasebook,
     });
 
     let host = if development_auth_disabled {
@@ -161,9 +189,18 @@ async fn main() -> anyhow::Result<()> {
     let addr = format!("{host}:{}", env_or("PORT", "8080"));
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(%addr, "roamie-api listening");
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown())
-        .await?;
+    let (jobs_stop, jobs_shutdown) = tokio::sync::watch::channel(false);
+    let mail = tokio::spawn(mail::run(state.clone(), jobs_shutdown.clone()));
+    let jobs = tokio::spawn(planning_jobs::run(state.clone(), jobs_shutdown));
+    let served = axum::serve(listener, router(state))
+        .with_graceful_shutdown(async move {
+            shutdown().await;
+            let _ = jobs_stop.send(true);
+        })
+        .await;
+    jobs.await?;
+    mail.await?;
+    served?;
     Ok(())
 }
 
@@ -173,6 +210,25 @@ fn timeout(seconds: u64) -> TimeoutLayer {
 
 fn router(state: Arc<AppState>) -> Router {
     let v1 = Router::new()
+        .route(
+            "/groups",
+            get(group_budget_api::list)
+                .post(group_budget_api::create)
+                .layer(RequestBodyLimitLayer::new(8192)),
+        )
+        .route("/groups/{id}", get(group_budget_api::get))
+        .route("/groups/{id}/join", post(group_budget_api::join))
+        .route(
+            "/groups/{id}/commands",
+            post(group_budget_api::command).layer(RequestBodyLimitLayer::new(16384)),
+        )
+        .route(
+            "/trips/{trip}/planning",
+            get(planning_jobs::get)
+                .post(planning_jobs::start)
+                .delete(planning_jobs::cancel)
+                .layer(RequestBodyLimitLayer::new(32768)),
+        )
         .route(
             "/trips/{trip}/profile",
             get(travel_profiles::get)
@@ -190,6 +246,12 @@ fn router(state: Arc<AppState>) -> Router {
         .route("/fx", get(fx_latest))
         .route("/auth/me", get(accounts::me))
         .route("/auth/audit", get(accounts::audit))
+        .route(
+            "/auth/deletion-request",
+            get(account_deletion::get)
+                .post(account_deletion::create)
+                .layer(RequestBodyLimitLayer::new(1024)),
+        )
         .route("/reference/trip-styles", get(accounts::styles))
         .route("/trips/plan", post(trips::plan))
         .route("/memories/capabilities", post(memories::capabilities))
@@ -250,6 +312,8 @@ fn router(state: Arc<AppState>) -> Router {
             "/internal/v1/travel/profile/verify",
             post(travel_profiles::verify).layer(RequestBodyLimitLayer::new(32768)),
         )
+        .route("/privacy", get(privacy::privacy))
+        .route("/account-deletion", get(privacy::account_deletion))
         .route("/healthz", get(|| async { "ok" }))
         .route("/readyz", get(readiness))
         .route("/v1/auth/config", get(auth::configuration))
@@ -275,6 +339,7 @@ fn ocr_from_env(http: &reqwest::Client) -> anyhow::Result<ocr::Ocr> {
         secret: hex::decode(var("OCR_KEY_SECRET")?.trim())?,
         tenant,
         deadline: Duration::from_secs(env_or("OCR_DEADLINE_SECS", "40").parse()?),
+        owner: None,
     })
 }
 
@@ -295,6 +360,7 @@ async fn shutdown() {
 
 async fn talk_turn(
     State(s): State<Arc<AppState>>,
+    Extension(customer): Extension<auth::Customer>,
     Json(req): Json<talk::TurnRequest>,
 ) -> Result<Json<talk::TurnResponse>> {
     req.utterance()?;
@@ -302,49 +368,99 @@ async fn talk_turn(
         s.audio.verify(audio).await?;
     }
     let ai = s.ai.as_ref().ok_or(Error::Unavailable("Translation"))?;
-    Ok(Json(talk::interpret(ai, s.jev.as_ref(), &req).await?))
+    let key = req.cache_key().map(|k| cache::key(&customer.sub, &k));
+    if let Some(hit) = key.as_ref().and_then(|k| s.talk_turns.get(k)) {
+        return Ok(Json(hit));
+    }
+    let turn = talk::interpret(ai, &s.translation, s.jev.as_ref(), &req).await?;
+    if let Some(book) = &s.phrasebook {
+        book.for_customer(&customer.sub)
+            .remember(vec![turn.phrase()]);
+    }
+    if let Some(key) = key {
+        s.talk_turns.put(key, turn.clone());
+    }
+    Ok(Json(turn))
 }
 
 async fn translate_text(
     State(s): State<Arc<AppState>>,
+    Extension(customer): Extension<auth::Customer>,
     Json(req): Json<translate::TextRequest>,
 ) -> Result<Json<translate::TextResponse>> {
     let ai = s.ai.as_ref().ok_or(Error::Unavailable("Translation"))?;
-    Ok(Json(translate::text(ai, &req).await?))
+    let key = cache::key(&customer.sub, &req.cache_key());
+    if let Some(hit) = s.text_translations.get(&key) {
+        return Ok(Json(hit));
+    }
+    let book = s
+        .phrasebook
+        .as_ref()
+        .map(|book| book.for_customer(&customer.sub));
+    let translated = translate::text(ai, book.as_ref(), &req).await?;
+    s.text_translations.put(key, translated.clone());
+    Ok(Json(translated))
 }
 
 async fn sign_translate(
     State(s): State<Arc<AppState>>,
+    Extension(customer): Extension<auth::Customer>,
     Json(req): Json<signs::SignRequest>,
 ) -> Result<Json<signs::SignResponse>> {
     let (Some(ocr), Some(jev), Some(ai)) = (s.ocr.as_ref(), s.jev.as_ref(), s.ai.as_ref()) else {
         return Err(Error::Unavailable("Photo translation"));
     };
-    Ok(Json(signs::translate(ocr, jev, ai, &req).await?))
+    let ocr = customer_ocr(&s, ocr, &customer.sub)?;
+    let translated = signs::translate(&ocr, jev, ai, &req).await?;
+    if let Some(book) = &s.phrasebook {
+        book.for_customer(&customer.sub)
+            .remember(translated.phrases(&req.to));
+    }
+    Ok(Json(translated))
 }
 
 async fn receipt_extract(
     State(s): State<Arc<AppState>>,
+    Extension(customer): Extension<auth::Customer>,
     Json(req): Json<receipts::ReceiptRequest>,
 ) -> Result<Json<receipts::Receipt>> {
     let ai =
         s.ai.as_ref()
             .ok_or(Error::Unavailable("Receipt scanning"))?;
+    let ocr = s
+        .ocr
+        .as_ref()
+        .map(|ocr| customer_ocr(&s, ocr, &customer.sub))
+        .transpose()?;
     Ok(Json(
-        receipts::extract(ai, s.ocr.as_ref(), s.jev.as_ref(), &req).await?,
+        receipts::extract(ai, ocr.as_ref(), s.jev.as_ref(), &req).await?,
     ))
 }
 
 async fn statement_extract(
     State(s): State<Arc<AppState>>,
+    Extension(customer): Extension<auth::Customer>,
     Json(req): Json<statements::StatementRequest>,
 ) -> Result<Json<statements::Statement>> {
     let ai =
         s.ai.as_ref()
             .ok_or(Error::Unavailable("Statement import"))?;
+    let ocr = s
+        .ocr
+        .as_ref()
+        .map(|ocr| customer_ocr(&s, ocr, &customer.sub))
+        .transpose()?;
     Ok(Json(
-        statements::extract(ai, s.ocr.as_ref(), s.jev.as_ref(), &req).await?,
+        statements::extract(ai, ocr.as_ref(), s.jev.as_ref(), &req).await?,
     ))
+}
+
+fn customer_ocr(state: &AppState, ocr: &ocr::Ocr, subject: &str) -> Result<ocr::Ocr> {
+    match &state.database {
+        Some(db) => Ok(ocr.for_customer(db.pool.clone(), subject)),
+        None if cfg!(debug_assertions) && state.development_auth_disabled => Ok(ocr.clone()),
+        None => Err(Error::Unavailable("Document ownership storage")),
+    }
 }
 
 async fn nearby_search(

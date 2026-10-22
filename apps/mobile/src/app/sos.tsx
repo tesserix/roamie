@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { SFSymbol } from 'expo-symbols';
-import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/typography';
 
 import { Badge, Button, Icon, Screen, SectionLabel, TAB_CLEARANCE } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';

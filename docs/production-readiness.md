@@ -13,48 +13,6 @@ uploaded and processed successfully; Samyak and Mahesh are invited to internal
 TestFlight. External testers have build 3 assigned and are waiting for Apple's
 beta review approval before they can install.
 
-## Public API connection — 20 October 2026
-
-**Configuration fixed and validated; authenticated spoken acceptance pending.**
-
-The promotion emulator had been launched with a loopback API override and local
-authentication disabled, without a local API server. It now uses the public API
-with Zitadel authentication enabled. Ordinary development launches also default
-to `https://roamie-api.tesserix.app`; local API/auth bypass requires explicit
-configuration. Existing EAS device profiles already specify the public API.
-
-Public readiness, sign-in configuration and OIDC discovery returned HTTP 200.
-Protected account and conversation routes returned HTTP 401 without a token.
-All 202 mobile tests across 41 suites, TypeScript, clean ESLint and local Android
-production JavaScript export passed. Local-only UI test fixtures now explicitly
-select a local API instead of relying on an implicit development default.
-
-Eight spoken inputs for English ↔ Vietnamese and Korean ↔ Hindi are prepared.
-Reviewer sign-in and actual microphone → authenticated translation → playback
-acceptance remain unverified. Physical-device builds have not been rebuilt or
-released. [Evidence and speech inputs](../output/mobile-qa/public-api-2026-10-20/verification.json)
-record these limits; endpoint reachability is not a completed conversation test.
-
-## Hands-free permission startup — 20 October 2026
-
-**DONE in source and Android emulator validation; not released.**
-
-- [x] Fixed granted microphone access reopening Android permission handling and
-  canceling hands-free through a background event.
-- [x] First-time permission now continues directly to listening. Genuine backgrounding
-  still stops recording; returning does not restart it. Explicit Stop also cancels
-  delayed permission checks and pending permission requests.
-- [x] Removed all temporary on-screen diagnostics.
-- [x] 198 tests across 40 suites, TypeScript, clean ESLint and local Android
-  production JavaScript export passed.
-- [x] Android API 36 emulator verified permission grant, listening, background stop,
-  restart and explicit Stop. [Video and screenshots](../output/mobile-qa/handsfree-permission-2026-10-20/verification.json)
-  identify the verified source hashes and remaining limits.
-- [ ] Rebuild and validate the changed app on a physical device before release.
-- [ ] Verify real English ↔ Vietnamese and Korean ↔ Hindi translation with a
-  connected API and a confirmed free allowance. This run exercised microphone
-  lifecycle only and did not publish a translated-conversation demo.
-
 ## Changes delivered
 
 - Shared mobile API transport rejects obsolete account/session responses and prevents

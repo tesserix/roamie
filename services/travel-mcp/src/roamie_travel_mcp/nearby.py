@@ -1,4 +1,5 @@
 import hashlib
+import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 
@@ -45,7 +46,7 @@ class NearbyProvider:
                             item
                             for item in items
                             if isinstance(item, dict) and item.get("category") == kind
-                        ][:3]
+                        ][: 8 if len(stays) == 1 else 3]
                     )
             return {
                 "status": "ok",
@@ -58,6 +59,23 @@ class NearbyProvider:
         if planning:
             path = "/internal/v1/travel/planning"
             params = {"destination": str(request["destination"])}
+            preferences = request.get("preferences")
+            interests: dict[str, str] = {}
+            for item in [
+                request.get("prompt"),
+                *(preferences if isinstance(preferences, list) else []),
+            ]:
+                if not isinstance(item, str):
+                    continue
+                text = " ".join(item.split())
+                if re.match(r"^Party: \d+ travellers;", text):
+                    continue
+                text = re.sub(r"^Plan .+? for \d+ travellers?\.\s*", "", text)
+                if text:
+                    interests.setdefault(text.casefold(), text)
+            if interests:
+                params["interests"] = "; ".join(interests.values())[:500]
+
         else:
             if not isinstance(origin, dict):
                 return {"status": "unavailable", "facts": []}
