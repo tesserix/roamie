@@ -66,6 +66,7 @@ jobs:
             provider-mcp:qa
           docker exec -i provider-mcp-qa /app/.venv/bin/python - < scripts/smoke_container.py
           docker save --output "$RUNNER_TEMP/provider-image.tar" provider-mcp:qa
+          chmod 0644 "$RUNNER_TEMP/provider-image.tar"
       - name: Audit final image without exclusions
         run: |
           docker run --rm --cap-drop ALL --security-opt no-new-privileges \
