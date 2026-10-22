@@ -51,6 +51,19 @@ test('microphone starts without a partner language or location permission', asyn
   expect(await screen.findByRole('button', { name: 'Finish and translate' })).toBeTruthy();
 });
 
+test('opening Profile during hands-free stops listening and keeps offline settings accessible', async () => {
+  await open();
+  const recorder = useAudioRecorder({} as never);
+  const stop = jest.spyOn(recorder, 'stop');
+  await fireEvent.press(screen.getByRole('button', { name: 'Start hands-free conversation' }));
+  expect(await screen.findByText('Listening · pause to translate')).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Profile settings' }));
+  expect(screen.getByRole('button', { name: 'Offline languages' })).toBeTruthy();
+  await waitFor(() => expect(stop).toHaveBeenCalled());
+  await fireEvent.press(screen.getByRole('button', { name: 'Done' }));
+  expect(await screen.findByRole('button', { name: 'Start hands-free conversation' })).toBeTruthy();
+});
+
 test('manual capture with granted permission does not open another Android permission request', async () => {
   await open();
   jest.mocked(requestRecordingPermissionsAsync).mockClear();

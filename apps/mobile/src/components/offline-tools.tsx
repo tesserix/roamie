@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, ScrollView, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getLocales } from 'expo-localization';
 import { offlineNative } from '../../modules/roamie-offline';
@@ -139,7 +139,3 @@ export function OfflineTools({ onClose, mine: initialMine, partner: initialPartn
   </View>;
 }
 
-export function OfflinePreparation({ mine, partner, disabled }: { mine: string; partner: string | null; disabled?: boolean }) {
-  const [open, setOpen] = useState(false);
-  return <><Button label="Offline languages" icon="wifi.exclamationmark" kind="secondary" disabled={disabled} onPress={() => setOpen(true)} /><Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>{open ? <OfflineTools mine={mine} partner={partner} signedIn onClose={() => setOpen(false)} /> : null}</Modal></>;
-}
