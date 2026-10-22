@@ -1,6 +1,7 @@
 import { beforeEach, expect, jest, test } from '@jest/globals';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Device from 'expo-device';
 import { OfflineTools } from '../../components/offline-tools';
 import { OfflineReadiness } from '../../components/offline-readiness';
 import { SPEECH_MODELS } from '../speech-models';
@@ -78,4 +79,57 @@ test('Refresh updates both the status panel and the model controls from files on
   expect(await screen.findByText('Offline conversation is ready')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Base selected' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Finish Base speech download' })).toBeNull();
+});
+
+test('a model with a missing detector can be removed and readiness updates immediately', async () => {
+  await render(<OfflineTools mine="en" partner="vi" onClose={() => {}} />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Remove Base speech model' }));
+  expect(await screen.findByText('Base speech model removed from this phone.')).toBeTruthy();
+  expect(await screen.findByText('Base speech model · Not downloaded')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Download Base speech model' })).toBeTruthy();
+  expect(files.has(`file:///documents/offline-models/${SPEECH_MODELS.base.file}`)).toBe(false);
+});
+
+test('a downloaded Small model can still be removed on a phone with insufficient memory', async () => {
+  files.set(`file:///documents/offline-models/${SPEECH_MODELS.small.file}`, { size: SPEECH_MODELS.small.bytes, hash: SPEECH_MODELS.small.sha256, modified: 1 });
+  jest.replaceProperty(Device, 'totalMemory', 3 * 1024 ** 3);
+  try {
+    await render(<OfflineTools mine="en" partner="vi" onClose={() => {}} />);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Remove Small speech model' }));
+    expect(await screen.findByText('Small speech model removed from this phone.')).toBeTruthy();
+    expect(files.has(`file:///documents/offline-models/${SPEECH_MODELS.small.file}`)).toBe(false);
+    expect(files.has(`file:///documents/offline-models/${SPEECH_MODELS.base.file}`)).toBe(true);
+  } finally { jest.restoreAllMocks(); }
+});
+
+test('removing speech models preserves a shared detector until the last model is removed', async () => {
+  for (const model of ['small', 'vad'] as const) {
+    files.set(`file:///documents/offline-models/${SPEECH_MODELS[model].file}`, { size: SPEECH_MODELS[model].bytes, hash: SPEECH_MODELS[model].sha256, modified: 1 });
+  }
+  await render(<OfflineTools mine="en" partner="vi" onClose={() => {}} />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Remove Base speech model' }));
+  expect(await screen.findByText('Base speech model removed from this phone.')).toBeTruthy();
+  expect(files.has(`file:///documents/offline-models/${SPEECH_MODELS.vad.file}`)).toBe(true);
+  await fireEvent.press(screen.getByRole('button', { name: 'Remove Small speech model' }));
+  expect(await screen.findByText('Small speech model removed from this phone.')).toBeTruthy();
+  expect(files.has(`file:///documents/offline-models/${SPEECH_MODELS.vad.file}`)).toBe(false);
+  expect(await screen.findByText('Speech detector · Not downloaded')).toBeTruthy();
+});
+
+test('an invalid model can be removed without redownloading it first', async () => {
+  files.set(`file:///documents/offline-models/${SPEECH_MODELS.base.file}`, { size: 100, hash: 'invalid', modified: 2 });
+  await render(<OfflineTools mine="en" partner="vi" onClose={() => {}} />);
+  expect(await screen.findByText('Base speech model · Download incomplete or invalid')).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Remove Base speech model' }));
+  expect(await screen.findByText('Base speech model removed from this phone.')).toBeTruthy();
+  expect(files.has(`file:///documents/offline-models/${SPEECH_MODELS.base.file}`)).toBe(false);
+});
+
+test('failed model removal reports the failure without claiming it was deleted', async () => {
+  jest.mocked(FileSystem.deleteAsync).mockRejectedValueOnce(new Error('Storage could not remove the model.'));
+  await render(<OfflineTools mine="en" partner="vi" onClose={() => {}} />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Remove Base speech model' }));
+  expect(await screen.findByText('Storage could not remove the model.')).toBeTruthy();
+  expect(screen.queryByText('Base speech model removed from this phone.')).toBeNull();
+  expect(files.has(`file:///documents/offline-models/${SPEECH_MODELS.base.file}`)).toBe(true);
 });
