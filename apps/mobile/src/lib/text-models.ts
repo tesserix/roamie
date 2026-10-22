@@ -4,6 +4,7 @@ import { supportsLargeOfflineModels, largeModelMemoryReason } from './offline-de
 import { downloadModelFile, hasPartialModelFile, modelFileStatus, removeModelFile, withModelDownloadNetwork, type ModelFile } from './model-files';
 import { saveTranslationPreferences, translationPreferences } from './translation-preferences';
 import { withOfflineInference } from './offline-inference';
+import { offlineNative } from '../../modules/roamie-offline';
 
 export const HYMT_MODEL: ModelFile = {
   file: 'Hy-MT2-1.8B-Q4_K_M.gguf', bytes: 1133080448,
@@ -17,7 +18,7 @@ export function hymtUnavailableReason(): string | null {
   if (Platform.OS !== 'ios' && Platform.OS !== 'android') return 'The Large model is available in the iOS and Android apps.';
   if (Device.supportedCpuArchitectures?.length && !Device.supportedCpuArchitectures.some(architecture => architecture.includes('64'))) return 'The Large model needs a 64-bit phone. Use platform language packs on this device.';
   if (!supportsLargeOfflineModels()) return largeModelMemoryReason('The Large model');
-  if (!TurboModuleRegistry.get('RNLlama')) return 'Install the latest Roamie build to use The Large model. Platform language packs are still available.';
+  if (!offlineNative() || !TurboModuleRegistry.get('RNLlama')) return 'Install the latest Roamie build to use the Large model. Platform language packs are still available.';
   return null;
 }
 

@@ -3,11 +3,13 @@ import { TurboModuleRegistry } from 'react-native';
 import * as Device from 'expo-device';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import { initLlama } from 'llama.rn';
-import { HYMT_MODEL, hymtUnavailableReason, removeTextModel } from '../text-models';
+import { HYMT_MODEL, downloadTextModel, hymtUnavailableReason, removeTextModel } from '../text-models';
 import { modelFilePath } from '../model-files';
 import { translateHymt, releaseOfflineText } from '../offline-text';
 import { saveTranslationPreferences, translationPreferences } from '../translation-preferences';
 import { localTextTranslation, offlineTextStatus } from '../offline-translation';
+import { withOfflineInference } from '../offline-inference';
+import { waitFor } from '@testing-library/react-native';
 
 jest.mock('expo-device', () => ({ __esModule: true, totalMemory: 8 * 1024 ** 3, isDevice: false, supportedCpuArchitectures: ['arm64'] }));
 jest.mock('expo-modules-core', () => ({ ...jest.requireActual<object>('expo-modules-core'), requireOptionalNativeModule: jest.fn() }));
@@ -92,4 +94,26 @@ test('a phone advertised as 6 GB remains eligible while older native builds expl
   expect(hymtUnavailableReason()).toBeNull();
   jest.mocked(TurboModuleRegistry.get).mockReturnValue(null);
   expect(hymtUnavailableReason()).toContain('latest Roamie build');
+});
+
+test('a missing Large model bypasses a busy speech inference queue', async () => {
+  files.clear();
+  let finish!: () => void;
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const blocker = withOfflineInference('speech', async () => { entered(); await new Promise<void>(resolve => { finish = resolve; }); });
+  await started;
+  let result: string | null | undefined;
+  const missing = translateHymt('Hello', 'vi', 'en').then(value => { result = value; });
+  try {
+    await waitFor(() => expect(result).toBeNull());
+    expect(initLlama).not.toHaveBeenCalled();
+  } finally { finish(); await blocker; await missing; }
+});
+
+test('a 32-bit phone cannot download Large even when it reports enough RAM', async () => {
+  jest.replaceProperty(Device, 'supportedCpuArchitectures', ['armeabi-v7a']);
+  expect(hymtUnavailableReason()).toContain('64-bit phone');
+  await expect(downloadTextModel(false, () => {})).rejects.toThrow('64-bit phone');
+  expect(initLlama).not.toHaveBeenCalled();
 });

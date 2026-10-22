@@ -105,6 +105,14 @@ cache after each request, and releases idle weights after 20 seconds. The coarse
 device gate uses 5 GiB reported total RAM to include phones advertised as 6 GB;
 this does not replace the free-memory admission check. Android uses CPU;
 physical iOS uses Metal, without requesting increased-memory entitlements.
+Download and selection controls use the same speech eligibility check as
+inference: a supported mobile platform, the Roamie offline helper, the native
+speech runtime and the Medium RAM gate. Missing runtime builds keep Small and
+Medium visible with disabled downloads and an update instruction. Large also
+requires the offline helper, its native runtime, a 64-bit CPU and its RAM gate.
+Incompatible installed files remain removable. GPU availability is not a
+download requirement; free disk space and SHA-256 checks still apply to every
+download, with transient free-memory admission checked before model loading.
 
 iOS URLSession can own paused temporary bytes outside the destination path.
 Bounded, revision-matched native resume metadata is sufficient to offer Resume,
@@ -114,9 +122,23 @@ The bundled license screen contains Apache 2.0 and runtime MIT notices offline.
 
 ## Local-first routing and cloud cost
 
-Automatic always tries the selected compatible downloaded text engine, then
-the other installed local engine, before considering cloud translation, even
-on a fast connection. Talk performs local ASR first and sends only its text
+Automatic tries the selected compatible downloaded text engine, then
+the other installed local engine within a bounded attempt before considering
+cloud translation, even on a fast connection. Missing text and speech models
+bypass the shared inference queue, so checking availability cannot unload a
+working engine. Connectivity discovery waits at most 100 ms. On an online or
+unknown connection, readiness has a 300 ms budget; verified native inference
+extends that attempt to an absolute 2.5 seconds for Text or 4 seconds for Talk
+and Camera, including earlier checks, queue wait and engine initialization.
+These bounds limit added client delay, not total server response time. When
+the budget expires, abort local work and ignore late native results. Keep
+native inference serialized while cancellation finishes; cloud fallback does
+not wait for native cleanup. An uninterruptible platform call may finish in
+the background, but cannot publish its result or start another provider.
+Known-disconnected Automatic and Offline only retain the longer existing
+native processing limits, so slower devices can finish without cloud.
+
+Talk performs local ASR first and sends only its text
 to cloud if ASR succeeded but local translation could not complete. Text and
 Camera use the same central fallback policy. Offline only fails closed: no
 cloud translation request, including after a preference change during a job.
@@ -127,6 +149,12 @@ Each successful local translation avoids its cloud translation request; savings
 depend on downloads, supported languages and completion rates and are not yet
 measured in production. The compact Online label reports connectivity; each
 translation result separately identifies its actual device/cloud engine.
+
+Hands-free polls levels every 100 ms, requires at least 300 ms of speech,
+submits after 800 ms of silence and waits 100 ms after translation/playback
+before preparing the next recording. It remains half-duplex to avoid recording
+its own read-aloud output. Physical-device measurements must validate quiet
+speakers, background noise and natural pauses before claiming a latency SLO.
 
 Inspected publisher revisions:
 
@@ -157,6 +185,25 @@ authentication test.
 Product labels are Small (Whisper Base speech), Medium (Whisper Small speech)
 and Large (Hy-MT2 text). Sizes and roles remain visible. Technical names appear
 in bundled license details; internal model IDs and saved preferences are stable.
+
+### Latency corrective validation on 2026-10-22
+
+The follow-up passes 72 mobile suites / 1,653 tests, TypeScript, lint, 21/21
+Expo Doctor checks and production iOS/Android/web JavaScript exports. Regression
+tests first reproduced stalled readiness/connectivity checks, slow local work,
+pending cancellation, missing models waiting in the inference queue, delayed
+hands-free submission and a second CPU load starting after cancelled GPU
+initialization. They now cover bounded fallback, late-result rejection,
+offline-only and disconnected processing, no-speech privacy, and disabled
+incompatible downloads on iOS and Android component variants.
+
+An iOS simulator with its Large file temporarily moved aside completed Text
+through a synthetic localhost cloud endpoint. After restoring the original
+verified file, the device-only Text tool completed native CPU inference with
+“Translated on this phone.” Evidence and sanitized gateway timing aggregates
+are in `output/translation-latency/2026-10-22/` (not committed). These are
+functional checks, not physical-device latency benchmarks. No Android device
+was attached for native testing; no corrective store binary has been uploaded.
 
 ## Sources
 

@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Device from 'expo-device';
 import * as Network from 'expo-network';
-import { TurboModuleRegistry } from 'react-native';
+import { Platform, TurboModuleRegistry } from 'react-native';
 import { HYMT_MODEL } from '../text-models';
 import { saveTranslationPreferences, translationPreferences } from '../translation-preferences';
 import { OfflineTools } from '../../components/offline-tools';
@@ -207,4 +207,28 @@ test('Hy-MT2 download and removal show verified device status and update the loc
     expect(translationPreferences().textModel).toBe('platform');
     expect(files.has(`file:///documents/offline-models/${HYMT_MODEL.file}`)).toBe(false);
   } finally { capability.mockRestore(); }
+});
+
+test.each(['ios', 'android'] as const)('%s speech downloads remain visible but disabled when the native speech runtime is missing', async os => {
+  const platform = jest.replaceProperty(Platform, 'OS', os);
+  const original = TurboModuleRegistry.get;
+  const capability = jest.spyOn(TurboModuleRegistry, 'get').mockImplementation(name => name === 'RNWhisper' ? null : original(name));
+  try {
+    await render(<OfflineTools mine="en" partner="vi" onClose={() => {}} />);
+    const small = await screen.findByRole('button', { name: 'Finish Small speech download' });
+    expect(small.props.accessibilityState.disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Download Medium speech model' }).props.accessibilityState.disabled).toBe(true);
+    expect(screen.getAllByText('Install the latest Roamie build to use offline speech on this phone.').length).toBeGreaterThan(0);
+    expect(FileSystem.createDownloadResumable).not.toHaveBeenCalled();
+  } finally { capability.mockRestore(); platform.restore(); }
+});
+
+test('Large download is disabled with a clear RAM requirement on an incompatible phone', async () => {
+  jest.replaceProperty(Device, 'totalMemory', 4_000_000_000);
+  try {
+    await render(<OfflineTools mine="en" partner="vi" onClose={() => {}} />);
+    const large = await screen.findByRole('button', { name: 'Download Large model · 1.13 GB' });
+    expect(large.props.accessibilityState.disabled).toBe(true);
+    expect(screen.getByText('The Large model needs a phone with about 6 GB RAM. This phone reports 4.0 GB.')).toBeTruthy();
+  } finally { jest.restoreAllMocks(); }
 });

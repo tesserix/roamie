@@ -92,15 +92,53 @@ async function cloudTalkTurn(req: TurnRequest, signal?: AbortSignal, onRetry?: (
   }
 }
 
-async function routedTranslation<T>(local: () => Promise<T | null>, cloud: () => Promise<T>, signal?: AbortSignal, offlineOnly = false, missing = 'Download both languages in Offline languages, or connect to the internet.'): Promise<T> {
+async function translationNetworkState() {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      import('expo-network').then(network => network.getNetworkStateAsync()).catch(() => null),
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 100); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+async function attemptLocalTranslation<T>(local: (signal: AbortSignal, ready: () => void) => Promise<T | null>, signal: AbortSignal | undefined, milliseconds?: number): Promise<T | null> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let rejectAttempt!: (error: Error) => void;
+  const interrupted = new Promise<never>((_resolve, reject) => { rejectAttempt = reject; });
+  const cancel = () => { controller.abort(); rejectAttempt(new Error('Translation cancelled.')); };
+  const expired = () => { controller.abort(); rejectAttempt(new Error('Device translation took too long.')); };
+  const started = Date.now();
+  const ready = () => {
+    if (milliseconds === undefined || controller.signal.aborted) return;
+    clearTimeout(timer);
+    timer = setTimeout(expired, Math.max(0, milliseconds - (Date.now() - started)));
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
+  if (milliseconds !== undefined) timer = setTimeout(expired, 300);
+  try {
+    checkTranslationCanceled(signal);
+    return await Promise.race([local(controller.signal, ready), interrupted]);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', cancel);
+    controller.abort();
+  }
+}
+
+async function routedTranslation<T>(local: (signal: AbortSignal, ready: () => void) => Promise<T | null>, cloud: () => Promise<T>, signal?: AbortSignal, offlineOnly = false, missing = 'Download both languages in Offline languages, or connect to the internet.', localMilliseconds = 2500): Promise<T> {
   checkTranslationCanceled(signal);
   const available = Boolean(offlineNative());
   await restoreTranslationPreferences();
   checkTranslationCanceled(signal);
   const mode = offlineOnly ? 'offline' : translationPreferences().mode;
+  const network = mode !== 'offline' && available ? await translationNetworkState() : null;
+  const disconnected = network?.isConnected === false || network?.isInternetReachable === false;
+  checkTranslationCanceled(signal);
   let localError: unknown;
   try {
-    const result = await local();
+    const result = await attemptLocalTranslation(local, signal, mode === 'offline' || disconnected ? undefined : localMilliseconds);
     if (result !== null) return result;
   } catch (error) {
     checkTranslationCanceled(signal);
@@ -109,13 +147,9 @@ async function routedTranslation<T>(local: () => Promise<T | null>, cloud: () =>
   }
   checkTranslationCanceled(signal);
   if (mode === 'offline') throw new ApiError(localError instanceof Error ? localError.message : missing, undefined, 'offline_unavailable');
-  if (available) {
-    const network = await (await import('expo-network')).getNetworkStateAsync().catch(() => null);
-    checkTranslationCanceled(signal);
-    if (network?.isConnected === false || network?.isInternetReachable === false) {
-      const message = localError instanceof Error ? localError.message : missing;
-      throw new ApiError(message, undefined, 'offline_unavailable');
-    }
+  if (disconnected) {
+    const message = localError instanceof Error ? localError.message : missing;
+    throw new ApiError(message, undefined, 'offline_unavailable');
   }
   if (translationPreferences().mode === 'offline') throw new ApiError(missing, undefined, 'offline_unavailable');
   return cloud();
@@ -131,7 +165,7 @@ function offlineTextProblem(status: OfflineTextStatus, from: string, to: string)
 
 export async function talkTurn(req: TurnRequest, signal?: AbortSignal, onRetry?: () => void): Promise<TurnResponse> {
   let cloudInput = req;
-  return routedTranslation<TurnResponse>(async () => {
+  return routedTranslation<TurnResponse>(async (localSignal, ready) => {
     if (!offlineNative()) return null;
     let text = req.text;
     let detected: string | undefined;
@@ -143,7 +177,8 @@ export async function talkTurn(req: TurnRequest, signal?: AbortSignal, onRetry?:
       }
       const { transcribeOffline, LocalSpeechError } = await import('./offline-speech');
       try {
-        const speech = await transcribeOffline(req.audio.uri, signal);
+        const speech = await transcribeOffline(req.audio.uri, localSignal, ready);
+        checkTranslationCanceled(localSignal);
         if (!speech) return null;
         text = speech.text; detected = speech.language;
         cloudInput = { ...req, audio: undefined, text, history: [] };
@@ -154,17 +189,17 @@ export async function talkTurn(req: TurnRequest, signal?: AbortSignal, onRetry?:
     }
     if (!text?.trim()) return null;
     detected ??= appLanguage(await offlineNative()!.identifyLanguage(text));
-    checkTranslationCanceled(signal);
+    checkTranslationCanceled(localSignal);
     if (!supportsLocalText(detected)) return null;
     const fromMe = req.partnerLocked && req.autoMine ? detected !== req.partner : detected === req.mine;
     const mine = req.autoMine && fromMe ? detected : req.mine;
     if (req.partnerLocked && !fromMe && detected !== req.partner) throw new Error('The speech did not match the chosen languages. Check the languages and try again.');
     const target = fromMe ? req.partner : mine;
-    const result = await localTextTranslation(text, target, detected, signal);
-    if (!result) throw new Error(offlineTextProblem(await offlineTextStatus(detected, target), detected, target));
+    const result = await localTextTranslation(text, target, detected, localSignal, ready);
+    if (!result) return null;
     return { engine: 'device', fromMe, mine, detected, candidates: [detected], transcript: text, translation: result.translation, romanized: '', target, partner: fromMe ? req.partner : detected, sameLanguage: detected === target };
   }, () => cloudTalkTurn(cloudInput, signal, onRetry), signal, req.offlineOnly,
-  'Offline conversation is not ready. Open Profile → Offline languages to check the language packs and speech model.');
+  'Offline conversation is not ready. Open Profile → Offline languages to check the language packs and speech model.', 4000);
 }
 
 export type VoiceGender = 'female' | 'male';
@@ -182,7 +217,7 @@ export type TextTranslation = {
 };
 
 export const translateText = (text: string, to: string, from?: string, signal?: AbortSignal, offlineOnly = false) =>
-  routedTranslation(() => localTextTranslation(text, to, from, signal), () => call<TextTranslation>('/v1/translate/text', { text, to, from }, signal, offlineNative() ? 12000 : 65000), signal, offlineOnly,
+  routedTranslation((localSignal, ready) => localTextTranslation(text, to, from, localSignal, ready), () => call<TextTranslation>('/v1/translate/text', { text, to, from }, signal, offlineNative() ? 12000 : 65000), signal, offlineOnly,
     !supportsLocalText(to) || (from && !supportsLocalText(from)) ? 'This language pair is not supported on this device. Connect to the internet to translate it.' : 'Download platform language packs or a compatible Large model in Profile → Offline languages. For short phrases, choose the source language instead of automatic detection.');
 
 export type SignLine = {
@@ -196,16 +231,17 @@ export type DocumentSource = { ocrJobId: string; status: string; reviewRequired:
 
 export type SignTranslation = { detected: string; gist: string; lines: SignLine[]; engine?: 'device' | 'cloud'; reviewRequired?: boolean; ocrJobId?: string };
 export const translateSign = (data: string, mimeType: string, to: string, photo?: { uri: string; from?: string; signal?: AbortSignal; offlineOnly?: boolean }) =>
-  routedTranslation<SignTranslation>(async () => {
+  routedTranslation<SignTranslation>(async (localSignal, ready) => {
     const native = offlineNative();
     if (!native || !photo || !supportsLocalText(to) || (photo.from && !supportsLocalText(photo.from))) return null;
+    ready();
     const read = await native.recognizeText(photo.uri, photo.from ?? 'auto');
-    checkTranslationCanceled(photo.signal);
+    checkTranslationCanceled(localSignal);
     if (!read.length) throw new Error('No text was found. Choose the sign language, take a clearer photo, or type the text.');
     const detected = photo.from ?? appLanguage(await native.identifyLanguage(read.map(line => line.text).join(' ').slice(0, 5000)));
     const lines: SignLine[] = [];
     for (const line of read.slice(0, 80)) {
-      const result = await localTextTranslation(line.text, to, detected, photo.signal);
+      const result = await localTextTranslation(line.text, to, detected, localSignal, ready);
       if (!result) return null;
       lines.push({ original: line.text, translation: result.translation, romanized: '', box: line.box });
     }
@@ -215,7 +251,7 @@ export const translateSign = (data: string, mimeType: string, to: string, photo?
     checkTranslationCanceled(photo?.signal);
     return call<SignTranslation>('/v1/signs/translate', { data: image, mimeType, to }, photo?.signal, offlineNative() ? 20000 : 95000);
   }, photo?.signal, photo?.offlineOnly,
-  'Offline photos need a supported sign language and both translation packs. Choose the sign language or type the text instead.');
+  'Offline photos need a supported sign language and both translation packs. Choose the sign language or type the text instead.', 4000);
 
 export type Receipt = {
   merchant: string;

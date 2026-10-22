@@ -8,6 +8,7 @@ import { SPEECH_MODELS } from '../speech-models';
 import { talkTurn } from '../api';
 import { fetch as cloudFetch } from 'expo/fetch';
 import { saveTranslationPreferences } from '../translation-preferences';
+import { withOfflineInference } from '../offline-inference';
 
 jest.mock('expo-modules-core', () => ({ ...jest.requireActual<object>('expo-modules-core'), requireOptionalNativeModule: jest.fn() }));
 jest.mock('expo-device', () => ({ totalMemory: 8 * 1024 ** 3, deviceYearClass: 2022, isDevice: true }));
@@ -112,4 +113,53 @@ test('aborting a turn stops inference and cannot return a late transcript', asyn
   controller.abort();
   await assertion;
   expect(stop).toHaveBeenCalled();
+});
+
+test('missing speech models fail immediately without waiting for another native inference', async () => {
+  let finish!: () => void;
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const blocker = withOfflineInference('text', async () => { entered(); await new Promise<void>(resolve => { finish = resolve; }); });
+  await started;
+  jest.mocked(FileSystem.getInfoAsync).mockImplementation(async uri => ({ exists: false, isDirectory: false, uri }));
+  let problem: unknown;
+  const missing = transcribeOffline('file:///cache/recording.m4a').catch(error => { problem = error; });
+  try {
+    await waitFor(() => expect(problem).toMatchObject({ code: 'speech_unavailable' }));
+    expect(initWhisper).not.toHaveBeenCalled();
+  } finally { finish(); await blocker; await missing; }
+});
+
+test('Automatic stops slow speech inference after four seconds and sends the original audio once', async () => {
+  jest.useFakeTimers();
+  try {
+    let complete!: (value: { result: string; language: string; isAborted: boolean }) => void;
+    const stop = jest.fn(async () => { complete({ result: 'Late transcript', language: 'fr', isAborted: true }); });
+    context.transcribe.mockReturnValue({ stop, promise: new Promise(resolve => { complete = resolve; }) });
+    jest.mocked(cloudFetch).mockResolvedValue({ ok: true, status: 200, json: async () => ({ transcript: 'Bonjour', translation: 'Hello from cloud', target: 'en' }) } as Awaited<ReturnType<typeof cloudFetch>>);
+    const pending = talkTurn({ mine: 'en', partner: 'fr', partnerLocked: true, audio: { uri: 'file:///cache/recording.m4a', data: 'YXVkaW8=', mimeType: 'audio/mp4' }, history: [] });
+    await jest.advanceTimersByTimeAsync(100);
+    expect(context.transcribe).toHaveBeenCalledTimes(1);
+    expect(cloudFetch).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(4000);
+    expect(cloudFetch).toHaveBeenCalledTimes(1);
+    await expect(pending).resolves.toMatchObject({ translation: 'Hello from cloud' });
+    expect(stop).toHaveBeenCalled();
+    const payload = JSON.parse(jest.mocked(cloudFetch).mock.calls[0][1]?.body as string);
+    expect(payload.audio).toEqual({ data: 'YXVkaW8=', mimeType: 'audio/mp4' });
+    expect(payload.text).toBeUndefined();
+  } finally { await releaseOfflineSpeech(); jest.useRealTimers(); }
+});
+
+test('Automatic does not upload a locally rejected silent recording', async () => {
+  vad.detectSpeech.mockResolvedValue([]);
+  await expect(talkTurn({ mine: 'en', partner: 'fr', audio: { uri: 'file:///cache/recording.m4a', data: 'YXVkaW8=', mimeType: 'audio/mp4' }, history: [] })).rejects.toMatchObject({ code: 'no_speech' });
+  expect(cloudFetch).not.toHaveBeenCalled();
+});
+
+test('cancellation during GPU initialization cannot start a second CPU model load', async () => {
+  const controller = new AbortController();
+  jest.mocked(initWhisper).mockImplementationOnce(async () => { controller.abort(); throw new Error('GPU initialization failed'); });
+  await expect(transcribeOffline('file:///cache/recording.m4a', controller.signal)).rejects.toThrow('cancelled');
+  expect(initWhisper).toHaveBeenCalledTimes(1);
 });

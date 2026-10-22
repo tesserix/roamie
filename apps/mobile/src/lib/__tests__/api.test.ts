@@ -1,9 +1,10 @@
-import { beforeEach, expect, jest, test } from '@jest/globals';
+import { afterEach, beforeEach, expect, jest, test } from '@jest/globals';
 import { fetch as mockExpoFetch } from 'expo/fetch';
 import { session } from '../auth-client';
 import { ApiError, talkTurn, translateText } from '../api';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import * as Network from 'expo-network';
+import { saveTranslationPreferences } from '../translation-preferences';
 
 jest.mock('@react-native-async-storage/async-storage', () => ({getItem:jest.fn(async (key: string)=>key.startsWith('roamie.ai-consent.') ? 'allowed' : null),setItem:jest.fn(async()=>{})}));
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
@@ -15,12 +16,15 @@ jest.mock('../auth-client', () => ({
   session: { current: jest.fn(() => ({ sub: 'alice' })), revision: jest.fn(() => 1), accessToken: jest.fn(async () => 'token'), clear: jest.fn(async () => {}) },
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
   jest.mocked(requireOptionalNativeModule).mockReturnValue(null);
   jest.mocked(session.current).mockReturnValue({ sub: 'alice' } as ReturnType<typeof session.current>);
   jest.mocked(session.revision).mockReturnValue(1);
+  jest.mocked(Network.getNetworkStateAsync).mockResolvedValue({ isConnected: true, isInternetReachable: true } as Network.NetworkState);
+  await saveTranslationPreferences({ mode: 'auto' });
 });
+afterEach(() => { jest.useRealTimers(); });
 
 test('a late unauthorized response cannot clear a renewed login for the same account', async () => {
   jest.mocked(mockExpoFetch).mockImplementationOnce(async () => {
@@ -147,4 +151,102 @@ test('Automatic falls back to the existing cloud API only after a local translat
   await expect(translateText('Hello', 'fr', 'en')).resolves.toMatchObject({ translation: 'Bonjour from cloud', engine: 'cloud' });
   expect(Network.getNetworkStateAsync).toHaveBeenCalled();
   expect(mockExpoFetch).toHaveBeenCalledTimes(1);
+});
+
+function localPhone() {
+  const native = {
+    supportedTextLanguages: jest.fn(async () => ['en', 'fr']),
+    isTranslationReady: jest.fn(async () => true),
+    translate: jest.fn(async () => 'Bonjour on device'),
+  };
+  jest.mocked(requireOptionalNativeModule).mockReturnValue(native);
+  jest.mocked(mockExpoFetch).mockResolvedValue({ ok: true, status: 200, json: async () => ({ translation: 'Bonjour from cloud' }) } as Awaited<ReturnType<typeof mockExpoFetch>>);
+  return native;
+}
+
+test('a stalled device readiness check reaches cloud within half a second', async () => {
+  jest.useFakeTimers();
+  const native = localPhone();
+  let ready!: (value: boolean) => void;
+  native.isTranslationReady.mockImplementationOnce(() => new Promise(resolve => { ready = resolve; }));
+  const pending = translateText('Hello', 'fr', 'en');
+  await jest.advanceTimersByTimeAsync(450);
+  expect(mockExpoFetch).toHaveBeenCalledTimes(1);
+  await expect(pending).resolves.toMatchObject({ translation: 'Bonjour from cloud' });
+  ready(true);
+  await jest.advanceTimersByTimeAsync(1);
+  expect(native.translate).not.toHaveBeenCalled();
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+test('slow installed translation falls back within three seconds and ignores its late result', async () => {
+  jest.useFakeTimers();
+  const native = localPhone();
+  let finish!: (value: string) => void;
+  native.translate.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const pending = translateText('Hello', 'fr', 'en');
+  await jest.advanceTimersByTimeAsync(100);
+  expect(mockExpoFetch).not.toHaveBeenCalled();
+  expect(native.translate).toHaveBeenCalledTimes(1);
+  await jest.advanceTimersByTimeAsync(2500);
+  expect(mockExpoFetch).toHaveBeenCalledTimes(1);
+  await expect(pending).resolves.toMatchObject({ translation: 'Bonjour from cloud' });
+  finish('Late local result');
+  await jest.advanceTimersByTimeAsync(1);
+  expect(mockExpoFetch).toHaveBeenCalledTimes(1);
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+test.each(['offline-only', 'disconnected'])('%s keeps using the installed model without the online latency limit', async mode => {
+  jest.useFakeTimers();
+  const native = localPhone();
+  if (mode === 'offline-only') await saveTranslationPreferences({ mode: 'offline' });
+  else jest.mocked(Network.getNetworkStateAsync).mockResolvedValue({ isConnected: false, isInternetReachable: false } as Network.NetworkState);
+  let finish!: (value: string) => void;
+  native.translate.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const pending = translateText('Hello', 'fr', 'en');
+  await jest.advanceTimersByTimeAsync(10000);
+  expect(mockExpoFetch).not.toHaveBeenCalled();
+  finish('Bonjour offline');
+  await expect(pending).resolves.toMatchObject({ translation: 'Bonjour offline', engine: 'device' });
+});
+
+test('an unresponsive connectivity check cannot block cloud fallback', async () => {
+  jest.useFakeTimers();
+  const native = localPhone();
+  native.isTranslationReady.mockResolvedValue(false);
+  jest.mocked(Network.getNetworkStateAsync).mockImplementationOnce(() => new Promise(() => {}));
+  const pending = translateText('Hello', 'fr', 'en');
+  await jest.advanceTimersByTimeAsync(450);
+  expect(mockExpoFetch).toHaveBeenCalledTimes(1);
+  await expect(pending).resolves.toMatchObject({ translation: 'Bonjour from cloud' });
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+test('cancelling a stalled local attempt promptly settles without cloud', async () => {
+  jest.useFakeTimers();
+  const native = localPhone();
+  native.isTranslationReady.mockImplementationOnce(() => new Promise(() => {}));
+  const controller = new AbortController();
+  const pending = translateText('Hello', 'fr', 'en', controller.signal);
+  const rejected = expect(pending).rejects.toThrow('cancelled');
+  await jest.advanceTimersByTimeAsync(50);
+  controller.abort();
+  await jest.advanceTimersByTimeAsync(1);
+  await rejected;
+  expect(mockExpoFetch).not.toHaveBeenCalled();
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+test('changing to Offline only during local work prevents a timed cloud fallback', async () => {
+  jest.useFakeTimers();
+  const native = localPhone();
+  native.translate.mockImplementationOnce(() => new Promise(() => {}));
+  const pending = translateText('Hello', 'fr', 'en');
+  const rejected = expect(pending).rejects.toMatchObject({ code: 'offline_unavailable' });
+  await jest.advanceTimersByTimeAsync(50);
+  await saveTranslationPreferences({ mode: 'offline' });
+  await jest.advanceTimersByTimeAsync(3000);
+  await rejected;
+  expect(mockExpoFetch).not.toHaveBeenCalled();
 });

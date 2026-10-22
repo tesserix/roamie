@@ -102,7 +102,7 @@ export class HandsFreeConversation {
             if (voicedMs >= 300) heardSpeech = true;
           } else if (!heardSpeech) voicedMs = 0;
           previous = elapsed;
-          if (heardSpeech && (elapsed - lastVoice >= 1200 || elapsed >= 30000)) break;
+          if (heardSpeech && (elapsed - lastVoice >= 800 || elapsed >= 30000)) break;
           if (elapsed >= 30000) break;
         }
         if (!current()) break;
@@ -131,7 +131,7 @@ export class HandsFreeConversation {
         await Promise.race([this.callbacks.onTurn(this.recorder.uri, current), canceled]);
         interruptions = 0;
         this.removeRecording();
-        if (current()) await this.pause(350);
+        if (current()) await this.pause(100);
       }
     } catch (error) {
       if (current()) this.callbacks.onError(error instanceof Error ? error.message : 'Conversation paused. Please try again.');
