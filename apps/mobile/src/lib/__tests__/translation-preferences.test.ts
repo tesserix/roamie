@@ -3,7 +3,7 @@ import storage from '@react-native-async-storage/async-storage';
 
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null as string | null), setItem: jest.fn(async () => {}) }));
 
-test.each(['cloud', 'auto', 'offline'])('restores %s with local-first migration and keeps the selected model', async mode => {
+test.each(['cloud', 'auto', 'offline'])('restores %s with Automatic migration and keeps the selected model', async mode => {
   jest.mocked(storage.getItem).mockResolvedValueOnce(JSON.stringify({ mode, speechModel: 'small', textModel: 'hymt' }));
   await jest.isolateModulesAsync(async () => {
     const preferences = await import('../translation-preferences');

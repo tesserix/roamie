@@ -131,6 +131,6 @@
     "web": {
       "favicon": "./assets/brand/roamie-mark.png"
     },
-    "runtimeVersion": "1.0.3"
+    "runtimeVersion": "1.0.4"
   }
 }

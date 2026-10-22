@@ -268,7 +268,7 @@ test('hands-free detects Hindi, waits for speech playback, then translates an En
   const recorder = useAudioRecorder({} as never);
   let level = -20;
   jest.spyOn(recorder, 'getStatus').mockImplementation(() => ({ isRecording: true, canRecord: true, durationMillis: 0, metering: level, mediaServicesDidReset: false, url: recorder.uri }));
-  jest.mocked(Speech.speak).mockClear();
+  jest.mocked(Speech.speak).mockClear().mockImplementation((_text, options) => { options?.onStart?.(); });
   await open();
   jest.useFakeTimers();
   try {
@@ -380,7 +380,7 @@ test('stopping hands-free discards a late translation without speaking or restar
     await fireEvent.press(screen.getByRole('button', { name: 'Stop hands-free conversation' }));
     expect(jest.mocked(global.fetch).mock.calls[0][1]?.signal?.aborted).toBe(true);
     await act(async () => { await jest.advanceTimersByTimeAsync(100); });
-    expect(screen.getByRole('button', { name: 'Start hands-free conversation' }).props.accessibilityState.disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Start hands-free conversation' }).props.accessibilityState.disabled).toBe(false);
     await act(async () => {
       finish({ ok: true, status: 200, json: async () => ({ detected: 'hi', partner: 'hi', target: 'en', transcript: 'नमस्ते', translation: 'Hello', sameLanguage: false }) } as Response);
     });
@@ -810,7 +810,7 @@ test.each([
   ];
   const fetch = jest.fn<typeof global.fetch>().mockImplementation(async () => ({ ok: true, status: 200, json: async () => replies.shift() }) as Response);
   global.fetch = fetch;
-  jest.mocked(Speech.speak).mockClear().mockImplementation(() => {});
+  jest.mocked(Speech.speak).mockClear().mockImplementation((_text, options) => { options?.onStart?.(); });
   const recorder = useAudioRecorder({} as never);
   try {
     const level = await startMeteredConversation(recorder, mine);

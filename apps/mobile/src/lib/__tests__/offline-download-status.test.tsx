@@ -58,7 +58,7 @@ test('compact status keeps download details behind the info button', async () =>
   expect(await screen.findByText('Online')).toBeTruthy();
   expect(screen.queryByText('Offline on this phone')).toBeNull();
   await fireEvent.press(screen.getByRole('button', { name: 'Translation connection details' }));
-  expect(await screen.findByText('Your phone has an internet connection. Automatic tries downloaded models first and uses the cloud when needed.')).toBeTruthy();
+  expect(await screen.findByText('Your phone has an internet connection. Automatic uses cloud first, with ready offline models as a backup if the connection becomes slow or unavailable.')).toBeTruthy();
   expect(await screen.findByText('Speech detector · Not downloaded')).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Close connection details' }));
   expect(screen.queryByText('Offline on this phone')).toBeNull();
