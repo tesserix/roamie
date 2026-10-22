@@ -6,7 +6,6 @@ import {
   setAudioModeAsync,
   useAudioRecorder,
 } from 'expo-audio';
-import { File } from 'expo-file-system';
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, AppState, ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Text, TextInput } from '@/components/typography';
@@ -21,6 +20,8 @@ import { useAccessibility, useTextScale } from '@/lib/accessibility';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CameraTranslate } from '@/components/camera-translate';
+import { OfflinePreparation } from '@/components/offline-tools';
+import { subscribeTranslationPreferences, translationPreferences } from '@/lib/translation-preferences';
 import { LanguagePicker } from '@/components/language-picker';
 import { type Shown, ShowThem } from '@/components/show-them';
 import { TextTranslate } from '@/components/text-translate';
@@ -106,6 +107,17 @@ export default function Talk() {
   const sendRef = useRef(send);
   useEffect(() => { sendRef.current = send; });
   useEffect(() => {
+    let previous = translationPreferences().mode;
+    return subscribeTranslationPreferences(() => {
+      const next = translationPreferences().mode;
+      if (next === previous) return;
+      previous = next;
+      conversation.current?.stop();
+      request.current?.abort();
+      stopSpeaking();
+    });
+  }, []);
+  useEffect(() => {
     const loop = new HandsFreeConversation(recorder, {
       onActive: active => { setHandsFree(active); if (!active) setRecoveryNotice(null); },
       isForeground: () => focusedRef.current && AppState.currentState === 'active',
@@ -113,8 +125,7 @@ export default function Talk() {
       onError: setError,
       onRecovery: setRecoveryNotice,
       onTurn: async (uri, active) => {
-        const data = await new File(uri).base64();
-        if (active()) await sendRef.current({ audio: { data, mimeType: 'audio/mp4' } }, active);
+        if (active()) await sendRef.current({ audio: { uri, mimeType: 'audio/mp4' } }, active);
       },
     });
     conversation.current = loop;
@@ -178,6 +189,7 @@ export default function Talk() {
       failedTurns.current = 0; unclearTurns.current = 0;
       setRecoveryNotice(null);
       setPending(null);
+      if (res.engine === 'device') setNotice('Translated on this phone. Check important details.');
       if (!res.reviewRequired) history.current = [...history.current, { original: res.transcript, translation: res.translation }].slice(-6);
       setTurns((t) => [
         ...t,
@@ -325,9 +337,8 @@ export default function Talk() {
       await recorder.stop();
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       if (Date.now() - startedAt.current < MIN_HOLD_MS || !recorder.uri) throw new Error('No speech recorded. Tap the microphone and try again, or type instead.');
-      const data = await new File(recorder.uri).base64();
       if (revision !== captureRevision.current) return;
-      await send({ audio: { data, mimeType: 'audio/mp4' } });
+      await send({ audio: { uri: recorder.uri, mimeType: 'audio/mp4' } });
     } catch (error) {
       if (revision !== captureRevision.current) return;
       setError(error instanceof Error ? error.message : 'Could not finish recording. Try again.');
@@ -423,6 +434,7 @@ export default function Talk() {
 
       <Segmented disabled={phase !== 'idle'} options={MODES} value={mode} onChange={next => { if (phase === 'idle') setMode(next); }} />
       <View style={{ marginHorizontal: space.md, marginVertical: space.sm }}><CommunicationCards disabled={phase !== 'idle'} /></View>
+      <View style={{ marginHorizontal: space.md, marginBottom: space.sm }}><OfflinePreparation mine={mine} partner={partner} disabled={phase !== 'idle' || handsFree} /></View>
 
     </>
   );
@@ -434,7 +446,7 @@ export default function Talk() {
       {mode === 'text' ? (
         <TextTranslate mine={mine} partner={partner} bottom={keyboard ? space.md : TAB_CLEARANCE} />
       ) : mode === 'camera' ? (
-        <CameraTranslate mine={mine} bottom={TAB_CLEARANCE} />
+        <CameraTranslate mine={mine} partner={partner} bottom={TAB_CLEARANCE} />
       ) : (
       <>
       <FlatList

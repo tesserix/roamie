@@ -1,0 +1,76 @@
+name: Travel provider MCP verification
+
+on:
+  pull_request:
+    paths:
+      - services/expedia-mcp/**
+      - services/open-meteo-mcp/**
+      - .github/workflows/travel-provider-verify.yml
+  push:
+    branches: [main]
+    paths:
+      - services/expedia-mcp/**
+      - services/open-meteo-mcp/**
+      - .github/workflows/travel-provider-verify.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: services/expedia-mcp
+            module: expedia_recommendations_mcp
+            key_variable: EXPEDIA_MCP_GATEWAY_KEY
+          - package: services/open-meteo-mcp
+            module: open_meteo_mcp
+            key_variable: OPEN_METEO_MCP_GATEWAY_KEY
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          version: '0.12.5'
+          python-version: '3.14'
+      - run: uv sync --frozen
+      - name: Verify package and catalog
+        env:
+          PROVIDER_MODULE: ${{ matrix.module }}
+        run: |
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run mypy --strict src/ scripts/
+          uv run pytest --cov="$PROVIDER_MODULE" --cov-fail-under=85
+          uv run python scripts/export_catalog.py
+          git diff --exit-code -- catalog.json
+          uv build
+      - name: Build and exercise isolated image
+        env:
+          PROVIDER_KEY_VARIABLE: ${{ matrix.key_variable }}
+        run: |
+          docker build --platform linux/amd64 --tag provider-mcp:qa .
+          trap 'docker rm --force provider-mcp-qa >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name provider-mcp-qa --network none \
+            --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 128 --memory 256m --cpus 1 \
+            --env "$PROVIDER_KEY_VARIABLE=synthetic-ci-gateway-key-0000000000000000" \
+            provider-mcp:qa
+          docker exec -i provider-mcp-qa /app/.venv/bin/python - < scripts/smoke_container.py
+          docker save --output "$RUNNER_TEMP/provider-image.tar" provider-mcp:qa
+          chmod 0644 "$RUNNER_TEMP/provider-image.tar"
+      - name: Audit final image without exclusions
+        run: |
+          docker run --rm --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,src=$RUNNER_TEMP/provider-image.tar,dst=/scan/image.tar,readonly" \
+            aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa \
+            image --input /scan/image.tar --scanners vuln \
+            --severity HIGH,CRITICAL --exit-code 1

@@ -1,5 +1,6 @@
 import { expect, jest, test } from '@jest/globals';
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { CameraTranslate } from '../../components/camera-translate';
 import { translateSign } from '../api';
 
@@ -28,7 +29,7 @@ test('an iPhone HEIC photo is read as an upright JPEG', async () => {
   await render(<CameraTranslate mine="en" bottom={0} />);
   await fireEvent.press(screen.getByRole('button', { name: 'Choose from photos' }));
   expect(await screen.findByText('Exit')).toBeTruthy();
-  expect(translateSign).toHaveBeenCalledWith('/9j/JPEG', 'image/jpeg', 'en');
+  expect(translateSign).toHaveBeenCalledWith('', 'image/jpeg', 'en', expect.objectContaining({ uri: 'file:///cache/photo.jpg' }));
 });
 
 test('the Original chip swaps the translated overlay for the photo itself', async () => {
@@ -43,4 +44,12 @@ test('the Original chip swaps the translated overlay for the photo itself', asyn
   await fireEvent.press(screen.getByRole('button', { name: 'Original' }));
   expect(screen.getAllByText('Chicken pho')).toHaveLength(1);
   expect(screen.getByRole('button', { name: 'New photo' })).toBeTruthy();
+});
+
+test('a local photo URI works without loading a base64 copy into JavaScript', async () => {
+  jest.mocked(ImagePicker.launchImageLibraryAsync).mockResolvedValueOnce({ canceled: false, assets: [{ uri: 'file:///local-only.jpg', width: 100, height: 100 }] });
+  await render(<CameraTranslate mine="en" partner="fr" bottom={0} offlineOnly />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Choose from photos' }));
+  expect(await screen.findByText('Exit')).toBeTruthy();
+  expect(translateSign).toHaveBeenLastCalledWith('', 'image/jpeg', 'en', expect.objectContaining({ uri: 'file:///cache/photo.jpg', from: 'fr', offlineOnly: true }));
 });

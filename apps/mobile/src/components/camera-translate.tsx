@@ -1,29 +1,47 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text as OverlayText, useWindowDimensions, View } from 'react-native';
 import { Text } from '@/components/typography';
 
 import { Badge, Button, Chip, Icon, Message, SpeakButton } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
-import { ApiError, type SignLine, translateSign } from '@/lib/api';
+import { type SignLine, translateSign } from '@/lib/api';
 import { languageName } from '@/lib/languages';
 import { type Photo, toJpeg } from '@/lib/photo';
 import { placeLabels } from '@/lib/sign-layout';
+import { LanguagePicker } from './language-picker';
+import { useTranslationPreferences } from '@/lib/translation-preferences';
 
 type Read =
   | { status: 'reading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; detected: string; gist: string; lines: SignLine[]; reviewRequired?: boolean };
+  | { status: 'ready'; detected: string; gist: string; lines: SignLine[]; reviewRequired?: boolean; engine?: 'device' | 'cloud' };
 
 const PICK: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'] };
 
-export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number }) {
+export function CameraTranslate({ mine, bottom, partner, offlineOnly = false }: { mine: string; bottom: number; partner?: string | null; offlineOnly?: boolean }) {
   const c = useColors();
+  const { mode } = useTranslationPreferences();
   const { width, height } = useWindowDimensions();
-  const [photo, setPhoto] = useState<Photo | null>(null);
-  const [read, setRead] = useState<Read>({ status: 'reading' });
+  const [photo, setPhoto] = useState<Omit<Photo, 'base64'> | null>(null);
+  const [settled, setSettled] = useState<{ key: string; read: Read } | null>(null);
   const [overlay, setOverlay] = useState(true);
+  const [from, setFrom] = useState<string | null>(partner ?? null);
+  const [picking, setPicking] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const requestKey = `${photo?.uri ?? ''}:${mine}:${from ?? ''}:${offlineOnly}:${attempt}:${mode}`;
+  const read: Read = settled?.key === requestKey ? settled.read : { status: 'reading' };
+  const setRead = (value: Read) => setSettled({ key: requestKey, read: value });
+
+  useEffect(() => {
+    if (!photo) return;
+    const controller = new AbortController();
+    void translateSign('', photo.mimeType, mine, { uri: photo.uri, from: from ?? undefined, signal: controller.signal, offlineOnly })
+      .then(result => { if (!controller.signal.aborted) setSettled({ key: requestKey, read: { status: 'ready', ...result } }); })
+      .catch(error => { if (!controller.signal.aborted) setSettled({ key: requestKey, read: { status: 'error', message: error instanceof Error ? error.message : 'Could not read this photo. Please try again.' } }); });
+    return () => controller.abort();
+  }, [photo, mine, from, requestKey, offlineOnly]);
 
   async function take(camera: boolean) {
     let picked: ImagePicker.ImagePickerResult;
@@ -43,9 +61,9 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
     }
     const a = picked.canceled ? null : picked.assets[0];
     if (!a) return;
-    let next: Photo;
+    let next: Omit<Photo, 'base64'>;
     try {
-      next = await toJpeg(a.uri);
+      next = await toJpeg(a.uri, false);
     } catch {
       setPhoto(null);
       setRead({ status: 'error', message: "Roamie couldn't open that photo. Try another one." });
@@ -53,17 +71,10 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
     }
     setPhoto(next);
     setOverlay(true);
-    await translate(next);
   }
 
-  async function translate(p: Photo) {
-    setRead({ status: 'reading' });
-    try {
-      setRead({ status: 'ready', ...(await translateSign(p.base64, p.mimeType, mine)) });
-    } catch (e) {
-      setRead({ status: 'error', message: e instanceof ApiError ? e.message : 'Something went wrong. Please try again.' });
-    }
-  }
+  const choosePhoto = (camera: boolean) => { void take(camera).catch(() => setRead({ status: 'error', message: 'Could not open photos. Check permissions and try again.' })); };
+  const sourceChoice = <><Button label={`Sign language: ${from ? languageName(from) : 'Auto-detect'}`} kind="secondary" onPress={() => setPicking(true)} /><LanguagePicker visible={picking} title="Sign language" selected={from ?? ''} allowAuto onPick={code => { setFrom(code || null); setPicking(false); }} onClose={() => setPicking(false)} /></>;
 
   if (!photo) {
     return (
@@ -74,8 +85,9 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
           body={`Snap a sign, menu, notice or label. Roamie reads it and translates it into ${languageName(mine)}.`}
           action={
             <View style={{ gap: space.sm }}>
-              <Button label="Take a photo" icon="camera.fill" onPress={() => take(true)} />
-              <Button label="Choose from photos" icon="photo.on.rectangle" kind="secondary" onPress={() => take(false)} />
+              {sourceChoice}
+              <Button label="Take a photo" icon="camera.fill" onPress={() => choosePhoto(true)} />
+              <Button label="Choose from photos" icon="photo.on.rectangle" kind="secondary" onPress={() => choosePhoto(false)} />
             </View>
           }
         />
@@ -98,6 +110,7 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
 
   return (
     <ScrollView contentContainerStyle={{ padding: space.md, gap: space.md, paddingBottom: bottom }}>
+      {sourceChoice}
       <View style={[styles.frame, { width: w, height: h, borderColor: c.border }]}>
         <Image source={{ uri: photo.uri }} style={{ width: w, height: h }} contentFit="cover" accessibilityLabel="Your photo" />
         {labels.map(({ fontSize, ...box }, i) => (
@@ -118,15 +131,15 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
 
       <View style={styles.actions}>
         {ready ? <Chip label="Original" icon="eye" selected={!overlay} onPress={() => setOverlay((o) => !o)} /> : null}
-        <Chip label="New photo" icon="camera.fill" onPress={() => take(true)} />
-        <Chip label="Photos" icon="photo" onPress={() => take(false)} />
+        <Chip label="New photo" icon="camera.fill" onPress={() => choosePhoto(true)} />
+        <Chip label="Photos" icon="photo" onPress={() => choosePhoto(false)} />
       </View>
 
       {read.status === 'error' ? (
         <Message
           icon="text.viewfinder"
           title={read.message}
-          action={<Button label="Try again" kind="secondary" onPress={() => translate(photo)} />}
+          action={<Button label="Try again" kind="secondary" onPress={() => setAttempt(value => value + 1)} />}
         />
       ) : null}
 
@@ -141,10 +154,10 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
           <View style={[styles.gist, lift, { backgroundColor: c.surface }]}>
             <Badge icon="lightbulb.fill" tint={c.accent} bg={c.accentSoft} size={36} />
             <View style={{ flex: 1, gap: 2 }}>
-              <Text style={[font.overline, { color: c.muted }]}>What it says · {languageName(ready.detected)}</Text>
+              <Text style={[font.overline, { color: c.muted }]}>What it says · {languageName(ready.detected)}{ready.engine === 'device' ? ' · on this phone' : ''}</Text>
               <Text style={[font.body, { color: c.text, fontSize: 17, fontWeight: '500' }]}>{ready.gist}</Text>
             </View>
-            <SpeakButton text={ready.gist} lang={mine} />
+            <SpeakButton text={ready.gist} lang={mine} offlineOnly={offlineOnly} />
           </View>
 
           <View style={[styles.list, lift, { backgroundColor: c.surface }]}>
@@ -159,7 +172,7 @@ export function CameraTranslate({ mine, bottom }: { mine: string; bottom: number
                     {l.romanized ? `  ·  ${l.romanized}` : ''}
                   </Text>
                 </View>
-                <SpeakButton text={l.original} lang={ready.detected} id={`sign-${i}`} tone="plain" />
+                <SpeakButton text={l.original} lang={ready.detected} id={`sign-${i}`} tone="plain" offlineOnly={offlineOnly} />
               </View>
             ))}
           </View>

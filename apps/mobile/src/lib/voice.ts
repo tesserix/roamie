@@ -5,6 +5,8 @@ import { File, Paths } from 'expo-file-system';
 import { useSyncExternalStore } from 'react';
 import { synthesizeSpeech, type VoiceGender } from './api';
 import type { VoicePreference } from './accessibility';
+import { offlineNative } from '../../modules/roamie-offline';
+import { restoreTranslationPreferences, translationPreferences } from './translation-preferences';
 
 // Speech slightly under normal pace is far easier to follow in a second language.
 const RATE = 0.92;
@@ -51,7 +53,7 @@ function setCurrent(key: string | null) {
 let speechRevision = 0;
 let finishSpeech: ((completed: boolean) => void) | null = null;
 
-export function speak(text: string, lang: string, key = text, gender?: VoiceGender): Promise<boolean> {
+export function speak(text: string, lang: string, key = text, gender?: VoiceGender, offlineOnly = false): Promise<boolean> {
   stopSpeaking();
   const revision = speechRevision;
   return new Promise(resolve => {
@@ -70,11 +72,18 @@ export function speak(text: string, lang: string, key = text, gender?: VoiceGend
     let generated = false;
     const playGenerated = async () => {
       if (finished || revision !== speechRevision || generated) return;
+      if (offlineOnly || translationPreferences().mode === 'offline') { done(false); return; }
+      if (offlineNative()) {
+        const network = await (await import('expo-network')).getNetworkStateAsync().catch(() => null);
+        if (finished || revision !== speechRevision) return;
+        if (network?.isConnected === false || network?.isInternetReachable === false) { done(false); return; }
+      }
       generated = true;
       clearTimeout(timeout);
       timeout = setTimeout(() => { stopSpeaking(); done(false); }, 120000);
       const controller = new AbortController();
       cleanup = () => controller.abort();
+      if (offlineOnly || translationPreferences().mode === 'offline') { done(false); return; }
       const audio = await synthesizeSpeech(text, lang, gender, controller.signal);
       if (finished || revision !== speechRevision) return;
       const file = new File(Paths.cache, `roamie-speech-${Date.now()}-${revision}.wav`);
@@ -96,15 +105,24 @@ export function speak(text: string, lang: string, key = text, gender?: VoiceGend
       player.play();
     };
     const play = async () => {
+      if (offlineNative()) await restoreTranslationPreferences();
       voices ??= Speech.getAvailableVoicesAsync().catch(() => []);
       const region = lang === getLocales()[0]?.languageCode ? (getLocales()[0]?.regionCode ?? undefined) : undefined;
-      const voice = pickVoice(await voices, lang, region, gender);
+      let candidates = await voices;
+      const native = offlineNative();
+      if (native) {
+        const installed = new Set((await native.offlineVoices()).map(voice => voice.identifier));
+        candidates = candidates.filter(voice => installed.has(voice.identifier));
+      } else if (offlineOnly || translationPreferences().mode === 'offline') { done(false); return; }
+      const voice = pickVoice(candidates, lang, region, gender);
       if (finished || revision !== speechRevision) return;
       setCurrent(key);
       if (!voice) {
         await playGenerated();
         return;
       }
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      if (finished || revision !== speechRevision) return;
       Speech.speak(text, { language: lang, voice, rate: RATE, onDone: () => done(true), onStopped: () => { if (!generated) done(false); }, onError: () => { void playGenerated().catch(() => done(false)); } });
     };
     void play().catch(() => done(false));

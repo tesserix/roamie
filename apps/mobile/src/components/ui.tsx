@@ -285,7 +285,7 @@ export function Segmented<T extends string>({
 }
 
 /** Play/stop toggle for one piece of text; `id` keeps two identical texts independent. */
-export function SpeakButton({ text, lang, id, tone = 'soft' }: { text: string; lang: string; id?: string; tone?: 'soft' | 'plain' }) {
+export function SpeakButton({ text, lang, id, tone = 'soft', offlineOnly = false }: { text: string; lang: string; id?: string; tone?: 'soft' | 'plain'; offlineOnly?: boolean }) {
   const c = useColors();
   const key = id ?? `${lang}:${text}`;
   const speaking = useSpeaking(key);
@@ -295,7 +295,7 @@ export function SpeakButton({ text, lang, id, tone = 'soft' }: { text: string; l
       accessibilityRole="button"
       accessibilityLabel={speaking ? 'Stop reading' : 'Read aloud'}
       hitSlop={8}
-      onPress={() => (speaking ? stopSpeaking() : speak(text, lang, key, playbackVoice(voice)))}
+      onPress={() => (speaking ? stopSpeaking() : speak(text, lang, key, playbackVoice(voice), offlineOnly))}
       style={({ pressed }) => [
         styles.iconButton,
         { backgroundColor: tone === 'soft' ? c.accentSoft : 'transparent', opacity: pressed ? 0.6 : 1 },

@@ -1,0 +1,5 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": { "modules": ["RoamieOfflineModule"] },
+  "android": { "modules": ["app.tesserix.roamie.offline.RoamieOfflineModule"] }
+}

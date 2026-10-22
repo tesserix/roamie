@@ -44,4 +44,3 @@ jobs:
               raise SystemExit("Compiled manifests differ from checked-in artifacts")
           PYTHON
           uv build
-

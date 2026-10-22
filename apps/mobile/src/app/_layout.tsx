@@ -17,6 +17,8 @@ import { Button, Message, Screen } from '@/components/ui';
 import Sos from '@/app/sos';
 import { signOut } from '@/lib/sign-out';
 import { font, space, useColors } from '@/constants/theme';
+import { OfflineTools } from '@/components/offline-tools';
+import { restoreTranslationPreferences, useTranslationPreferences } from '@/lib/translation-preferences';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -36,9 +38,11 @@ function Root() {
 
 function Account() {
   const { customer, ready } = useAuth();
-  useEffect(() => { if (ready) void SplashScreen.hideAsync(); }, [ready]);
-  if (!ready) return <TravelLoading />;
-  if (!customer) return <SignIn />;
+  const preferences = useTranslationPreferences();
+  const [offline, setOffline] = useState(false);
+  useEffect(() => { void SplashScreen.hideAsync(); void restoreTranslationPreferences(); }, []);
+  if (offline) return <OfflineTools onClose={() => setOffline(false)} />;
+  if (!ready || !customer || !preferences.ready) return <SignIn onOffline={() => setOffline(true)} />;
   return <StoreProvider key={customer.sub} accountId={customer.sub}><TripsProvider accountId={customer.sub}><Root /></TripsProvider></StoreProvider>;
 }
 

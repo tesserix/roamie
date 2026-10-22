@@ -9,10 +9,13 @@ import { font, space, useColors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { providersFor } from '@/lib/auth-client';
 import { CommunicationCards } from '@/components/communication-cards';
+import { OfflineTools } from './offline-tools';
 
-export default function SignIn() {
+export default function SignIn({ onOffline }: { onOffline?: () => void } = {}) {
   const c = useColors(); const insets = useSafeAreaInsets(); const auth = useAuth();
   const [emergency, setEmergency] = useState(false);
+ const [offline, setOffline] = useState(false);
+ if (offline) return <OfflineTools onClose={() => setOffline(false)} />;
   if (emergency) return <View style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}><Button label="Back to sign-in" kind="secondary" onPress={() => setEmergency(false)} /><Sos /></View>;
   const providers = providersFor(Platform.OS);
   return (
@@ -49,6 +52,7 @@ export default function SignIn() {
       {auth.error && <View style={{ gap: space.sm }}><Text accessibilityRole="alert" style={[font.body, { color: c.danger }]}>{auth.error}</Text><Button label="Try again" busy={auth.busy} onPress={() => { void auth.retry(); }} /></View>}
       <Text style={[font.caption, { color: c.muted }]}>Your wallet stays on this phone. Connected planning uses your trip preferences. Emergency help is always available.</Text>
       <Button label="Emergency help" kind="secondary" onPress={() => setEmergency(true)} />
+      <Button label="Offline translation" icon="wifi.exclamationmark" kind="secondary" onPress={() => onOffline ? onOffline() : setOffline(true)} />
       <CommunicationCards />
     </ScrollView>
   );

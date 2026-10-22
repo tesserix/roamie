@@ -33,8 +33,10 @@ and release gates.
    on iOS. No password signup, subscriptions or in-app payments. Local wallet data is
    separated by account; connected trip preferences and shared
    trip records are stored by the API. SOS remains available without sign-in.
-5. **Works when it matters.** SOS and the phrase book work offline. Everything else fails
-   politely.
+5. **Works when it matters.** SOS and communication cards work offline. Downloaded
+   language and speech packs enable translation for supported languages without
+   internet. Camera reading and read-aloud depend on device support. See the
+   [offline translation plan and validation](docs/adr/0013-offline-translation.md).
 
 ## Documents
 

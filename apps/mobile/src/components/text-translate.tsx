@@ -10,18 +10,20 @@ import { ApiError, type TextTranslation, translateText } from '@/lib/api';
 import { signalFeedback } from '@/lib/feedback';
 import { useAccessibility } from '@/lib/accessibility';
 import { languageName } from '@/lib/languages';
+import { useTranslationPreferences } from '@/lib/translation-preferences';
 
 const DEBOUNCE_MS = 700;
 const MAX = 5000;
 
 type Pick = 'from' | 'to' | null;
 
-export function TextTranslate({ mine, partner, bottom }: { mine: string; partner: string | null; bottom: number }) {
+export function TextTranslate({ mine, partner, bottom, offlineOnly = false }: { mine: string; partner: string | null; bottom: number; offlineOnly?: boolean }) {
   const c = useColors();
   const { vibration } = useAccessibility();
+  const { mode } = useTranslationPreferences();
   const feedback = useRef(vibration);
   useEffect(() => { feedback.current = vibration; }, [vibration]);
-  const [from, setFrom] = useState<string | null>(null);
+  const [from, setFrom] = useState<string | null>(offlineOnly ? mine : null);
   const [to, setTo] = useState(partner ?? mine);
   const [text, setText] = useState('');
   const [result, setResult] = useState<{ query: string; from: string | null; to: string; value: TextTranslation } | null>(null);
@@ -41,7 +43,7 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
     const t = setTimeout(async () => {
       setPending({ query, from, to, attempt });
       try {
-        const res = await translateText(query, to, from ?? undefined, controller.signal);
+        const res = await translateText(query, to, from ?? undefined, controller.signal, offlineOnly);
         if (live) {
           setResult({ query, from, to, value: res });
           signalFeedback(feedback.current);
@@ -52,13 +54,13 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
       } finally {
         if (live) setPending(null);
       }
-    }, DEBOUNCE_MS);
+    }, offlineOnly || mode === 'offline' ? 250 : DEBOUNCE_MS);
     return () => {
       live = false;
       controller.abort();
       clearTimeout(t);
     };
-  }, [query, from, to, attempt]);
+  }, [query, from, to, attempt, offlineOnly, mode]);
 
   const shownResult = result?.query === query && result.from === from && result.to === to ? result.value : null;
   const source = from ?? shownResult?.detected ?? null;
@@ -102,7 +104,7 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
           <View style={styles.row}>
             {text ? (
               <>
-                {source ? <SpeakButton text={query} lang={source} tone="plain" /> : null}
+                {source ? <SpeakButton text={query} lang={source} tone="plain" offlineOnly={offlineOnly} /> : null}
                 <Text style={[font.caption, { color: c.faint, flex: 1, textAlign: 'right' }]}>
                   {text.length} / {MAX}
                 </Text>
@@ -128,13 +130,14 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
             <Text selectable style={{ color: c.text, fontSize: 24, lineHeight: 32, fontWeight: '600' }}>
               {shownResult.translation}
             </Text>
+            {shownResult.engine === 'device' ? <Text style={[font.caption, { color: c.muted }]}>Translated on this phone</Text> : null}
             {shownResult.romanized ? (
               <Text selectable style={[font.body, { color: c.muted, fontStyle: 'italic' }]}>
                 {shownResult.romanized}
               </Text>
             ) : null}
             <View style={[styles.row, { paddingTop: space.xs }]}>
-              <SpeakButton text={shownResult.translation} lang={to} />
+              <SpeakButton text={shownResult.translation} lang={to} offlineOnly={offlineOnly} />
               <IconButton icon="square.and.arrow.up" label="Share or copy" onPress={() => Share.share({ message: shownResult.translation })} />
               <View style={{ flex: 1 }} />
               <Pressable
@@ -172,7 +175,7 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
         onPick={(code) => (picking === 'from' ? setFrom(code) : setTo(code))}
         onClose={() => setPicking(null)}
       />
-      <ShowThem shown={shown} onClose={() => setShown(null)} />
+      <ShowThem shown={shown} onClose={() => setShown(null)} offlineOnly={offlineOnly} />
     </>
   );
 }

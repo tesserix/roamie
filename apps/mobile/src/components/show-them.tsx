@@ -10,7 +10,7 @@ import { space, useColors } from '@/constants/theme';
 export type Shown = { text: string; lang: string; romanized?: string };
 
 /** Full-screen text for the other person, upside down so it reads right across a table. */
-export function ShowThem({ shown, onClose }: { shown: Shown | null; onClose: () => void }) {
+export function ShowThem({ shown, onClose, offlineOnly = false }: { shown: Shown | null; onClose: () => void; offlineOnly?: boolean }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const [flipped, setFlipped] = useState(true);
@@ -30,7 +30,7 @@ export function ShowThem({ shown, onClose }: { shown: Shown | null; onClose: () 
         </ScrollView>
         <View style={styles.bar}>
           <IconButton icon="arrow.up.arrow.down" label="Flip text" tone="soft" onPress={() => setFlipped((f) => !f)} />
-          {shown ? <SpeakButton text={shown.text} lang={shown.lang} /> : null}
+          {shown ? <SpeakButton text={shown.text} lang={shown.lang} offlineOnly={offlineOnly} /> : null}
           <IconButton icon="xmark" label="Close" tone="soft" onPress={onClose} />
         </View>
       </View>
