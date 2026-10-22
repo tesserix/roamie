@@ -45,6 +45,7 @@ const MATERIAL_SYMBOLS: Partial<Record<SFSymbol, AndroidSymbol>> = {
   'flame.fill': 'local_fire_department',
   'fork.knife': 'restaurant',
   'info.circle.fill': 'info',
+  'info.circle': 'info',
   'keyboard': 'keyboard',
   'lightbulb.fill': 'lightbulb',
   'link': 'link',
@@ -77,6 +78,8 @@ const MATERIAL_SYMBOLS: Partial<Record<SFSymbol, AndroidSymbol>> = {
   'wave.3.right': 'contactless',
   'waveform': 'record_voice_over',
   'wifi.exclamationmark': 'wifi_off',
+  'wifi.slash': 'wifi_off',
+  'wifi': 'wifi',
   'xmark': 'close',
   'xmark.circle.fill': 'cancel',
 };
@@ -122,7 +125,7 @@ export function Screen({
 
 export function Card({ children, style }: { children: ReactNode; style?: ViewStyle }) {
   const c = useColors();
-  return <View style={[styles.card, lift, { backgroundColor: c.surface }, style]}>{children}</View>;
+  return <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }, style]}>{children}</View>;
 }
 
 type ButtonProps = {
@@ -185,7 +188,7 @@ export function IconButton({
       style={({ pressed }) => [
         styles.iconButton,
         { backgroundColor: tone === 'soft' ? c.surface : 'transparent', opacity: pressed ? 0.6 : 1 },
-        tone === 'soft' && lift,
+        tone === 'soft' && { borderWidth: 1, borderColor: c.border },
       ]}>
       <Icon name={icon} size={20} color={c.text} />
     </Pressable>
@@ -220,7 +223,7 @@ export function Chip({
         },
       ]}>
       {icon ? <Icon name={icon} size={15} color={fg} /> : null}
-      <Text style={{ color: fg, fontSize: 15, fontWeight: '600' }}>{label}</Text>
+      <Text style={{ color: fg, fontSize: 15, fontWeight: '600', flexShrink: 1 }}>{label}</Text>
     </Pressable>
   );
 }
@@ -310,10 +313,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingHorizontal: space.lg,
+    paddingHorizontal: space.md,
     paddingBottom: space.md,
   },
-  card: { borderRadius: 24, padding: 20, gap: 14 },
+  card: { borderRadius: radius.lg, borderWidth: 1, padding: space.md, gap: space.md },
   button: {
     flexShrink: 1,
     minWidth: 48,
@@ -326,10 +329,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingVertical: 12,
   },
-  iconButton: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  iconButton: { width: touch, height: touch, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   chip: {
     minHeight: 48,
     paddingHorizontal: 14,
+    paddingVertical: space.sm,
     borderRadius: radius.pill,
     borderWidth: 1,
     flexDirection: 'row',
@@ -337,6 +341,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   segmented: { flexDirection: 'row', borderRadius: radius.md, padding: 3, marginHorizontal: space.md },
-  segment: { flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', minHeight: 48, paddingVertical: 8, borderRadius: radius.md - 3 },
-  message: { alignItems: 'center', gap: space.sm, paddingHorizontal: space.xl, paddingVertical: space.xl },
+  segment: { flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', minHeight: touch, paddingHorizontal: space.xs, paddingVertical: space.sm, borderRadius: radius.md - 3 },
+  message: { alignItems: 'center', gap: 12, paddingHorizontal: space.md, paddingVertical: space.xl },
 });

@@ -55,20 +55,24 @@ test('microphone starts without a partner language or location permission', asyn
   expect(await screen.findByRole('button', { name: 'Finish and translate' })).toBeTruthy();
 });
 
-test('opening Profile during hands-free stops listening and keeps offline settings accessible', async () => {
+test.each([
+  ['Profile settings', 'Profile & settings', 'Done'],
+  ['Open offline languages', 'Offline translation', 'Close offline translation'],
+  ['Translation connection details', 'Translation status', 'Close connection details'],
+])('opening %s during hands-free stops listening and returns safely', async (trigger, title, close) => {
   await open();
   const recorder = useAudioRecorder({} as never);
   const stop = jest.spyOn(recorder, 'stop');
   await fireEvent.press(screen.getByRole('button', { name: 'Start hands-free conversation' }));
   expect(await screen.findByText('Listening · pause to translate')).toBeTruthy();
-  await fireEvent.press(screen.getByRole('button', { name: 'Profile settings' }));
-  expect(screen.getByRole('button', { name: 'Offline languages' })).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: trigger }));
+  expect(screen.getByRole('header', { name: title })).toBeTruthy();
   await waitFor(() => expect(stop).toHaveBeenCalled());
-  await fireEvent.press(screen.getByRole('button', { name: 'Done' }));
+  await fireEvent.press(screen.getByRole('button', { name: close }));
   expect(await screen.findByRole('button', { name: 'Start hands-free conversation' })).toBeTruthy();
 });
 
-test('Translate confirms verified downloads and identifies a missing speech detector', async () => {
+test('Translate keeps readiness details in the info panel and identifies a missing speech detector', async () => {
   let detectorDownloaded = false;
   jest.spyOn(NativeBridge, 'offlineNative').mockReturnValue({
     supportedTextLanguages: async () => ['en', 'vi'],
@@ -86,6 +90,8 @@ test('Translate confirms verified downloads and identifies a missing speech dete
   await fireEvent.press(screen.getByRole('button', { name: 'Their language: Auto-detect. Choose manually' }));
   await fireEvent.changeText(screen.getByLabelText('Search languages'), 'Vietnamese');
   await fireEvent.press(screen.getByRole('button', { name: 'Vietnamese' }));
+  expect(screen.queryByText('Offline on this phone')).toBeNull();
+  await fireEvent.press(screen.getByRole('button', { name: 'Translation connection details' }));
   expect(await screen.findByText('English ↔ Vietnamese · Ready on this phone')).toBeTruthy();
   expect(screen.getByText('Base speech model · Downloaded and verified · 60 MB')).toBeTruthy();
   expect(screen.getByText('Speech detector · Not downloaded')).toBeTruthy();

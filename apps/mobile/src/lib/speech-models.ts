@@ -1,8 +1,7 @@
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Device from 'expo-device';
 import { offlineNative } from '../../modules/roamie-offline';
-import { checkTranslationCanceled } from './offline-translation';
-import type { SpeechModel } from './translation-preferences';
+import { downloadModelFile, modelFilePath, modelFileStatus, modelFileDownloading, removeModelFile, withModelDownloadNetwork } from './model-files';
+import { supportsLargeOfflineModels, largeModelMemoryReason } from './offline-device';
+import { saveTranslationPreferences, translationPreferences, type SpeechModel } from './translation-preferences';
 
 const REVISION = '5359861c739e955e79d9a303bcbc70fb988958b1';
 export const SPEECH_MODELS = {
@@ -13,15 +12,11 @@ export const SPEECH_MODELS = {
 type Artifact = keyof typeof SPEECH_MODELS;
 export type SpeechAssetState = 'ready' | 'missing' | 'invalid';
 export type SpeechModelStatus = { model: SpeechAssetState; detector: SpeechAssetState };
-const downloading = new Set<Artifact>();
-const verified = new Map<Artifact, { uri: string; modified?: number }>();
 
-export const supportsSmallSpeechModel = () => Device.totalMemory !== null && Device.totalMemory >= 6 * 1024 ** 3;
+export const supportsSmallSpeechModel = supportsLargeOfflineModels;
+export const smallSpeechModelUnavailableReason = () => `${largeModelMemoryReason('Small')} Use Base.`;
 
-function path(model: Artifact, temporary = false) {
-  if (!FileSystem.documentDirectory) throw new Error('Model storage is unavailable in this build.');
-  return `${FileSystem.documentDirectory}offline-models/${SPEECH_MODELS[model].file}${temporary ? '.download' : ''}`;
-}
+const path = (model: Artifact) => modelFilePath(SPEECH_MODELS[model]);
 
 export async function installedSpeechModels(): Promise<SpeechModel[]> {
   const installed: SpeechModel[] = [];
@@ -31,24 +26,7 @@ export async function installedSpeechModels(): Promise<SpeechModel[]> {
   return installed;
 }
 
-async function valid(model: Artifact, uri: string) {
-  const info = await FileSystem.getInfoAsync(uri);
-  if (!info.exists || info.size !== SPEECH_MODELS[model].bytes) return false;
-  return await offlineNative()?.sha256(uri) === SPEECH_MODELS[model].sha256;
-}
-
-async function artifactStatus(artifact: Artifact): Promise<SpeechAssetState> {
-  const uri = path(artifact);
-  const info = await FileSystem.getInfoAsync(uri);
-  if (!info.exists) { verified.delete(artifact); return 'missing'; }
-  if (info.size !== SPEECH_MODELS[artifact].bytes) { verified.delete(artifact); return 'invalid'; }
-  const cached = verified.get(artifact);
-  if (cached?.uri !== uri || info.modificationTime === undefined || cached.modified !== info.modificationTime) {
-    if (!await valid(artifact, uri)) { verified.delete(artifact); return 'invalid'; }
-    verified.set(artifact, { uri, modified: info.modificationTime });
-  }
-  return 'ready';
-}
+const artifactStatus = (model: Artifact) => modelFileStatus(SPEECH_MODELS[model]);
 
 export async function speechModelStatus(model: SpeechModel): Promise<SpeechModelStatus> {
   const [modelState, detector] = await Promise.all([artifactStatus(model), artifactStatus('vad')]);
@@ -60,87 +38,38 @@ export async function speechModelPaths(model: SpeechModel): Promise<{ model: str
   return status.model === 'ready' && status.detector === 'ready' ? { model: path(model), vad: path('vad') } : null;
 }
 
-async function downloadArtifact(model: Artifact, progress: (fraction: number) => void, signal?: AbortSignal) {
-  if (downloading.has(model)) throw new Error('This model is already downloading.');
-  downloading.add(model);
-  const uri = path(model, true);
-  let cancel = () => {};
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  let timedOut = false;
-  try {
-    checkTranslationCanceled(signal);
-    const artifact = SPEECH_MODELS[model];
-    if (await valid(model, path(model))) { progress(1); return; }
-    if (await FileSystem.getFreeDiskStorageAsync() < artifact.bytes * 2 + 50 * 1024 ** 2) throw new Error('Not enough free space. Free some storage and retry.');
-    await FileSystem.makeDirectoryAsync(`${FileSystem.documentDirectory}offline-models/`, { intermediates: true });
-    await FileSystem.deleteAsync(uri, { idempotent: true });
-    const task = FileSystem.createDownloadResumable(
-      `https://huggingface.co/${artifact.repository}/resolve/${artifact.revision}/${artifact.file}`,
-      uri, { sessionType: FileSystem.FileSystemSessionType.FOREGROUND }, data => progress(Math.min(0.99, data.totalBytesWritten / artifact.bytes)),
-    );
-    cancel = () => { void task.cancelAsync().catch(() => {}); };
-    signal?.addEventListener('abort', cancel, { once: true });
-    if (signal?.aborted) { cancel(); checkTranslationCanceled(signal); }
-    timeout = setTimeout(() => { timedOut = true; cancel(); }, 10 * 60 * 1000);
-    const result = await task.downloadAsync();
-    checkTranslationCanceled(signal);
-    if (timedOut) throw new Error('The model download took too long. Connect to Wi-Fi and retry.');
-    if (result?.status !== 200 || !await valid(model, uri)) throw new Error('Model verification failed. Please download it again.');
-    checkTranslationCanceled(signal);
-    await FileSystem.deleteAsync(path(model), { idempotent: true });
-    await FileSystem.moveAsync({ from: uri, to: path(model) });
-    const info = await FileSystem.getInfoAsync(path(model));
-    verified.set(model, { uri: path(model), modified: info.exists ? info.modificationTime : undefined });
-    progress(1);
-  } catch (error) {
-    checkTranslationCanceled(signal);
-    if (error instanceof Error && /ERR_FILESYSTEM|NSURLError|URLSession/i.test(error.message)) throw new Error('The speech model could not download. Check your connection and retry.');
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-    signal?.removeEventListener('abort', cancel);
-    await FileSystem.deleteAsync(uri, { idempotent: true });
-    downloading.delete(model);
+export async function resolveSpeechModel(preferred: SpeechModel) {
+  const candidates: SpeechModel[] = [preferred, preferred === 'base' ? 'small' : 'base'];
+  for (const model of candidates) {
+    if (model === 'small' && !supportsSmallSpeechModel()) continue;
+    const paths = await speechModelPaths(model);
+    if (paths) return { model, paths };
   }
+  return null;
 }
+
+const downloadArtifact = (model: Artifact, progress: (fraction: number) => void, signal?: AbortSignal) => downloadModelFile(SPEECH_MODELS[model], progress, signal);
 
 export async function downloadSpeechModel(model: SpeechModel, cellular = false, progress: (fraction: number) => void = () => {}, signal?: AbortSignal): Promise<void> {
   if (!offlineNative()) throw new Error('Install the latest Roamie build to download offline models.');
-  if (model === 'small' && !supportsSmallSpeechModel()) throw new Error('Use Base on this phone. Small requires at least 6 GB of memory.');
-  const Network = await import('expo-network');
-  const network = await Network.getNetworkStateAsync();
-  if (network.isConnected === false || network.isInternetReachable === false) throw new Error('Connect to Wi-Fi to download this model.');
-  if (!cellular && network.type !== Network.NetworkStateType.WIFI) throw new Error('Connect to Wi-Fi, or allow mobile data for this download.');
+  if (model === 'small' && !supportsSmallSpeechModel()) throw new Error(smallSpeechModelUnavailableReason());
   const bytes = SPEECH_MODELS[model].bytes;
   const total = bytes + SPEECH_MODELS.vad.bytes;
-  const controller = new AbortController();
-  const cancel = () => controller.abort();
-  signal?.addEventListener('abort', cancel, { once: true });
-  if (signal?.aborted) cancel();
-  let changedNetwork = false;
-  const listener = !cellular ? Network.addNetworkStateListener(state => {
-    if (state.type !== Network.NetworkStateType.WIFI || state.isConnected === false) {
-      changedNetwork = true; controller.abort();
-    }
-  }) : null;
-  try {
-    await downloadArtifact(model, fraction => progress(fraction * bytes / total), controller.signal);
-    await downloadArtifact('vad', fraction => progress((bytes + fraction * SPEECH_MODELS.vad.bytes) / total), controller.signal);
-  } catch (error) {
-    if (changedNetwork) throw new Error('The Wi-Fi connection changed. Reconnect to Wi-Fi and retry the download.');
-    throw error;
-  } finally { listener?.remove(); signal?.removeEventListener('abort', cancel); }
+  await withModelDownloadNetwork(cellular, signal, async current => {
+    await downloadArtifact(model, fraction => progress(fraction * bytes / total), current);
+    await downloadArtifact('vad', fraction => progress((bytes + fraction * SPEECH_MODELS.vad.bytes) / total), current);
+  });
 }
 
 export async function removeSpeechModel(model: SpeechModel) {
-  if (downloading.has(model)) throw new Error('Cancel the download before removing this model.');
+  if (modelFileDownloading(SPEECH_MODELS[model])) throw new Error('Cancel the download before removing this model.');
   const { releaseOfflineSpeech } = await import('./offline-speech');
   await releaseOfflineSpeech();
-  verified.delete(model);
-  await FileSystem.deleteAsync(path(model), { idempotent: true });
+  await removeModelFile(SPEECH_MODELS[model]);
   const remaining = await installedSpeechModels();
-  if (!remaining.length && !downloading.has('vad')) {
-    verified.delete('vad');
-    await FileSystem.deleteAsync(path('vad'), { idempotent: true });
+  const fallback = remaining.find(candidate => candidate !== 'small' || supportsSmallSpeechModel());
+  if (fallback && translationPreferences().speechModel === model) await saveTranslationPreferences({ speechModel: fallback });
+  if (!remaining.length && !modelFileDownloading(SPEECH_MODELS.vad)) {
+    await removeModelFile(SPEECH_MODELS.vad);
   }
 }

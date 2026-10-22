@@ -1,16 +1,17 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Platform, ScrollView, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, ScrollView, Switch, View } from 'react-native';
+import { Text } from './typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getLocales } from 'expo-localization';
 import { offlineNative } from '../../modules/roamie-offline';
-import { Button, Chip, IconButton, Segmented } from './ui';
+import { Button, Card, Chip, IconButton, SectionLabel, Segmented } from './ui';
 import { LanguagePicker } from './language-picker';
 import { TextTranslate } from './text-translate';
 import { CameraTranslate } from './camera-translate';
 import { font, space, useColors } from '@/constants/theme';
 import { languageName, LANGUAGES } from '@/lib/languages';
 import { appLanguage, modelLanguage, offlineTextStatus, supportsLocalText } from '@/lib/offline-translation';
-import { downloadSpeechModel, removeSpeechModel, SPEECH_MODELS, speechModelStatus, supportsSmallSpeechModel, type SpeechModelStatus } from '@/lib/speech-models';
+import { downloadSpeechModel, removeSpeechModel, SPEECH_MODELS, speechModelStatus, supportsSmallSpeechModel, smallSpeechModelUnavailableReason, type SpeechModelStatus } from '@/lib/speech-models';
 import { restoreTranslationPreferences, saveTranslationPreferences, useTranslationPreferences, type SpeechModel, type TranslationMode } from '@/lib/translation-preferences';
 import { OfflineReadiness } from './offline-readiness';
 
@@ -99,14 +100,17 @@ export function OfflineTools({ onClose, mine: initialMine, partner: initialPartn
     {panel === 'prepare' ? <ScrollView contentContainerStyle={{ padding: space.md, gap: space.md }}>
       <Text style={[font.body, { color: c.muted }]}>Download before you travel. Text, speech, camera and read-aloud need their own support. Translations in these tools stay on this phone.</Text>
       {!available ? <Text accessibilityRole="alert" style={[font.body, { color: c.warn }]}>Offline models need a new Roamie app build. This installation cannot download or run them yet.</Text> : null}
-      <Button label={`Your offline language: ${languageName(mine)}`} kind="secondary" disabled={!!busy} onPress={() => setPicking('mine')} />
-      <Button label={`Other offline language: ${languageName(partner)}`} kind="secondary" disabled={!!busy} onPress={() => setPicking('partner')} />
+      <SectionLabel>Languages on this phone</SectionLabel>
+      <View style={{ gap: space.sm }}>
+        <Button label={`Your offline language: ${languageName(mine)}`} kind="secondary" disabled={!!busy} onPress={() => setPicking('mine')} />
+        <Button label={`Other offline language: ${languageName(partner)}`} kind="secondary" disabled={!!busy} onPress={() => setPicking('partner')} />
+      </View>
       <OfflineReadiness mine={mine} partner={partner} refreshKey={busy} offlineOnly onRefresh={() => { void run('Checking offline assets…', refresh); }} />
       {checking ? <Text accessibilityRole="progressbar" style={[font.body, { color: c.muted }]}>Checking offline assets…</Text> : <View style={{ gap: space.xs }}>
         {readyLine('Camera', cameraReady, `Requires ${languageName(partner)} camera reading and text packs`)}
         {readyLine('Read aloud in both languages', voiceReady, 'Install offline voices in device speech settings')}
       </View>}
-      {pair.map(language => <View key={language} style={{ gap: space.sm }}>
+      {pair.map(language => <Card key={language}>
         <Text style={[font.headline, { color: c.text }]}>{languageName(language)}</Text>
         {checking ? null : !supportsLocalText(language, supported) ? <Text style={[font.body, { color: c.muted }]}>This language needs cloud translation. Its offline text pack is not available on this device.</Text>
           : textReady || languages.includes(language) ? <><Text style={[font.caption, { color: c.muted }]}>{language === 'en' ? Platform.OS === 'ios' ? 'English is prepared with the language pair' : 'English pivot · included' : 'Text pack downloaded'}</Text>{language !== 'en' && canRemove ? <Button label={`Remove ${languageName(language)} pack`} kind="secondary" disabled={!!busy} onPress={() => { void run('Removing language…', () => offlineNative()!.removeLanguage(modelLanguage(language))); }} /> : null}</>
@@ -116,17 +120,16 @@ export function OfflineTools({ onClose, mine: initialMine, partner: initialPartn
               if (!cellular && state.type !== network.NetworkStateType.WIFI) throw new Error('Connect to Wi-Fi, or allow mobile data for this download.');
               await offlineNative()!.downloadLanguage(modelLanguage(language), cellular);
             }); }} />}
-      </View>)}
+      </Card>)}
       {Platform.OS === 'ios' ? <Text style={[font.caption, { color: c.muted }]}>iOS manages text pack downloads and sizes. Confirm its download prompt, then refresh readiness. To remove text packs, open Settings → Apps → Translate → Downloaded Languages. Offline text requires iOS 18 or later and a physical iPhone.</Text> : null}
-      <Text style={[font.headline, { color: c.text }]}>Speech model</Text>
-      <Text style={[font.body, { color: c.muted }]}>Base is the balanced choice. Small uses more memory and battery and may recognise speech better. Neither supports Odia speech. A small speech detector is included to reject silence.</Text>
-      <Text style={[font.caption, { color: c.muted }]}>Remove speech models below to free device storage. You can download them again before your next trip.</Text>
-      {(['base', 'small'] as const).map(model => <View key={model} style={{ gap: space.sm }}>
+      <SectionLabel>Speech models</SectionLabel>
+      <Text style={[font.body, { color: c.muted }]}>Base balances speed and size. Small may recognise speech better, with more memory and battery use. Both include a silence detector. Odia speech is not supported.</Text>
+      {(['base', 'small'] as const).map(model => <Card key={model}>
         <Text style={[font.headline, { color: c.text }]}>{SPEECH_MODELS[model].name} · {Math.ceil((SPEECH_MODELS[model].bytes + SPEECH_MODELS.vad.bytes) / 1_000_000)} MB</Text>
         {!checking && models[model] ? <Text style={[font.caption, { color: c.muted }]}>{models[model]!.model === 'ready' ? 'Model file downloaded and verified on this phone' : models[model]!.model === 'invalid' ? 'Model file is incomplete or invalid' : 'Model file is not downloaded'}</Text> : null}
-        {checking ? null : model === 'small' && !supportsSmallSpeechModel() ? <Text style={[font.caption, { color: c.muted }]}>Use Base on this phone. Small requires at least 6 GB of device memory.</Text>
-          : speech.includes(model) ? <Chip label={preferences.speechModel === model ? `${model === 'base' ? 'Base' : 'Small'} selected` : `Use ${model === 'base' ? 'Base' : 'Small'}`} selected={preferences.speechModel === model} onPress={() => { void saveTranslationPreferences({ speechModel: model }); }} />
-            : <Button label={models[model]?.model === 'ready' ? `Finish ${model === 'base' ? 'Base' : 'Small'} speech download` : `Download ${model === 'base' ? 'Base' : 'Small'} speech model`} disabled={!available || !!busy} onPress={() => {
+        {!checking && model === 'small' && !supportsSmallSpeechModel() ? <Text style={[font.caption, { color: c.muted }]}>{smallSpeechModelUnavailableReason()}</Text> : null}
+        {checking ? null : speech.includes(model) ? model !== 'small' || supportsSmallSpeechModel() ? <Chip label={preferences.speechModel === model ? `${model === 'base' ? 'Base' : 'Small'} selected` : `Use ${model === 'base' ? 'Base' : 'Small'}`} selected={preferences.speechModel === model} onPress={() => { void saveTranslationPreferences({ speechModel: model }); }} /> : null
+            : <Button label={models[model]?.model === 'ready' ? `Finish ${model === 'base' ? 'Base' : 'Small'} speech download` : `Download ${model === 'base' ? 'Base' : 'Small'} speech model`} disabled={!available || !!busy || (model === 'small' && !supportsSmallSpeechModel())} onPress={() => {
               cancelDownload.current = new AbortController();
               void run('Downloading speech model…', async () => {
                 await downloadSpeechModel(model, cellular, fraction => { if (alive.current) setProgress(fraction); }, cancelDownload.current!.signal);
@@ -134,7 +137,8 @@ export function OfflineTools({ onClose, mine: initialMine, partner: initialPartn
               });
             }} />}
         {!checking && models[model] && models[model]!.model !== 'missing' ? <Button label={`Remove ${model === 'base' ? 'Base' : 'Small'} speech model`} kind="secondary" disabled={!!busy} onPress={() => { void run('Removing speech model…', () => removeSpeechModel(model), `${model === 'base' ? 'Base' : 'Small'} speech model removed from this phone.`); }} /> : null}
-      </View>)}
+      </Card>)}
+      <Text style={[font.caption, { color: c.muted }]}>Remove models to free storage. Download them again whenever you need them.</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}><Text style={[font.body, { color: c.text, flex: 1 }]}>Allow mobile data for downloads</Text><Switch accessibilityLabel="Allow mobile data for downloads" value={cellular} onValueChange={setCellular} disabled={!!busy} /></View>
       {busy ? <Text accessibilityRole="progressbar" accessibilityValue={progress === null ? undefined : { min: 0, max: 100, now: Math.min(99, Math.floor(progress * 100)) }} style={[font.body, { color: c.accent }]}>{busy}{progress === null ? '' : ` ${Math.min(99, Math.floor(progress * 100))}%`}</Text> : null}
       {busy === 'Downloading speech model…' ? <Button label="Cancel speech download" kind="secondary" onPress={() => cancelDownload.current?.abort()} /> : null}

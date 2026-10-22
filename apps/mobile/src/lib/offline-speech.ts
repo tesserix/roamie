@@ -4,7 +4,7 @@ import * as Device from 'expo-device';
 import type { WhisperContext, WhisperVadContext } from 'whisper.rn/index';
 import { offlineNative } from '../../modules/roamie-offline';
 import { checkTranslationCanceled, appLanguage } from './offline-translation';
-import { speechModelPaths, speechModelStatus, supportsSmallSpeechModel } from './speech-models';
+import { resolveSpeechModel, speechModelStatus, supportsSmallSpeechModel } from './speech-models';
 import { translationPreferences, type SpeechModel } from './translation-preferences';
 
 export class LocalSpeechError extends Error {
@@ -41,9 +41,11 @@ export async function transcribeOffline(uri: string, signal?: AbortSignal): Prom
   const native = offlineNative();
   if (!native) return null;
   if (active) throw new LocalSpeechError('Finish the current translation before recording again.', 'speech_busy');
-  const model = translationPreferences().speechModel;
-  if (model === 'small' && !supportsSmallSpeechModel()) throw new LocalSpeechError('Select Base for speech on this phone.', 'speech_unavailable');
-  const paths = await speechModelPaths(model);
+  const preferred = translationPreferences().speechModel;
+  const resolved = await resolveSpeechModel(preferred);
+  const model = resolved?.model ?? preferred;
+  const paths = resolved?.paths;
+  if (!paths && model === 'small' && !supportsSmallSpeechModel()) throw new LocalSpeechError('Select Base for speech on this phone.', 'speech_unavailable');
   checkTranslationCanceled(signal);
   if (!paths) {
     const status = await speechModelStatus(model);
