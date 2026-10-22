@@ -12,20 +12,24 @@ import { session } from '@/lib/auth-client';
 import { PrivacyLinks } from './privacy-links';
 import { DisplaySettings } from './display-settings';
 import { signOut } from '@/lib/sign-out';
+import { OfflineTools } from './offline-tools';
+import { Button } from './ui';
 
-export function ProfileSettings() {
+export function ProfileSettings({ mine, partner, onOpenChange }: { mine?: string; partner?: string | null; onOpenChange?: (open: boolean) => void } = {}) {
   const [open, setOpen] = useState(false);
+  const [offline, setOffline] = useState(false);
   const customer = useSyncExternalStore(session.subscribe, session.current);
   const settings = useAccessibility(), c = useColors(), insets = useSafeAreaInsets();
+  const close = () => { setOpen(false); onOpenChange?.(false); };
   return <>
-    <Pressable accessibilityRole="button" accessibilityLabel="Profile settings" onPress={() => setOpen(true)} style={({ pressed }) => ({ minWidth: 48, minHeight: 48, borderRadius: 24, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
+    <Pressable accessibilityRole="button" accessibilityLabel="Profile settings" onPress={() => { setOffline(false); setOpen(true); onOpenChange?.(true); }} style={({ pressed }) => ({ minWidth: 48, minHeight: 48, borderRadius: 24, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
       <FontAwesome name="user-circle-o" size={24} color={c.text} accessible={false} />
     </Pressable>
-    <Modal visible={open} animationType={settings.reducedMotion ? 'none' : 'slide'} onRequestClose={() => setOpen(false)}>
-      <View accessibilityViewIsModal style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}>
+    <Modal visible={open} animationType={settings.reducedMotion ? 'none' : 'slide'} onRequestClose={() => offline ? setOffline(false) : close()}>
+      {open && (offline ? <OfflineTools mine={mine} partner={partner} signedIn={!!customer} onClose={() => setOffline(false)} /> : <View accessibilityViewIsModal style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.lg, paddingVertical: space.md, gap: space.md }}>
           <Text accessibilityRole="header" maxFontSizeMultiplier={1.35} style={[font.title, { color: c.text, flex: 1 }]}>Profile & settings</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Done" onPress={() => setOpen(false)} style={{ minHeight: 48, minWidth: 60, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: c.accent }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Done" onPress={close} style={{ minHeight: 48, minWidth: 60, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: c.accent }}>
             <Text maxFontSizeMultiplier={1.35} style={[font.headline, { color: c.onAccent }]}>Done</Text>
           </Pressable>
         </View>
@@ -33,10 +37,15 @@ export function ProfileSettings() {
           {customer && <View style={{ padding: space.md, gap: space.sm, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border }}>
             <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Account</Text>
             <Text style={[font.body, { color: c.muted }]}>{customer.email}</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={() => { setOpen(false); void signOut(); }} style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: space.md, borderRadius: 14, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={() => { close(); void signOut(); }} style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: space.md, borderRadius: 14, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
               <Text style={[font.headline, { color: c.danger }]}>Sign out</Text>
             </Pressable>
           </View>}
+          <View style={{ gap: space.sm }}>
+            <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Translation</Text>
+            <Button label="Offline languages" icon="wifi.exclamationmark" kind="secondary" onPress={() => setOffline(true)} />
+            <Text style={[font.body, { color: c.muted }]}>Download language packs and speech models before you travel. Manage offline translation here.</Text>
+          </View>
           <DisplaySettings />
           <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Sound & feedback</Text>
           <View style={{ borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, overflow: 'hidden' }}>
@@ -77,7 +86,7 @@ export function ProfileSettings() {
           {customer && <PrivacyLinks key={customer.sub} />}
           {settings.error ? <Text accessibilityRole="alert" style={{ color: c.danger }}>{settings.error}</Text> : null}
         </ScrollView>
-      </View>
+      </View>)}
     </Modal>
   </>;
 }

@@ -20,7 +20,6 @@ import { useAccessibility, useTextScale } from '@/lib/accessibility';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CameraTranslate } from '@/components/camera-translate';
-import { OfflinePreparation } from '@/components/offline-tools';
 import { subscribeTranslationPreferences, translationPreferences } from '@/lib/translation-preferences';
 import { LanguagePicker } from '@/components/language-picker';
 import { type Shown, ShowThem } from '@/components/show-them';
@@ -61,8 +60,9 @@ export default function Talk() {
   const { fontScale: phoneFontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const focused = useIsFocused();
-  const focusedRef = useRef(focused);
-  useEffect(() => { focusedRef.current = focused; }, [focused]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const focusedRef = useRef(focused && !settingsOpen);
+  useEffect(() => { focusedRef.current = focused && !settingsOpen; }, [focused, settingsOpen]);
   const accessibility = useAccessibility();
   const accessibilityRef = useRef(accessibility);
   useEffect(() => { accessibilityRef.current = accessibility; }, [accessibility]);
@@ -145,11 +145,11 @@ export default function Talk() {
     return () => { subscription.remove(); loop.stop(); conversation.current = null; };
   }, [recorder]);
   useEffect(() => {
-    if (!focused || mode !== 'talk' || typing || showing || picking) {
+    if (!focused || settingsOpen || mode !== 'talk' || typing || showing || picking) {
       conversation.current?.stop();
       if (automaticRequest.current) request.current?.abort();
     }
-  }, [focused, mode, typing, showing, picking]);
+  }, [focused, settingsOpen, mode, typing, showing, picking]);
 
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboard(true));
@@ -350,14 +350,19 @@ export default function Talk() {
   }
 
   useEffect(() => {
-    if (focused) return;
+    if (focused && !settingsOpen) return;
     captureRevision.current++;
     stopSpeaking();
+    if (settingsOpen) {
+      request.current?.abort();
+      playbackRevision.current++;
+      if (!recording.current && !recordingLock.current && !sending.current) setPhase('idle');
+    }
     if (recording.current) {
       recording.current = false;
       void recorder.stop().catch(() => {}).then(() => setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true })).catch(() => {}).finally(() => setPhase('idle'));
     }
-  }, [focused, recorder]);
+  }, [focused, settingsOpen, recorder]);
 
   useEffect(() => () => {
     if (recording.current) {
@@ -429,12 +434,11 @@ export default function Talk() {
             }}
           />
         ) : null}
-        <View pointerEvents={handsFree ? 'none' : 'auto'} accessibilityElementsHidden={handsFree} importantForAccessibility={handsFree ? 'no-hide-descendants' : 'auto'} style={{ opacity: handsFree ? 0.4 : 1 }}><ProfileSettings /></View>
+        <ProfileSettings mine={mine} partner={partner} onOpenChange={setSettingsOpen} />
       </View>
 
       <Segmented disabled={phase !== 'idle'} options={MODES} value={mode} onChange={next => { if (phase === 'idle') setMode(next); }} />
       <View style={{ marginHorizontal: space.md, marginVertical: space.sm }}><CommunicationCards disabled={phase !== 'idle'} /></View>
-      <View style={{ marginHorizontal: space.md, marginBottom: space.sm }}><OfflinePreparation mine={mine} partner={partner} disabled={phase !== 'idle' || handsFree} /></View>
 
     </>
   );
