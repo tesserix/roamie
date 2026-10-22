@@ -106,7 +106,6 @@ pub async fn translate(
     if review.answers.readability.choice == Decision::Retake {
         return Err(Error::Unreadable);
     }
-    let review_required = source_review || review.answers.readability.choice == Decision::Review;
     let schema = json!({
         "type": "OBJECT",
         "properties": {
@@ -124,16 +123,47 @@ pub async fn translate(
         },
         "required": ["language", "gist", "lines"]
     });
-    let a: Answer = ai
+    let contents = vec![
+        Gemini::text(format!("Target language (ISO 639-1): {}.", req.to.as_str())),
+        Gemini::text(format!("Lines:\n{numbered}")),
+    ];
+    let incomplete = |answer: &Answer| {
+        found.iter().enumerate().any(|(index, _)| {
+            !answer
+                .lines
+                .iter()
+                .any(|line| line.index == index && !line.translation.trim().is_empty())
+        }) || (Lang::parse(&answer.language).as_ref() != Some(&req.to)
+            && found
+                .iter()
+                .any(|line| line.text.chars().any(char::is_alphabetic))
+            && !answer.lines.iter().any(|line| {
+                found.get(line.index).is_some_and(|original| {
+                    !line
+                        .translation
+                        .trim()
+                        .eq_ignore_ascii_case(original.text.trim())
+                })
+            }))
+    };
+    let mut a: Answer = ai
         .json(
             &format!("{SYSTEM} {STYLE}"),
-            vec![
-                Gemini::text(format!("Target language: {}.", req.to.as_str())),
-                Gemini::text(format!("Lines:\n{numbered}")),
-            ],
-            schema,
+            contents.clone(),
+            schema.clone(),
         )
         .await?;
+    if incomplete(&a) {
+        a = ai
+            .json(
+                &format!("{SYSTEM} {STYLE} The previous answer omitted translations or repeated the original text. Translate every numbered line into the requested target language using its native script; preserve every index."),
+                contents,
+                schema,
+            )
+            .await?;
+    }
+    let review_required =
+        source_review || review.answers.readability.choice == Decision::Review || incomplete(&a);
     let detected = Lang::parse(&a.language)
         .ok_or_else(|| Error::Upstream(format!("unknown language {:?}", a.language)))?;
     Ok(SignResponse {

@@ -1413,6 +1413,98 @@ fn observation(text: &str, order: u32) -> Value {
 }
 
 #[tokio::test]
+async fn sign_translation_retries_an_untranslated_answer() {
+    let ocr = ocr_service("accepted", json!([observation("EXIT", 0)])).await;
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let counter = attempts.clone();
+    let app = axum::Router::new().fallback(move || {
+        let translation = if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+            "EXIT"
+        } else {
+            "ପ୍ରସ୍ଥାନ"
+        };
+        async move {
+            axum::Json(model_reply(json!({
+                "language": "en", "gist": "Exit this way.",
+                "lines": [{ "index": 0, "translation": translation, "romanized": "" }]
+            })))
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let ai = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut photo = sign_photo();
+    photo["to"] = json!("or");
+    let (status, body) = call(
+        with_ocr(state(&ai, "http://unused", None), &ocr),
+        "POST",
+        "/v1/signs/translate",
+        Some(photo),
+    )
+    .await;
+    task.abort();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["lines"][0]["translation"], "ପ୍ରସ୍ଥାନ");
+    assert_eq!(body["reviewRequired"], false);
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn incomplete_sign_translations_are_bounded_and_require_review() {
+    for lines in [
+        json!([]),
+        json!([{ "index": 0, "translation": "EXIT", "romanized": "" }]),
+        json!([{ "index": 0, "translation": "  ", "romanized": "" }]),
+    ] {
+        let ocr = ocr_service("accepted", json!([observation("EXIT", 0)])).await;
+        let (ai, attempts) = upstream(
+            StatusCode::OK,
+            model_reply(json!({"language":"en","gist":"Exit this way.","lines":lines})),
+        )
+        .await;
+        let mut photo = sign_photo();
+        photo["to"] = json!("or");
+        let (status, body) = call(
+            with_ocr(state(&ai, "http://unused", None), &ocr),
+            "POST",
+            "/v1/signs/translate",
+            Some(photo),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["reviewRequired"], true, "{body}");
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+}
+
+#[tokio::test]
+async fn sign_numbers_and_same_language_text_do_not_need_retranslation() {
+    for (original, target) in [("500", "or"), ("EXIT", "en")] {
+        let ocr = ocr_service("accepted", json!([observation(original, 0)])).await;
+        let (ai, attempts) = upstream(
+            StatusCode::OK,
+            model_reply(json!({"language":"en","gist":"Sign.","lines":[
+                {"index":0,"translation":original,"romanized":""}
+            ]})),
+        )
+        .await;
+        let mut photo = sign_photo();
+        photo["to"] = json!(target);
+        let (status, body) = call(
+            with_ocr(state(&ai, "http://unused", None), &ocr),
+            "POST",
+            "/v1/signs/translate",
+            Some(photo),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["lines"][0]["translation"], original);
+        assert_eq!(body["reviewRequired"], false, "{body}");
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[tokio::test]
 async fn sign_photo_is_read_and_translated_line_by_line() {
     let ocr = ocr_service(
         "accepted",
