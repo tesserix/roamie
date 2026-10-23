@@ -586,7 +586,6 @@ mod media_tests {
                             String::new()
                         },
                         year: Some(2026),
-                        ..Options::default()
                     },
                 }),
             )
