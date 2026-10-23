@@ -1,0 +1,6 @@
+RNNoise v0.1
+https://github.com/xiph/rnnoise
+Commit: cdf196b1e9de2f8ff1003328ebf9a4316477429d
+BSD-3-Clause. Bundled pretrained weights in rnn_data.c. No runtime downloads.
+Local change: undefined null-pointer aborts in rnn.c replaced by abort().
+Local change: standard C headers use angle includes to avoid CocoaPods header-map collisions.

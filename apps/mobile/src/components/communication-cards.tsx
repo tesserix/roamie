@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { font, space, useColors } from '@/constants/theme';
 import { useAccessibility } from '@/lib/accessibility';
 import { playbackVoice, speak, stopSpeaking, useSpeaking } from '@/lib/voice';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 const cards = [
   { title: 'Please write your reply', text: 'I’m deaf or hard of hearing. Please type or write your reply. Thank you.' },
@@ -14,7 +15,7 @@ const cards = [
   { title: 'Help getting there', text: 'Could you help me find my destination? Please ask how you can help before touching me or my mobility aid.' },
 ];
 
-export function CommunicationCards({ disabled = false }: { disabled?: boolean }) {
+export function CommunicationCards({ disabled = false, compact = false }: { disabled?: boolean; compact?: boolean }) {
   const c = useColors(), insets = useSafeAreaInsets(), { reducedMotion, voice } = useAccessibility();
   const [page, setPage] = useState<'closed' | 'list' | 'edit' | 'show'>('closed');
   const [message, setMessage] = useState('');
@@ -27,7 +28,10 @@ export function CommunicationCards({ disabled = false }: { disabled?: boolean })
     </Pressable>;
   }
   return <>
-    {action('Communication cards', () => setPage('list'), false, disabled)}
+    {compact ? <Pressable accessibilityRole="button" accessibilityLabel="Communication cards" accessibilityState={{ disabled }} disabled={disabled} onPress={() => setPage('list')} style={({ pressed }) => ({ flexShrink: 1, minHeight: 44, paddingHorizontal: space.sm, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 })}>
+      <FontAwesome name="commenting-o" size={14} color={c.muted} accessible={false} />
+      <Text style={[font.caption, { color: c.muted, flexShrink: 1 }]}>Communication cards</Text>
+    </Pressable> : action('Communication cards', () => setPage('list'), false, disabled)}
     <Modal visible={page !== 'closed'} onRequestClose={close} animationType={reducedMotion ? 'none' : 'slide'}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} accessibilityViewIsModal style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}>
         <View style={{ flexDirection: 'row', padding: space.md, alignItems: 'center', gap: space.sm }}>

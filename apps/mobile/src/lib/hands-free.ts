@@ -7,9 +7,9 @@ import { SPEECH_RECORDING } from './recording';
 type Recorder = {
   uri: string | null;
   prepareToRecordAsync: (options: RecordingOptions) => Promise<void>;
-  record: () => void;
+  record: () => void | Promise<void>;
   stop: () => Promise<void>;
-  getStatus: () => { isRecording: boolean; durationMillis: number; metering?: number; mediaServicesDidReset: boolean };
+  getStatus: () => { isRecording: boolean; durationMillis: number; metering?: number; speech?: boolean; mediaServicesDidReset: boolean };
 };
 type Callbacks = {
   onTurn: (uri: string, active: () => boolean) => Promise<void>;
@@ -83,7 +83,8 @@ export class HandsFreeConversation {
         await this.recorder.prepareToRecordAsync(SPEECH_RECORDING);
         prepared = true;
         if (!current()) break;
-        this.recorder.record();
+        await this.recorder.record();
+        if (!current()) break;
         this.callbacks.onPhase('listening');
         if (interruptions) this.callbacks.onRecovery('Still listening. Please repeat.');
         let interrupted = false;
@@ -96,13 +97,13 @@ export class HandsFreeConversation {
           if (!status.isRecording || status.mediaServicesDidReset) { interrupted = true; break; }
           if (status.metering == null || !Number.isFinite(status.metering)) throw new Error('Hands-free is unavailable on this device. Use tap to talk instead.');
           const elapsed = Date.now() - started;
-          if (status.metering > -42) {
+          if (status.speech ?? status.metering > -42) {
             voicedMs += Math.min(200, elapsed - previous);
             lastVoice = elapsed;
             if (voicedMs >= 300) heardSpeech = true;
           } else if (!heardSpeech) voicedMs = 0;
           previous = elapsed;
-          if (heardSpeech && (elapsed - lastVoice >= 1200 || elapsed >= 30000)) break;
+          if (heardSpeech && (elapsed - lastVoice >= (status.speech === undefined ? 1200 : 800) || elapsed >= 30000)) break;
           if (elapsed >= 30000) break;
         }
         if (!current()) break;

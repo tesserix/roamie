@@ -5,7 +5,7 @@ import { Text, TextInput } from '@/components/typography';
 import { LanguagePicker } from '@/components/language-picker';
 import { type Shown, ShowThem } from '@/components/show-them';
 import { Button, Icon, IconButton, SpeakButton } from '@/components/ui';
-import { font, lift, radius, space, useColors } from '@/constants/theme';
+import { font, radius, space, useColors } from '@/constants/theme';
 import { ApiError, type TextTranslation, translateText } from '@/lib/api';
 import { signalFeedback } from '@/lib/feedback';
 import { useAccessibility } from '@/lib/accessibility';
@@ -72,7 +72,7 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
 
   return (
     <>
-      <View style={[styles.langBar, lift, { backgroundColor: c.surface }]}>
+      <View style={[styles.langBar, { backgroundColor: c.surface, borderColor: c.border }]}>
         <LangButton
           label={from ? languageName(from) : shownResult ? `${languageName(shownResult.detected)} · detected` : 'Detect language'}
           onPress={() => setPicking('from')}
@@ -85,7 +85,7 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: space.md, gap: space.md, paddingBottom: bottom }}
         keyboardShouldPersistTaps="handled">
-        <View style={[styles.card, lift, { backgroundColor: c.surface }]}>
+        <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
           <TextInput
             accessibilityLabel="Text to translate"
             autoCorrect={false}
@@ -120,7 +120,7 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
         ) : null}
 
         {shownResult ? (
-          <View style={[styles.card, { backgroundColor: c.accentSoft }]}>
+          <View style={[styles.card, { backgroundColor: c.accentSoft, borderColor: c.border }]}>
             <View style={styles.row}>
               <Text style={[font.overline, { color: c.accent, flex: 1 }]}>{languageName(to)}</Text>
               {busy ? <ActivityIndicator color={c.accent} /> : null}
@@ -185,7 +185,7 @@ function LangButton({ label, onPress, end }: { label: string; onPress: () => voi
       accessibilityLabel={`${label}. Change`}
       onPress={onPress}
       style={({ pressed }) => [styles.lang, end && { justifyContent: 'flex-end' }, { opacity: pressed ? 0.6 : 1 }]}>
-      <Text style={[font.headline, { color: c.text, flexShrink: 1 }]} numberOfLines={1}>
+      <Text style={[font.headline, { color: c.text, flexShrink: 1 }]}>
         {label}
       </Text>
       <Icon name="chevron.down" size={12} color={c.muted} />
@@ -197,6 +197,7 @@ const styles = StyleSheet.create({
   langBar: {
     marginHorizontal: space.md,
     borderRadius: radius.lg,
+    borderWidth: 1,
     paddingVertical: 6,
     paddingHorizontal: space.md,
     flexDirection: 'row',
@@ -204,7 +205,7 @@ const styles = StyleSheet.create({
     gap: space.xs,
   },
   lang: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 44 },
-  card: { borderRadius: radius.lg, padding: space.md, gap: space.sm },
+  card: { borderRadius: radius.lg, borderWidth: 1, padding: space.md, gap: space.sm },
   input: { fontSize: 22, lineHeight: 30, minHeight: 110, textAlignVertical: 'top' },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 40 },
   show: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, minHeight: 44, borderRadius: radius.pill },

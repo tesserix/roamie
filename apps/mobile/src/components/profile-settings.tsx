@@ -4,7 +4,7 @@ import { Text } from '@/components/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useAccessibility } from '@/lib/accessibility';
-import { font, space, useColors } from '@/constants/theme';
+import { font, radius, space, useColors } from '@/constants/theme';
 import { CommunicationCards } from './communication-cards';
 import { signalFeedback } from '@/lib/feedback';
 import { stopSpeaking } from '@/lib/voice';
@@ -30,7 +30,7 @@ export function ProfileSettings() {
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={{ padding: space.lg, paddingTop: space.sm, paddingBottom: insets.bottom + space.lg, gap: space.lg }}>
-          {customer && <View style={{ padding: space.md, gap: space.sm, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border }}>
+          {customer && <View style={{ padding: space.md, gap: space.sm, borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border }}>
             <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Account</Text>
             <Text style={[font.body, { color: c.muted }]}>{customer.email}</Text>
             <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={() => { setOpen(false); void signOut(); }} style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: space.md, borderRadius: 14, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
@@ -39,7 +39,7 @@ export function ProfileSettings() {
           </View>}
           <DisplaySettings />
           <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Sound & feedback</Text>
-          <View style={{ borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, overflow: 'hidden' }}>
+          <View style={{ borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, overflow: 'hidden' }}>
             {([
               ['quiet', 'Quiet translation', 'Read replies. Play audio when you choose.'],
               ['vibration', 'Vibration feedback', 'A brief pulse when recording starts or a reply is ready, where supported.'],
@@ -52,7 +52,7 @@ export function ProfileSettings() {
             </View>)}
           </View>
           <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Translation voice</Text>
-          <View accessibilityRole="radiogroup" style={{ borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, overflow: 'hidden' }}>
+          <View accessibilityRole="radiogroup" style={{ borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, overflow: 'hidden' }}>
             {([
               ['match', 'Match speaker', 'A female voice when the speaker sounds higher, a male voice when lower.'],
               ['female', 'Female', 'Always a calm female voice.'],

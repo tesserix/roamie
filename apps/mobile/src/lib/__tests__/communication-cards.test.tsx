@@ -16,3 +16,13 @@ test('traveller can choose an offline card, edit it and show the exact message',
  await fireEvent.changeText(screen.getByLabelText('Card message in English'),'   ');
  expect(screen.getByRole('button',{name:'Show message'}).props.accessibilityState.disabled).toBe(true);
 });
+
+test('compact cards entry keeps a 44-point target and opens the message flow', async () => {
+ await render(<CommunicationCards compact />);
+ expect(screen.getByRole('button', {name: 'Communication cards'})).toHaveStyle({minHeight: 44});
+ await fireEvent.press(screen.getByRole('button', {name: 'Communication cards'}));
+ await fireEvent.press(screen.getByRole('button', {name: 'Write my own message'}));
+ await fireEvent.changeText(screen.getByLabelText('Card message in English'), 'Please speak slowly.');
+ await fireEvent.press(screen.getByRole('button', {name: 'Show message'}));
+ expect(screen.getByText('Please speak slowly.')).toBeTruthy();
+});

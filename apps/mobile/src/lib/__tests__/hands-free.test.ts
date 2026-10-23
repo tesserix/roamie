@@ -299,3 +299,34 @@ test('stop during permission preflight does not open a late permission prompt', 
   expect(requestRecordingPermissionsAsync).not.toHaveBeenCalled();
   expect(t.recorder.record).not.toHaveBeenCalled();
 });
+
+
+test('native speech detection ends a turn despite loud non-speech microphone noise', async () => {
+  const t = setup();
+  let speech = false;
+  const status = t.recorder.getStatus;
+  jest.spyOn(t.recorder, 'getStatus').mockImplementation(() => ({...status(), speech}));
+  t.level(-25);
+  const done = t.loop.start();
+  await jest.advanceTimersByTimeAsync(1000);
+  expect(t.onTurn).not.toHaveBeenCalled();
+  speech = true;
+  await jest.advanceTimersByTimeAsync(700);
+  speech = false;
+  await jest.advanceTimersByTimeAsync(900);
+  expect(t.onTurn).toHaveBeenCalledTimes(1);
+  t.loop.stop();
+  await done;
+});
+
+test('native detector does not submit steady loud noise as speech', async () => {
+  const t = setup();
+  const status = t.recorder.getStatus;
+  jest.spyOn(t.recorder, 'getStatus').mockImplementation(() => ({...status(), speech: false}));
+  t.level(-25);
+  const done = t.loop.start();
+  await jest.advanceTimersByTimeAsync(30600);
+  expect(t.onTurn).not.toHaveBeenCalled();
+  t.loop.stop();
+  await done;
+});

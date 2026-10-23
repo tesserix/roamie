@@ -1,0 +1,1 @@
+{"platforms":["apple","android"],"apple":{"modules":["RoamieCaptureModule"]},"android":{"modules":["app.tesserix.roamie.capture.RoamieCaptureModule"]}}
