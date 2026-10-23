@@ -1,0 +1,4 @@
+module RoamieVAD {
+  header "roamie_denoise.h"
+  export *
+}

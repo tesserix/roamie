@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync, useAudioRecorder } from 'expo-audio';
 import { AppState } from 'react-native';
+import * as Expo from 'expo';
 import * as Speech from 'expo-speech';
 import Talk from '../../app/index';
 import { StoreProvider, useStore } from '../store';
@@ -10,6 +11,7 @@ import { session } from '../auth-client';
 import { AccessibilityProvider } from '../accessibility';
 
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn(async () => {}) }));
+jest.mock('expo', () => ({ ...jest.requireActual<typeof import('expo')>('expo'), requireOptionalNativeModule: jest.fn(() => null) }));
 jest.mock('expo-router', () => ({ useIsFocused: () => true }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 jest.mock('expo-location', () => ({ getForegroundPermissionsAsync: jest.fn(async () => ({ granted: false })) }));
@@ -780,4 +782,26 @@ test.each([
     }
     await fireEvent.press(screen.getByRole('button', { name: 'Stop hands-free conversation' }));
   } finally { jest.useRealTimers(); }
+});
+
+
+test('native startup finishes before Listening and cannot rearm after backgrounding', async () => {
+  const subscribe = jest.spyOn(AppState, 'addEventListener');
+  let finish!: () => void;
+  const native = {
+    speechDetection: true,
+    startCapture: jest.fn(() => new Promise<void>(resolve => { finish = resolve; })),
+    stopCapture: jest.fn(async () => ({ uri: 'file:///native.wav' })),
+    addListener: jest.fn(() => ({ remove: jest.fn() })),
+  };
+  jest.mocked(Expo.requireOptionalNativeModule).mockReturnValueOnce(native as never);
+  await open();
+  await fireEvent.press(screen.getByRole('button', { name: 'Start recording' }));
+  await waitFor(() => expect(native.startCapture).toHaveBeenCalledTimes(1));
+  expect(screen.queryByRole('button', { name: 'Finish and translate' })).toBeNull();
+  const listeners = subscribe.mock.calls.filter(([event]) => event === 'change').map(([, listener]) => listener);
+  await act(async () => { AppState.currentState = 'background'; listeners.forEach(listener => listener('background')); });
+  await act(async () => { AppState.currentState = 'active'; listeners.forEach(listener => listener('active')); finish(); });
+  await waitFor(() => expect(native.stopCapture).toHaveBeenCalled());
+  expect(screen.getByRole('button', { name: 'Start recording' }).props.accessibilityState.disabled).toBe(false);
 });

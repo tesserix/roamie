@@ -7,13 +7,14 @@ import {
   useAudioRecorder,
 } from 'expo-audio';
 import { File } from 'expo-file-system';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, AppState, ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Text, TextInput } from '@/components/typography';
 import { CommunicationCards } from '@/components/communication-cards';
 import { HandsFreeConversation } from '@/lib/hands-free';
 import { waitForMicrophoneForeground } from '@/lib/microphone';
 import { SPEECH_RECORDING } from '@/lib/recording';
+import { SpeechRecorder } from '@/lib/speech-recorder';
 import { signalFeedback } from '@/lib/feedback';
 import { ProfileSettings } from '@/components/profile-settings';
 import { RecordButton, type RecordingPhase } from '@/components/record-button';
@@ -74,7 +75,8 @@ export default function Talk() {
   languages.current = { mine, partner, autoMine, autoPartner };
   const expectedSpeaker = useRef<TurnRequest['expectedSpeaker']>(undefined);
 
-  const recorder = useAudioRecorder(SPEECH_RECORDING);
+  const legacyRecorder = useAudioRecorder(SPEECH_RECORDING);
+  const recorder = useMemo(() => new SpeechRecorder(legacyRecorder), [legacyRecorder]);
   const startedAt = useRef(0);
   const recording = useRef(false);
   const captureRevision = useRef(0);
@@ -114,7 +116,7 @@ export default function Talk() {
       onRecovery: setRecoveryNotice,
       onTurn: async (uri, active) => {
         const data = await new File(uri).base64();
-        if (active()) await sendRef.current({ audio: { data, mimeType: 'audio/mp4' } }, active);
+        if (active()) await sendRef.current({ audio: { data, mimeType: recorder.mimeType } }, active);
       },
     });
     conversation.current = loop;
@@ -300,7 +302,12 @@ export default function Talk() {
         return;
       }
       if (!focusedRef.current) { await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }); setPhase('idle'); return; }
-      recorder.record();
+      await recorder.record();
+      if (revision !== captureRevision.current || !focusedRef.current) {
+        await recorder.stop().catch(() => {});
+        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+        return;
+      }
       recording.current = true;
       startedAt.current = Date.now();
       setPhase('listening');
@@ -327,7 +334,7 @@ export default function Talk() {
       if (Date.now() - startedAt.current < MIN_HOLD_MS || !recorder.uri) throw new Error('No speech recorded. Tap the microphone and try again, or type instead.');
       const data = await new File(recorder.uri).base64();
       if (revision !== captureRevision.current) return;
-      await send({ audio: { data, mimeType: 'audio/mp4' } });
+      await send({ audio: { data, mimeType: recorder.mimeType } });
     } catch (error) {
       if (revision !== captureRevision.current) return;
       setError(error instanceof Error ? error.message : 'Could not finish recording. Try again.');
