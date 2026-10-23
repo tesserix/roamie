@@ -42,5 +42,5 @@ aws-lc-rs = "1.18"
 jsonwebtoken = { workspace = true, features = ["use_pem"] }
 
 [lints.rust]
-# Set by the memory-video CI job, which installs ffmpeg.
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(media_tests)"] }
+# Media CI installs ffmpeg; manual_qa opts into the long-running local server.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(media_tests)", "cfg(manual_qa)"] }

@@ -279,6 +279,7 @@ async fn speaker_context_is_rejected_before_audio_or_provider_work_when_invalid(
 }
 
 /// Manual harness: loopback only, no database, no stored customer sessions.
+#[cfg(manual_qa)]
 #[tokio::test]
 #[ignore = "manual live benchmark server; uses the active gcloud account"]
 async fn local_translation_benchmark_server() {
