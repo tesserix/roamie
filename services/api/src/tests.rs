@@ -2278,7 +2278,13 @@ async fn automatic_conversation_transcribes_once_then_translates_and_reviews() {
                 let audio = body["messages"][1]["content"].as_array().unwrap().iter().any(|part| part["type"] == "image_url");
                 assert_eq!(properties.get("to_partner").is_none(), audio, "{properties}");
                 let context = body["messages"][1].to_string();
-                assert!(context.contains("recentConversation") && context.contains("ନମସ୍କାର"), "{context}");
+                if audio {
+                    assert!(!context.contains("recentConversation"));
+                    assert!(!context.contains("selectedLanguages"));
+                    assert!(context.contains("sourceIsUnknown"));
+                } else {
+                    assert!(context.contains("recentConversation") && context.contains("ନମସ୍କାର"));
+                }
                 captured.fetch_add(1, Ordering::SeqCst);
                 let answer = json!({"language":"hi","confidence":0.99,"transcript":"आप कैसे हैं?","to_mine":"आप कैसे हैं?","to_partner":"ଆପଣ କେମିତି ଅଛନ୍ତି?"});
                 Json(json!({"choices":[{"message":{"content":answer.to_string()}}]}))
@@ -2288,6 +2294,7 @@ async fn automatic_conversation_transcribes_once_then_translates_and_reviews() {
             assert_eq!(headers["authorization"], "Bearer synthetic-customer");
             assert_eq!(body["state"]["sourceLanguage"], "hi");
             assert_eq!(body["state"]["targetLanguage"], "or");
+            assert!(body["state"]["recentConversation"].to_string().contains("ନମସ୍କାର"));
             Json(json!({"model":"jev-1.13.0","answers":{"readability":{"type":"choice","choice":"accept","confidence":0.95,"probabilities":{"accept":0.95,"review":0.04,"retake":0.01}}},"usage":{"input_tokens":40,"output_tokens":10}}))
         }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
