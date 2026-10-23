@@ -7,3 +7,4 @@ target_include_directories(roamie_vad PRIVATE ${VAD_ROOT}/include ${VAD_ROOT}/sr
 
 target_compile_definitions(roamie_vad PRIVATE COMPILE_OPUS)
 target_link_libraries(roamie_vad m)
+target_link_options(roamie_vad PRIVATE "-Wl,-z,max-page-size=16384")
