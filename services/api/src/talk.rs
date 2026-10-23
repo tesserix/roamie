@@ -37,9 +37,14 @@ pub struct TurnRequest {
     #[serde(default)]
     pub partner_locked: bool,
     pub expected_speaker: Option<Speaker>,
+    #[serde(default)]
+    pub track_speakers: bool,
+    pub speaker_context: Option<crate::speaker::Context>,
+    #[serde(skip)]
+    pub speaker_embedding: Option<crate::speaker::Embedding>,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Speaker {
     Mine,
@@ -55,6 +60,16 @@ pub enum Utterance<'a> {
 impl TurnRequest {
     /// Exactly one of audio or text, within size limits.
     pub fn utterance(&self) -> Result<Utterance<'_>> {
+        if self.track_speakers && (self.audio.is_none() || !self.auto_mine || self.partner_locked)
+            || !self.track_speakers && self.speaker_context.is_some()
+        {
+            return Err(Error::Invalid(
+                "Speaker tracking requires an automatic hands-free recording.".into(),
+            ));
+        }
+        if let Some(context) = &self.speaker_context {
+            context.validate()?;
+        }
         if self.recent_history().iter().any(|turn| {
             turn.original.chars().count() > 1000 || turn.translation.chars().count() > 1000
         }) {
@@ -119,6 +134,8 @@ pub struct TurnResponse {
     pub decision_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice: Option<crate::speech::Voice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speaker_tracking: Option<crate::speaker::Tracking>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -202,14 +219,14 @@ pub async fn interpret(
     } else {
         SYSTEM
     };
-    let mut heard: Heard = tokio::time::timeout(
-        std::time::Duration::from_secs(35),
-        ai.json(
-            system,
-            vec![input, Gemini::text(context.to_string())],
-            schema,
-        ),
-    )
+    let mut heard: Heard = tokio::time::timeout(std::time::Duration::from_secs(35), async {
+        let parts = vec![input, Gemini::text(context.to_string())];
+        if matches!(utterance, Utterance::Audio { .. }) {
+            ai.transcription(system, parts, schema).await
+        } else {
+            ai.json(system, parts, schema).await
+        }
+    })
     .await
     .map_err(|_| Error::Upstream("conversation transcription deadline".into()))??;
     let voice = match (&utterance, heard.speaker_voice.as_deref()) {
@@ -232,14 +249,34 @@ pub async fn interpret(
     if req.partner_locked && !req.auto_mine && detected != req.mine && detected != req.partner {
         return Err(Error::Invalid("This speech does not match the chosen languages. Choose a language above and try again.".into()));
     }
-    let from_me = detected == req.mine
-        || (req.auto_mine
-            && (req.partner_locked
-                || req.expected_speaker == Some(Speaker::Mine)
-                || (req.expected_speaker.is_none()
-                    && req.history.is_empty()
-                    && req.partner != req.mine))
-            && detected != req.partner);
+    let acoustic = if req.track_speakers {
+        req.speaker_context
+            .as_ref()
+            .zip(req.speaker_embedding.as_ref())
+            .and_then(|(context, embedding)| context.identify(embedding))
+    } else {
+        None
+    };
+    if req.track_speakers
+        && acoustic.is_none()
+        && req.mine != req.partner
+        && detected != req.mine
+        && detected != req.partner
+    {
+        return Err(Error::Invalid("We could not tell who spoke. Say a longer phrase in one of the selected languages, then switch languages, or use tap to talk.".into()));
+    }
+    let from_me = acoustic
+        .map(|speaker| speaker == Speaker::Mine)
+        .unwrap_or_else(|| {
+            detected == req.mine
+                || (req.auto_mine
+                    && (req.partner_locked
+                        || req.expected_speaker == Some(Speaker::Mine)
+                        || (req.expected_speaker.is_none()
+                            && req.history.is_empty()
+                            && req.partner != req.mine))
+                    && detected != req.partner)
+        });
     let mine = if req.auto_mine && from_me {
         detected.clone()
     } else {
@@ -254,6 +291,11 @@ pub async fn interpret(
         Direction {
             target: mine.clone(),
             partner: req.partner.clone(),
+        }
+    } else if acoustic == Some(Speaker::Partner) {
+        Direction {
+            target: mine.clone(),
+            partner: detected.clone(),
         }
     } else {
         resolve(&mine, &req.partner, &detected)
@@ -321,6 +363,19 @@ pub async fn interpret(
         decision_model,
         detected,
         voice,
+        speaker_tracking: req.track_speakers.then(|| crate::speaker::Tracking {
+            model: crate::speaker::MODEL,
+            embedding: if review_required {
+                None
+            } else {
+                req.speaker_embedding.clone()
+            },
+            basis: if acoustic.is_some() {
+                "voice"
+            } else {
+                "language"
+            },
+        }),
     })
 }
 
@@ -434,6 +489,9 @@ mod tests {
             }),
             text: text.map(Into::into),
             history: Vec::new(),
+            track_speakers: false,
+            speaker_context: None,
+            speaker_embedding: None,
         }
     }
 

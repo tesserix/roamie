@@ -13,7 +13,8 @@ COPY services/api ./services/api
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target \
-    cargo build --locked --release -p roamie-api --bin roamie-api \
+    touch services/api/src/*.rs \
+    && cargo build --locked --release -p roamie-api --bin roamie-api \
     && mkdir -p /out \
     && cp target/release/roamie-api /out/roamie-api
 
@@ -27,5 +28,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 USER 10001:10001
 COPY --from=build --chown=10001:10001 /out/ /app/
+COPY --chown=10001:10001 services/api/models/LICENSE.wespeaker services/api/models/wespeaker-source.json services/api/models/NOTICE.wespeaker /app/licenses/wespeaker/
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/roamie-api"]

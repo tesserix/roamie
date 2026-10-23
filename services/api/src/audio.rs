@@ -25,7 +25,11 @@ impl Gate {
         }
     }
 
-    pub async fn verify(&self, audio: &crate::talk::Audio) -> Result<()> {
+    pub async fn verify(
+        &self,
+        audio: &crate::talk::Audio,
+        track_speakers: bool,
+    ) -> Result<Option<crate::speaker::Embedding>> {
         if audio.data.len() > MAX_ENCODED_BYTES * 4 / 3 + 4 {
             return Err(invalid_audio());
         }
@@ -41,17 +45,25 @@ impl Gate {
             .try_acquire_owned()
             .map_err(|_| Error::Unavailable("Speech detection"))?;
         let samples = decode_with_timeout(decode(data)).await?;
-        let speech = tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             let _slot = slot;
-            has_speech(&samples)
+            if !has_speech(&samples)? {
+                return Err(Error::NoSpeech);
+            }
+            if track_speakers {
+                match crate::speaker::extract(&samples) {
+                    Ok(embedding) => Ok(embedding),
+                    Err(_) => {
+                        tracing::warn!("conversation speaker tracking unavailable");
+                        Ok(None)
+                    }
+                }
+            } else {
+                Ok(None)
+            }
         })
         .await
-        .map_err(|_| Error::Unavailable("Speech detection"))??;
-        if speech {
-            Ok(())
-        } else {
-            Err(Error::NoSpeech)
-        }
+        .map_err(|_| Error::Unavailable("Speech detection"))?
     }
 }
 

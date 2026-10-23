@@ -5,8 +5,16 @@ use crate::error::{Error, Result};
 use crate::gemini::Gemini;
 use crate::lang::Lang;
 use crate::phrasebook::{Entry, Phrasebook, Surface};
+use crate::translation::Translation;
 
 pub const MAX_TEXT_CHARS: usize = 5000;
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TextProvider {
+    Model,
+    GoogleNmt,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct TextRequest {
@@ -14,11 +22,13 @@ pub struct TextRequest {
     /// `None` means detect.
     pub from: Option<Lang>,
     pub to: Lang,
+    #[serde(default)]
+    pub provider: Option<TextProvider>,
 }
 
 impl TextRequest {
     pub fn cache_key(&self) -> Value {
-        json!({"text":self.text.trim(),"from":self.from,"to":self.to})
+        json!({"text":self.text.trim(),"from":self.from,"to":self.to,"provider":self.provider})
     }
 }
 
@@ -30,6 +40,61 @@ pub struct TextResponse {
     pub romanized: String,
     pub source_romanized: String,
     pub alternatives: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<TextProvider>,
+}
+
+pub async fn routed_text(
+    ai: Option<&Gemini>,
+    nmt: &Translation,
+    phrasebook: Option<&Phrasebook>,
+    req: &TextRequest,
+) -> Result<TextResponse> {
+    let body = req.text.trim();
+    if body.is_empty() || body.chars().count() > MAX_TEXT_CHARS {
+        return Err(Error::Invalid(
+            "text must contain 1 to 5000 characters".into(),
+        ));
+    }
+    let nmt_first = req.provider == Some(TextProvider::GoogleNmt) || ai.is_none();
+    for google in [nmt_first, !nmt_first] {
+        let result = if google {
+            nmt_text(nmt, req).await
+        } else if let Some(ai) = ai {
+            tokio::time::timeout(std::time::Duration::from_secs(8), text(ai, phrasebook, req))
+                .await
+                .unwrap_or_else(|_| Err(Error::Upstream("text model deadline".into())))
+        } else {
+            continue;
+        };
+        match result {
+            Ok(answer) => return Ok(answer),
+            Err(error @ Error::Invalid(_)) => return Err(error),
+            Err(_) => continue,
+        }
+    }
+    Err(Error::Upstream("text providers unavailable".into()))
+}
+
+async fn nmt_text(nmt: &Translation, req: &TextRequest) -> Result<TextResponse> {
+    // Detection and translation share one budget; an unknown source must not double the wait.
+    tokio::time::timeout(std::time::Duration::from_secs(9), async {
+        let detected = match &req.from {
+            Some(from) => from.clone(),
+            None => nmt.detect(req.text.trim()).await?.0,
+        };
+        let translation = nmt.translate(req.text.trim(), &detected, &req.to).await?;
+        Ok(TextResponse {
+            detected,
+            translation,
+            romanized: String::new(),
+            source_romanized: String::new(),
+            alternatives: Vec::new(),
+            provider: Some(TextProvider::GoogleNmt),
+        })
+    })
+    .await
+    .unwrap_or_else(|_| Err(Error::Upstream("text nmt deadline".into())))
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,7 +219,11 @@ pub async fn text(
     } else {
         a.translation
     };
+    if translation.trim().is_empty() {
+        return Err(Error::Upstream("empty model translation".into()));
+    }
     let answer = TextResponse {
+        provider: Some(TextProvider::Model),
         romanized: pronunciation(&translation, &a.romanized),
         source_romanized: pronunciation(body, &a.source_romanized),
         alternatives: alternatives(&translation, a.alternatives),

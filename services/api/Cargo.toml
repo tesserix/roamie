@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 ort.workspace = true
+kaldi-fbank.workspace = true
 time.workspace = true
 ts-rs.workspace = true
 image.workspace = true
