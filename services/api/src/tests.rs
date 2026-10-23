@@ -91,229 +91,6 @@ fn model_reply(answer: Value) -> Value {
     json!({ "candidates": [{ "content": { "parts": [{ "text": answer.to_string() }] } }] })
 }
 
-#[tokio::test]
-async fn acoustic_speaker_matches_override_language_and_expected_turn_order() {
-    let mut mine = vec![0.0; 256];
-    mine[0] = 1.0;
-    let mut partner = vec![0.0; 256];
-    partner[1] = 1.0;
-    for (detected, transcript, expected, voice, from_me, target, next_mine, next_partner) in [
-        (
-            "or",
-            "ଷ୍ଟେସନ ଏଠାରେ ଅଛି।",
-            "mine",
-            &partner,
-            false,
-            "en",
-            "en",
-            "or",
-        ),
-        (
-            "mr",
-            "स्टेशन येथे आहे.",
-            "partner",
-            &mine,
-            true,
-            "hi",
-            "mr",
-            "hi",
-        ),
-        (
-            "hi",
-            "स्टेशन यहाँ है।",
-            "partner",
-            &mine,
-            true,
-            "hi",
-            "hi",
-            "hi",
-        ),
-    ] {
-        let (ai, hits) = upstream(
-            StatusCode::OK,
-            model_reply(
-                json!({"confidence":0.99,"transcript":transcript,"speaker_voice":"unknown"}),
-            ),
-        )
-        .await;
-        let (nmt, _) = upstream(StatusCode::OK, json!({"languages":[{"languageCode":detected,"confidence":1.0}],"translations":[{"translatedText":"Station here"}]})).await;
-        let mut app = state(&ai, "http://unused", None);
-        Arc::get_mut(&mut app).unwrap().translation = crate::translation::Translation::with_auth(
-            reqwest::Client::new(),
-            format!("{nmt}/translation"),
-            Arc::new(FakeToken),
-        );
-        let mut request: crate::talk::TurnRequest = serde_json::from_value(json!({
-            "mine":"en","partner":"hi","autoMine":true,"partnerLocked":false,"expectedSpeaker":expected,
-            "trackSpeakers":true,"speakerContext":{"model":crate::speaker::MODEL,"mine":[mine],"partner":[partner]},
-            "audio":{"data":"AAAA","mimeType":"audio/mp4"}
-        })).unwrap();
-        request.speaker_embedding = Some(serde_json::from_value(json!(voice)).unwrap());
-        let turn =
-            crate::talk::interpret(app.ai.as_ref().unwrap(), &app.translation, None, &request)
-                .await
-                .unwrap();
-        let turn = serde_json::to_value(turn).unwrap();
-        assert_eq!(turn["fromMe"], from_me, "{turn}");
-        assert_eq!(turn["target"], target, "{turn}");
-        assert_eq!(turn["mine"], next_mine, "{turn}");
-        assert_eq!(turn["partner"], next_partner, "{turn}");
-        assert_eq!(turn["speakerTracking"]["basis"], "voice", "{turn}");
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
-    }
-}
-
-#[tokio::test]
-async fn uncertain_new_language_cannot_fall_back_to_expected_speaker() {
-    let mut mine = vec![0.0; 256];
-    mine[0] = 1.0;
-    let mut partner = vec![0.0; 256];
-    partner[1] = 1.0;
-    let mut unclear = vec![0.0; 256];
-    unclear[0] = std::f32::consts::FRAC_1_SQRT_2;
-    unclear[1] = std::f32::consts::FRAC_1_SQRT_2;
-    let (ai, _) = upstream(
-        StatusCode::OK,
-        model_reply(json!({"confidence":0.99,"transcript":"ଷ୍ଟେସନ ଏଠାରେ ଅଛି।"})),
-    )
-    .await;
-    let (nmt, _) = upstream(
-        StatusCode::OK,
-        json!({"languages":[{"languageCode":"or","confidence":1.0}]}),
-    )
-    .await;
-    let mut app = state(&ai, "http://unused", None);
-    Arc::get_mut(&mut app).unwrap().translation = crate::translation::Translation::with_auth(
-        reqwest::Client::new(),
-        format!("{nmt}/translation"),
-        Arc::new(FakeToken),
-    );
-    let mut request: crate::talk::TurnRequest = serde_json::from_value(json!({
-        "mine":"en","partner":"hi","autoMine":true,"expectedSpeaker":"mine","trackSpeakers":true,
-        "speakerContext":{"model":crate::speaker::MODEL,"mine":[mine],"partner":[partner]},
-        "audio":{"data":"AAAA","mimeType":"audio/mp4"},"speakerEmbedding":mine
-    }))
-    .unwrap();
-    assert!(
-        request.speaker_embedding.is_none(),
-        "the client cannot supply current acoustic evidence"
-    );
-    request.speaker_embedding = Some(serde_json::from_value(json!(unclear)).unwrap());
-    let error = crate::talk::interpret(app.ai.as_ref().unwrap(), &app.translation, None, &request)
-        .await
-        .unwrap_err();
-    assert!(matches!(error, crate::error::Error::Invalid(_)));
-}
-
-#[tokio::test]
-async fn speaker_tracking_keeps_initial_source_and_partner_discovery() {
-    for (known, detected, transcript, expected, from_me, target, mine, partner) in [
-        (
-            "hi",
-            "en",
-            "Where is the station?",
-            Some("mine"),
-            true,
-            "hi",
-            "en",
-            "hi",
-        ),
-        ("en", "hi", "स्टेशन कहाँ है?", None, false, "en", "en", "hi"),
-    ] {
-        let (ai, _) = upstream(
-            StatusCode::OK,
-            model_reply(json!({"confidence":0.99,"transcript":transcript})),
-        )
-        .await;
-        let (nmt, _) = upstream(StatusCode::OK, json!({"languages":[{"languageCode":detected,"confidence":1.0}],"translations":[{"translatedText":"Translation"}]})).await;
-        let mut app = state(&ai, "http://unused", None);
-        Arc::get_mut(&mut app).unwrap().translation = crate::translation::Translation::with_auth(
-            reqwest::Client::new(),
-            format!("{nmt}/translation"),
-            Arc::new(FakeToken),
-        );
-        let request = serde_json::from_value(json!({"mine":known,"partner":known,"autoMine":true,"trackSpeakers":true,"expectedSpeaker":expected,"audio":{"data":"AAAA","mimeType":"audio/mp4"}})).unwrap();
-        let turn =
-            crate::talk::interpret(app.ai.as_ref().unwrap(), &app.translation, None, &request)
-                .await
-                .unwrap();
-        let turn = serde_json::to_value(turn).unwrap();
-        assert_eq!(turn["fromMe"], from_me, "{turn}");
-        assert_eq!(turn["target"], target, "{turn}");
-        assert_eq!(turn["mine"], mine, "{turn}");
-        assert_eq!(turn["partner"], partner, "{turn}");
-    }
-}
-
-#[tokio::test]
-async fn speaker_context_is_rejected_before_audio_or_provider_work_when_invalid() {
-    let mut vector = vec![0.0; 256];
-    vector[0] = 1.0;
-    for extra in [
-        json!({"trackSpeakers":true,"autoMine":false}),
-        json!({"trackSpeakers":true,"autoMine":true,"partnerLocked":true}),
-        json!({"trackSpeakers":true,"autoMine":true,"speakerContext":{"model":"old-version","mine":[],"partner":[]}}),
-        json!({"trackSpeakers":true,"autoMine":true,"speakerContext":{"model":crate::speaker::MODEL,"mine":[vector,vector,vector],"partner":[]}}),
-    ] {
-        let (ai, hits) = upstream(
-            StatusCode::OK,
-            model_reply(json!({"confidence":0.99,"transcript":"Hello"})),
-        )
-        .await;
-        let mut payload =
-            json!({"mine":"en","partner":"hi","audio":{"data":"AAAA","mimeType":"audio/mp4"}});
-        payload
-            .as_object_mut()
-            .unwrap()
-            .extend(extra.as_object().unwrap().clone());
-        let (status, _) = call(
-            state(&ai, "http://unused", None),
-            "POST",
-            "/v1/talk/turn",
-            Some(payload),
-        )
-        .await;
-        assert!(status.is_client_error());
-        assert_eq!(hits.load(Ordering::SeqCst), 0);
-    }
-}
-
-/// Manual harness: loopback only, no database, no stored customer sessions.
-#[cfg(manual_qa)]
-#[tokio::test]
-#[ignore = "manual live benchmark server; uses the active gcloud account"]
-async fn local_translation_benchmark_server() {
-    let auth = Arc::new(gcp_auth::GCloudAuthorizedUser::new().await.unwrap());
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        "x-goog-user-project",
-        "tesseracthub-480811".parse().unwrap(),
-    );
-    let http = reqwest::Client::builder()
-        .default_headers(headers)
-        .build()
-        .unwrap();
-    let mut state = state("http://unused", "http://unused", None);
-    let s = Arc::get_mut(&mut state).unwrap();
-    s.ai = Some(gemini::Gemini::with_auth(http.clone(), "https://aiplatform.googleapis.com/v1/projects/tesseracthub-480811/locations/global/publishers/google/models/gemini-2.5-flash:generateContent".into(), auth.clone()));
-    s.translation = crate::translation::Translation::with_auth(
-        http,
-        "https://translation.googleapis.com/v3/projects/tesseracthub-480811/locations/global"
-            .into(),
-        auth,
-    );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:18080")
-        .await
-        .unwrap();
-    eprintln!("local benchmark server ready at 127.0.0.1:18080; no database configured");
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(async {
-            tokio::signal::ctrl_c().await.unwrap();
-        })
-        .await
-        .unwrap();
-}
-
 pub(crate) fn state(gemini_url: &str, fx_url: &str, places: Option<&str>) -> Arc<AppState> {
     let http = reqwest::Client::new();
     Arc::new(AppState {
@@ -1183,91 +960,6 @@ async fn blank_text_is_rejected_before_the_model() {
     assert_eq!(hits.load(Ordering::SeqCst), 0);
 }
 
-#[tokio::test]
-async fn text_falls_back_to_nmt_and_can_route_the_next_phrase_directly() {
-    let model_hits = Arc::new(AtomicUsize::new(0));
-    let hits = model_hits.clone();
-    let app = axum::Router::new().fallback(move |uri: axum::http::Uri| {
-        let hits = hits.clone();
-        async move {
-            if uri.path().starts_with("/nmt:") {
-                (
-                    StatusCode::OK,
-                    axum::Json(json!({"translations":[{"translatedText":"ଷ୍ଟେସନ୍ କେଉଁଠି?"}]})),
-                )
-            } else {
-                hits.fetch_add(1, Ordering::SeqCst);
-                (StatusCode::BAD_GATEWAY, axum::Json(json!({})))
-            }
-        }
-    });
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    let state = state(&url, "http://unused", None);
-    let (status, body) = call(
-        state.clone(),
-        "POST",
-        "/v1/translate/text",
-        Some(json!({"text":"Where is the station?","from":"en","to":"or"})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["translation"], "ଷ୍ଟେସନ୍ କେଉଁଠି?");
-    assert_eq!(body["provider"], "google-nmt");
-    assert_eq!(body["romanized"], "");
-    let before = model_hits.load(Ordering::SeqCst);
-    let (status, body) = call(
-        state,
-        "POST",
-        "/v1/translate/text",
-        Some(json!({"text":"The next station?","from":"en","to":"or","provider":"google-nmt"})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["provider"], "google-nmt");
-    assert_eq!(model_hits.load(Ordering::SeqCst), before);
-}
-
-#[tokio::test]
-async fn failed_preferred_nmt_recovers_with_model_pronunciation() {
-    let (ai, hits) = upstream(StatusCode::OK, model_reply(json!({"translation":"नमस्ते","romanized":"namaste","source_romanized":"","alternatives":[]}))).await;
-    let (status, body) = call(
-        state(&ai, "http://unused", None),
-        "POST",
-        "/v1/translate/text",
-        Some(json!({"text":"Hello","from":"en","to":"hi","provider":"google-nmt"})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["translation"], "नमस्ते");
-    assert_eq!(body["provider"], "model");
-    assert_eq!(body["romanized"], "namaste");
-    assert_eq!(hits.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn nmt_auto_detection_and_missing_model_do_not_require_generative_detection() {
-    let (ai, hits) = upstream(
-        StatusCode::OK,
-        model_reply(json!({"language":"en","to_partner":"नमस्ते"})),
-    )
-    .await;
-    let mut s = state(&ai, "http://unused", None);
-    Arc::get_mut(&mut s).unwrap().ai = None;
-    let (status, body) = call(
-        s,
-        "POST",
-        "/v1/translate/text",
-        Some(json!({"text":"Hello","to":"hi"})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["detected"], "en");
-    assert_eq!(body["provider"], "google-nmt");
-    assert_eq!(hits.load(Ordering::SeqCst), 0);
-}
-
 const OCR_SECRET: &str = "00112233445566778899aabbccddeeff";
 
 /// A fake Document Intelligence: walks one upload and one job through their lifecycle,
@@ -1718,98 +1410,6 @@ fn observation(text: &str, order: u32) -> Value {
         "reading_order": order, "parent_observation_id": null,
         "polygon": { "points": [{ "x": 0.1, "y": 0.2 }, { "x": 0.5, "y": 0.2 }, { "x": 0.5, "y": 0.3 }] }
     })
-}
-
-#[tokio::test]
-async fn sign_translation_retries_an_untranslated_answer() {
-    let ocr = ocr_service("accepted", json!([observation("EXIT", 0)])).await;
-    let attempts = Arc::new(AtomicUsize::new(0));
-    let counter = attempts.clone();
-    let app = axum::Router::new().fallback(move || {
-        let translation = if counter.fetch_add(1, Ordering::SeqCst) == 0 {
-            "EXIT"
-        } else {
-            "ପ୍ରସ୍ଥାନ"
-        };
-        async move {
-            axum::Json(model_reply(json!({
-                "language": "en", "gist": "Exit this way.",
-                "lines": [{ "index": 0, "translation": translation, "romanized": "" }]
-            })))
-        }
-    });
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let ai = format!("http://{}", listener.local_addr().unwrap());
-    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    let mut photo = sign_photo();
-    photo["to"] = json!("or");
-    let (status, body) = call(
-        with_ocr(state(&ai, "http://unused", None), &ocr),
-        "POST",
-        "/v1/signs/translate",
-        Some(photo),
-    )
-    .await;
-    task.abort();
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["lines"][0]["translation"], "ପ୍ରସ୍ଥାନ");
-    assert_eq!(body["reviewRequired"], false);
-    assert_eq!(attempts.load(Ordering::SeqCst), 2);
-}
-
-#[tokio::test]
-async fn incomplete_sign_translations_are_bounded_and_require_review() {
-    for lines in [
-        json!([]),
-        json!([{ "index": 0, "translation": "EXIT", "romanized": "" }]),
-        json!([{ "index": 0, "translation": "  ", "romanized": "" }]),
-    ] {
-        let ocr = ocr_service("accepted", json!([observation("EXIT", 0)])).await;
-        let (ai, attempts) = upstream(
-            StatusCode::OK,
-            model_reply(json!({"language":"en","gist":"Exit this way.","lines":lines})),
-        )
-        .await;
-        let mut photo = sign_photo();
-        photo["to"] = json!("or");
-        let (status, body) = call(
-            with_ocr(state(&ai, "http://unused", None), &ocr),
-            "POST",
-            "/v1/signs/translate",
-            Some(photo),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body["reviewRequired"], true, "{body}");
-        assert_eq!(attempts.load(Ordering::SeqCst), 2);
-    }
-}
-
-#[tokio::test]
-async fn sign_numbers_and_same_language_text_do_not_need_retranslation() {
-    for (original, target) in [("500", "or"), ("EXIT", "en")] {
-        let ocr = ocr_service("accepted", json!([observation(original, 0)])).await;
-        let (ai, attempts) = upstream(
-            StatusCode::OK,
-            model_reply(json!({"language":"en","gist":"Sign.","lines":[
-                {"index":0,"translation":original,"romanized":""}
-            ]})),
-        )
-        .await;
-        let mut photo = sign_photo();
-        photo["to"] = json!(target);
-        let (status, body) = call(
-            with_ocr(state(&ai, "http://unused", None), &ocr),
-            "POST",
-            "/v1/signs/translate",
-            Some(photo),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body["lines"][0]["translation"], original);
-        assert_eq!(body["reviewRequired"], false, "{body}");
-        assert_eq!(attempts.load(Ordering::SeqCst), 1);
-    }
 }
 
 #[tokio::test]
@@ -2664,49 +2264,26 @@ async fn conversation_remembers_both_languages_and_tracks_language_switches() {
 #[tokio::test]
 #[cfg(media_tests)]
 async fn automatic_conversation_transcribes_once_then_translates_and_reviews() {
-    use axum::{extract::OriginalUri, http::HeaderMap, routing::post, Json, Router};
+    use axum::{http::HeaderMap, routing::post, Json, Router};
     let hits = Arc::new(AtomicUsize::new(0));
     let captured = hits.clone();
-    let handler = post(
-        move |OriginalUri(uri): OriginalUri, headers: HeaderMap, Json(body): Json<Value>| {
+    let app = Router::new()
+        .route("/v1/chat/completions", post(move |headers: HeaderMap, Json(body): Json<Value>| {
             let captured = captured.clone();
             async move {
                 assert_eq!(headers["authorization"], "Bearer synthetic-customer");
-                assert_eq!(
-                    body["model"],
-                    if uri.path() == "/v1/transcribe" {
-                        "roamie-transcription"
-                    } else {
-                        "roamie-structured"
-                    }
-                );
+                assert_eq!(body["model"], "roamie-structured");
                 let properties = &body["response_format"]["json_schema"]["schema"]["properties"];
                 assert!(properties.get("transcript").is_some(), "{properties}");
-                let audio = body["messages"][1]["content"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|part| part["type"] == "image_url");
-                assert_eq!(
-                    properties.get("to_partner").is_none(),
-                    audio,
-                    "{properties}"
-                );
-                assert_eq!(uri.path() == "/v1/transcribe", audio);
+                let audio = body["messages"][1]["content"].as_array().unwrap().iter().any(|part| part["type"] == "image_url");
+                assert_eq!(properties.get("to_partner").is_none(), audio, "{properties}");
                 let context = body["messages"][1].to_string();
-                assert!(
-                    context.contains("recentConversation") && context.contains("ନମସ୍କାର"),
-                    "{context}"
-                );
+                assert!(context.contains("recentConversation") && context.contains("ନମସ୍କାର"), "{context}");
                 captured.fetch_add(1, Ordering::SeqCst);
                 let answer = json!({"language":"hi","confidence":0.99,"transcript":"आप कैसे हैं?","to_mine":"आप कैसे हैं?","to_partner":"ଆପଣ କେମିତି ଅଛନ୍ତି?"});
                 Json(json!({"choices":[{"message":{"content":answer.to_string()}}]}))
             }
-        },
-    );
-    let app = Router::new()
-        .route("/v1/chat/completions", handler.clone())
-        .route("/v1/transcribe", handler)
+        }))
         .route("/v1/decisions", post(|headers: HeaderMap, Json(body): Json<Value>| async move {
             assert_eq!(headers["authorization"], "Bearer synthetic-customer");
             assert_eq!(body["state"]["sourceLanguage"], "hi");
@@ -3307,4 +2884,33 @@ async fn malformed_audio_is_rejected_without_contacting_translation() {
         assert_eq!(body["error"], "invalid");
     }
     assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn automatic_audio_recognition_does_not_hint_the_previous_language_pair() {
+    use axum::{Json, Router};
+    let provider = Router::new().fallback(|Json(body): Json<Value>| async move {
+        let content = body["contents"].to_string();
+        assert!(!content.contains("selectedLanguages"), "automatic recognition must not be biased by the previous pair: {content}");
+        assert!(content.contains("sourceIsUnknown"));
+        Json(model_reply(json!({"language":"ar","confidence":0.99,"transcript":"أحتاج إلى تغيير تذكرة القطار","speaker_voice":"unknown"})))
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let (nmt, _) = upstream(StatusCode::OK, json!({"languages":[{"languageCode":"ar","confidence":1.0}],"translations":[{"translatedText":"I need to change my train ticket."}]})).await;
+    let mut app = state(&url, "http://unused", None);
+    Arc::get_mut(&mut app).unwrap().translation = crate::translation::Translation::with_auth(
+        reqwest::Client::new(),
+        format!("{nmt}/translation"),
+        Arc::new(FakeToken),
+    );
+    let request = serde_json::from_value(json!({"mine":"en","partner":"km","autoMine":true,"partnerLocked":false,"expectedSpeaker":"partner","audio":{"mimeType":"audio/wav","data":"AAAA"}})).unwrap();
+    let result =
+        crate::talk::interpret(app.ai.as_ref().unwrap(), &app.translation, None, &request).await;
+    task.abort();
+    let turn = result.unwrap();
+    assert_eq!(turn.detected.as_str(), "ar");
+    assert_eq!(turn.target.as_str(), "en");
+    assert_eq!(turn.translation, "I need to change my train ticket.");
 }

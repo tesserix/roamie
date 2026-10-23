@@ -188,7 +188,6 @@ async fn lookup(pool: &PgPool, from: &Lang, to: &Lang, text: &str) -> Result<Opt
         .await?;
     Ok(row.map(
         |(translation, romanized, source_romanized, alternatives)| TextResponse {
-            provider: None,
             detected: from.clone(),
             translation,
             romanized,

@@ -28,7 +28,6 @@ mod planning_jobs;
 mod privacy;
 mod receipts;
 mod signs;
-mod speaker;
 mod speech;
 mod statements;
 mod talk;
@@ -362,11 +361,11 @@ async fn shutdown() {
 async fn talk_turn(
     State(s): State<Arc<AppState>>,
     Extension(customer): Extension<auth::Customer>,
-    Json(mut req): Json<talk::TurnRequest>,
+    Json(req): Json<talk::TurnRequest>,
 ) -> Result<Json<talk::TurnResponse>> {
     req.utterance()?;
     if let Some(audio) = &req.audio {
-        req.speaker_embedding = s.audio.verify(audio, req.track_speakers).await?;
+        s.audio.verify(audio).await?;
     }
     let ai = s.ai.as_ref().ok_or(Error::Unavailable("Translation"))?;
     let key = req.cache_key().map(|k| cache::key(&customer.sub, &k));
@@ -389,6 +388,7 @@ async fn translate_text(
     Extension(customer): Extension<auth::Customer>,
     Json(req): Json<translate::TextRequest>,
 ) -> Result<Json<translate::TextResponse>> {
+    let ai = s.ai.as_ref().ok_or(Error::Unavailable("Translation"))?;
     let key = cache::key(&customer.sub, &req.cache_key());
     if let Some(hit) = s.text_translations.get(&key) {
         return Ok(Json(hit));
@@ -397,8 +397,7 @@ async fn translate_text(
         .phrasebook
         .as_ref()
         .map(|book| book.for_customer(&customer.sub));
-    let translated =
-        translate::routed_text(s.ai.as_ref(), &s.translation, book.as_ref(), &req).await?;
+    let translated = translate::text(ai, book.as_ref(), &req).await?;
     s.text_translations.put(key, translated.clone());
     Ok(Json(translated))
 }
