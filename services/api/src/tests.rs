@@ -3013,4 +3013,3 @@ async fn sign_numbers_and_same_language_text_do_not_need_retranslation() {
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 }
-
