@@ -11,7 +11,7 @@ test('native denoiser suppresses noise and preserves speech detection',()=>{
  const temp=mkdtempSync(join(tmpdir(),'roamie-vad-'));
  try {
   const binary=join(temp,'check');
-  execFileSync('cc',['-std=c11','-O2','-DCOMPILE_OPUS','-I',join(root,'ios/common/include'),'-I',join(root,'ios/common/src'),'-I',join(root,'ios/common/fvad/include'),'-I',join(root,'ios/common/fvad/src'),join(root,'tests/check.c'),...sources(join(root,'ios/common/src')),...sources(join(root,'ios/common/fvad/src')),'-lm','-o',binary]);
+  execFileSync('cc',['-std=gnu11','-O2','-DCOMPILE_OPUS','-I',join(root,'ios/common/include'),'-I',join(root,'ios/common/src'),'-I',join(root,'ios/common/fvad/include'),'-I',join(root,'ios/common/fvad/src'),join(root,'tests/check.c'),...sources(join(root,'ios/common/src')),...sources(join(root,'ios/common/fvad/src')),'-lm','-o',binary]);
   const run=pcm=>{
    const file=join(temp,'audio.pcm');writeFileSync(file,pcm);
    return Object.fromEntries(execFileSync(binary,[file],{encoding:'utf8'}).trim().split(' ').map(item=>{const[k,v]=item.split('=');return[k,Number(v)];}));
