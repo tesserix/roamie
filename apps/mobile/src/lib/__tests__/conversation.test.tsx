@@ -8,9 +8,6 @@ import Talk from '../../app/index';
 import { StoreProvider, useStore } from '../store';
 import { session } from '../auth-client';
 import { AccessibilityProvider } from '../accessibility';
-import * as NativeBridge from '../../../modules/roamie-offline';
-import * as LocalFiles from 'expo-file-system/legacy';
-import { SPEECH_MODELS } from '../speech-models';
 
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn(async () => {}) }));
 jest.mock('expo-router', () => ({ useIsFocused: () => true }));
@@ -22,7 +19,6 @@ jest.mock('expo-audio', () => {
 });
 jest.mock('expo/fetch', () => ({ fetch: (...args: Parameters<typeof global.fetch>) => global.fetch(...args) }));
 jest.mock('expo-file-system', () => ({ File: class { exists = true; async base64() { return 'YXVkaW8='; } delete() {} } }));
-jest.mock('expo-file-system/legacy', () => ({ documentDirectory: 'file:///documents/', getInfoAsync: jest.fn(async (uri: string) => ({ exists: false, isDirectory: false, uri })) }));
 jest.mock('expo-speech', () => ({ VoiceQuality: { Default: 'Default', Enhanced: 'Enhanced' }, stop: jest.fn(), speak: jest.fn(), getAvailableVoicesAsync: jest.fn(async () => [{ identifier: 'english', language: 'en-US' }, { identifier: 'com.apple.voice.compact.en-US.Samantha', language: 'en-US' }, { identifier: 'com.apple.voice.compact.en-GB.Daniel', language: 'en-GB' }, { identifier: 'hindi', language: 'hi-IN' }, { identifier: 'odia-test', language: 'or-IN' }, { identifier: 'vietnamese-test', language: 'vi-VN' }, { identifier: 'thai-test', language: 'th-TH' }, { identifier: 'ja-test', language: 'ja-JP' }, { identifier: 'bn-test', language: 'bn-IN' }]) }));
 jest.mock('expo-notifications', () => ({ cancelAllScheduledNotificationsAsync: jest.fn(async () => {}) }));
 
@@ -53,52 +49,6 @@ test('microphone starts without a partner language or location permission', asyn
   await fireEvent.press(await screen.findByRole('button', { name: 'Start recording' }));
   expect(requestRecordingPermissionsAsync).toHaveBeenCalled();
   expect(await screen.findByRole('button', { name: 'Finish and translate' })).toBeTruthy();
-});
-
-test.each([
-  ['Profile settings', 'Profile & settings', 'Done'],
-  ['Open offline languages', 'Offline translation', 'Close offline translation'],
-  ['Translation connection details', 'Translation status', 'Close connection details'],
-])('opening %s during hands-free stops listening and returns safely', async (trigger, title, close) => {
-  await open();
-  const recorder = useAudioRecorder({} as never);
-  const stop = jest.spyOn(recorder, 'stop');
-  await fireEvent.press(screen.getByRole('button', { name: 'Start hands-free conversation' }));
-  expect(await screen.findByText('Listening · pause to translate')).toBeTruthy();
-  await fireEvent.press(screen.getByRole('button', { name: trigger }));
-  expect(screen.getByRole('header', { name: title })).toBeTruthy();
-  await waitFor(() => expect(stop).toHaveBeenCalled());
-  await fireEvent.press(screen.getByRole('button', { name: close }));
-  expect(await screen.findByRole('button', { name: 'Start hands-free conversation' })).toBeTruthy();
-});
-
-test('Translate keeps readiness details in the info panel and identifies a missing speech detector', async () => {
-  let detectorDownloaded = false;
-  jest.spyOn(NativeBridge, 'offlineNative').mockReturnValue({
-    supportedTextLanguages: async () => ['en', 'vi'],
-    downloadedLanguages: async () => [],
-    isTranslationReady: async () => true,
-    sha256: async uri => uri.includes('silero') ? SPEECH_MODELS.vad.sha256 : SPEECH_MODELS.base.sha256,
-    canRemoveLanguagePacks: async () => true,
-    downloadLanguage: async () => {}, removeLanguage: async () => {},
-    identifyLanguage: async () => 'en', translate: async () => 'Hello',
-    recognizeText: async () => [], offlineVoices: async () => [], ocrLanguages: async () => [],
-    audioToWav: async uri => uri, availableMemory: async () => 8 * 1024 ** 3,
-  });
-  jest.spyOn(LocalFiles, 'getInfoAsync').mockImplementation(async uri => uri.includes('silero') && !detectorDownloaded ? { exists: false, isDirectory: false, uri } : { exists: true, isDirectory: false, uri, modificationTime: 1, size: uri.includes('silero') ? SPEECH_MODELS.vad.bytes : SPEECH_MODELS.base.bytes });
-  await open();
-  await fireEvent.press(screen.getByRole('button', { name: 'Their language: Auto-detect. Choose manually' }));
-  await fireEvent.changeText(screen.getByLabelText('Search languages'), 'Vietnamese');
-  await fireEvent.press(screen.getByRole('button', { name: 'Vietnamese' }));
-  expect(screen.queryByText('Offline on this phone')).toBeNull();
-  await fireEvent.press(screen.getByRole('button', { name: 'Translation connection details' }));
-  expect(await screen.findByText('English ↔ Vietnamese · Ready on this phone')).toBeTruthy();
-  expect(screen.getByText('Small speech model · Downloaded and verified · 60 MB')).toBeTruthy();
-  expect(screen.getByText('Speech detector · Not downloaded')).toBeTruthy();
-  expect(screen.queryByText('Offline conversation is ready')).toBeNull();
-  detectorDownloaded = true;
-  await fireEvent.press(screen.getByRole('button', { name: 'Refresh offline status' }));
-  expect(await screen.findByText('Offline conversation is ready')).toBeTruthy();
 });
 
 test('manual capture with granted permission does not open another Android permission request', async () => {
@@ -268,7 +218,7 @@ test('hands-free detects Hindi, waits for speech playback, then translates an En
   const recorder = useAudioRecorder({} as never);
   let level = -20;
   jest.spyOn(recorder, 'getStatus').mockImplementation(() => ({ isRecording: true, canRecord: true, durationMillis: 0, metering: level, mediaServicesDidReset: false, url: recorder.uri }));
-  jest.mocked(Speech.speak).mockClear().mockImplementation((_text, options) => { options?.onStart?.(); });
+  jest.mocked(Speech.speak).mockClear();
   await open();
   jest.useFakeTimers();
   try {
@@ -380,7 +330,7 @@ test('stopping hands-free discards a late translation without speaking or restar
     await fireEvent.press(screen.getByRole('button', { name: 'Stop hands-free conversation' }));
     expect(jest.mocked(global.fetch).mock.calls[0][1]?.signal?.aborted).toBe(true);
     await act(async () => { await jest.advanceTimersByTimeAsync(100); });
-    expect(screen.getByRole('button', { name: 'Start hands-free conversation' }).props.accessibilityState.disabled).toBe(false);
+    expect(screen.getByRole('button', { name: 'Start hands-free conversation' }).props.accessibilityState.disabled).toBe(true);
     await act(async () => {
       finish({ ok: true, status: 200, json: async () => ({ detected: 'hi', partner: 'hi', target: 'en', transcript: 'नमस्ते', translation: 'Hello', sameLanguage: false }) } as Response);
     });
@@ -810,7 +760,7 @@ test.each([
   ];
   const fetch = jest.fn<typeof global.fetch>().mockImplementation(async () => ({ ok: true, status: 200, json: async () => replies.shift() }) as Response);
   global.fetch = fetch;
-  jest.mocked(Speech.speak).mockClear().mockImplementation((_text, options) => { options?.onStart?.(); });
+  jest.mocked(Speech.speak).mockClear().mockImplementation(() => {});
   const recorder = useAudioRecorder({} as never);
   try {
     const level = await startMeteredConversation(recorder, mine);

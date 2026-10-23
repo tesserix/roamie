@@ -16,6 +16,7 @@ export const LANGUAGES: Record<string, string> = {
   km: 'Khmer',
   ko: 'Korean',
   lo: 'Lao',
+  mr: 'Marathi',
   ms: 'Malay',
   my: 'Burmese',
   ne: 'Nepali',

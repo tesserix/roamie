@@ -5,8 +5,6 @@ import { File, Paths } from 'expo-file-system';
 import { useSyncExternalStore } from 'react';
 import { synthesizeSpeech, type VoiceGender } from './api';
 import type { VoicePreference } from './accessibility';
-import { offlineNative } from '../../modules/roamie-offline';
-import { restoreTranslationPreferences, translationPreferences } from './translation-preferences';
 
 // Speech slightly under normal pace is far easier to follow in a second language.
 const RATE = 0.92;
@@ -52,19 +50,10 @@ function setCurrent(key: string | null) {
 
 let speechRevision = 0;
 let finishSpeech: ((completed: boolean) => void) | null = null;
-let stopping = Promise.resolve();
 
-async function within<T>(operation: Promise<T>, milliseconds: number, fallback: T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([operation.catch(() => fallback), new Promise<T>(resolve => { timer = setTimeout(() => resolve(fallback), milliseconds); })]);
-  } finally { clearTimeout(timer); }
-}
-
-export function speak(text: string, lang: string, key = text, gender?: VoiceGender, offlineOnly = false): Promise<boolean> {
+export function speak(text: string, lang: string, key = text, gender?: VoiceGender): Promise<boolean> {
   stopSpeaking();
   const revision = speechRevision;
-  const stopped = stopping;
   return new Promise(resolve => {
     let finished = false;
     let cleanup = () => {};
@@ -72,36 +61,20 @@ export function speak(text: string, lang: string, key = text, gender?: VoiceGend
       if (finished) return;
       finished = true;
       clearTimeout(timeout);
-      clearTimeout(startTimer);
       try { cleanup(); } catch { completed = false; }
       if (revision === speechRevision) { finishSpeech = null; setCurrent(null); }
       resolve(completed);
     };
-    let timeout = setTimeout(() => { stopSpeaking(); done(false); }, 8000);
-    let startTimer: ReturnType<typeof setTimeout> | undefined;
-    const playing = () => {
-      clearTimeout(startTimer);
-      clearTimeout(timeout);
-      timeout = setTimeout(() => { stopSpeaking(); done(false); }, Math.min(120000, Math.max(15000, text.length * 400 + 5000)));
-    };
+    let timeout = setTimeout(() => { stopSpeaking(); done(false); }, 60000);
     finishSpeech = done;
     let generated = false;
-    let nativeQueued = false;
     const playGenerated = async () => {
       if (finished || revision !== speechRevision || generated) return;
       generated = true;
-      clearTimeout(startTimer);
-      if (nativeQueued) await Promise.resolve(Speech.stop()).catch(() => {});
-      if (finished || revision !== speechRevision) return;
-      if (offlineOnly || translationPreferences().mode === 'offline') { done(false); return; }
-      if (offlineNative()) {
-        const network = await within(import('expo-network').then(module => module.getNetworkStateAsync()), 100, null);
-        if (finished || revision !== speechRevision) return;
-        if (network?.isConnected === false || network?.isInternetReachable === false) { done(false); return; }
-      }
+      clearTimeout(timeout);
+      timeout = setTimeout(() => { stopSpeaking(); done(false); }, 120000);
       const controller = new AbortController();
       cleanup = () => controller.abort();
-      if (offlineOnly || translationPreferences().mode === 'offline') { done(false); return; }
       const audio = await synthesizeSpeech(text, lang, gender, controller.signal);
       if (finished || revision !== speechRevision) return;
       const file = new File(Paths.cache, `roamie-speech-${Date.now()}-${revision}.wav`);
@@ -110,9 +83,7 @@ export function speak(text: string, lang: string, key = text, gender?: VoiceGend
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       if (finished || revision !== speechRevision) { cleanup(); return; }
       const player = createAudioPlayer(file.uri);
-      let started = false;
       const subscription = player.addListener('playbackStatusUpdate', status => {
-        if (!started && status.playing) { started = true; playing(); }
         if (status.didJustFinish) done(true);
       });
       cleanup = () => {
@@ -122,41 +93,19 @@ export function speak(text: string, lang: string, key = text, gender?: VoiceGend
         player.remove();
         if (file.exists) file.delete();
       };
-      startTimer = setTimeout(() => { stopSpeaking(); done(false); }, 2000);
       player.play();
     };
     const play = async () => {
-      await stopped;
-      if (finished || revision !== speechRevision) return;
-      if (offlineNative() && !await within(restoreTranslationPreferences().then(() => true), 300, false)) { done(false); return; }
       voices ??= Speech.getAvailableVoicesAsync().catch(() => []);
       const region = lang === getLocales()[0]?.languageCode ? (getLocales()[0]?.regionCode ?? undefined) : undefined;
-      let candidates = await within(voices, 500, []);
-      const native = offlineNative();
-      const forcedOffline = offlineOnly || translationPreferences().mode === 'offline';
-      const network = native && !forcedOffline ? await within(import('expo-network').then(module => module.getNetworkStateAsync()), 100, null) : null;
-      const disconnected = network?.isConnected === false || network?.isInternetReachable === false;
-      if (native && (forcedOffline || disconnected)) {
-        const installed = new Set((await within(native.offlineVoices(), 500, [])).map(voice => voice.identifier));
-        candidates = candidates.filter(voice => installed.has(voice.identifier));
-      } else if (!native && forcedOffline) { done(false); return; }
-      const voice = pickVoice(candidates, lang, region, gender);
+      const voice = pickVoice(await voices, lang, region, gender);
       if (finished || revision !== speechRevision) return;
       setCurrent(key);
       if (!voice) {
         await playGenerated();
         return;
       }
-      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
-      if (finished || revision !== speechRevision) return;
-      nativeQueued = true;
-      startTimer = setTimeout(() => { void playGenerated().catch(() => done(false)); }, 2000);
-      Speech.speak(text, { language: lang, voice, rate: RATE,
-        onStart: () => { if (!generated && !finished) playing(); },
-        onDone: () => { if (!generated) done(true); },
-        onStopped: () => { if (!generated) done(false); },
-        onError: () => { void playGenerated().catch(() => done(false)); },
-      });
+      Speech.speak(text, { language: lang, voice, rate: RATE, onDone: () => done(true), onStopped: () => { if (!generated) done(false); }, onError: () => { void playGenerated().catch(() => done(false)); } });
     };
     void play().catch(() => done(false));
   });
@@ -166,7 +115,7 @@ export function stopSpeaking() {
   speechRevision++;
   finishSpeech?.(false);
   finishSpeech = null;
-  stopping = Promise.resolve(Speech.stop()).catch(() => {});
+  void Promise.resolve(Speech.stop()).catch(() => {});
   setCurrent(null);
 }
 

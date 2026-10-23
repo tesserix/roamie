@@ -2,17 +2,18 @@ import { Platform, type ViewStyle } from 'react-native';
 
 import { useAccessibility, useAppColorScheme } from '@/lib/accessibility';
 
+// Window-seat palette: sky, passport navy, azure, and one marigold sun for the hero action.
 const palette = {
   light: {
     text: '#0B2545',
     muted: '#4F6479',
     faint: '#4F6479',
-    background: '#F4F7FB',
+    background: '#D8E8F6',
     surface: '#FFFFFF',
-    card: '#EAF0F7',
-    border: '#D9E2ED',
+    card: '#C8DCEF',
+    border: '#B9D0E6',
     accent: '#0A5FA8',
-    accentSoft: '#E6F0FB',
+    accentSoft: '#C4DDF5',
     onAccent: '#FFFFFF',
     sun: '#F4B23E',
     onSun: '#0B2545',
@@ -51,11 +52,11 @@ export function useColors(): Colors {
 }
 
 export const space = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 } as const;
-export const radius = { sm: 12, md: 16, lg: 24, pill: 999 } as const;
+export const radius = { sm: 10, md: 14, lg: 22, pill: 999 } as const;
 export const touch = 48;
 
 export const font = {
-  largeTitle: { fontSize: 32, fontWeight: '700', letterSpacing: -0.8 },
+  largeTitle: { fontSize: 34, fontWeight: '700', letterSpacing: -0.6 },
   title: { fontSize: 22, fontWeight: '700', letterSpacing: -0.3 },
   headline: { fontSize: 17, fontWeight: '600' },
   body: { fontSize: 16, lineHeight: 22 },
@@ -63,7 +64,8 @@ export const font = {
   overline: { fontSize: 12, fontWeight: '600', letterSpacing: 0.6, textTransform: 'uppercase' },
 } as const;
 
+// Soft elevation for white cards; Android has no coloured shadows so it gets elevation.
 export const lift: Pick<ViewStyle, 'shadowColor' | 'shadowOpacity' | 'shadowRadius' | 'shadowOffset' | 'elevation'> = Platform.select({
-  ios: { shadowColor: '#0B2545', shadowOpacity: 0.035, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } },
+  ios: { shadowColor: '#0B2545', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
   default: { elevation: 1 },
 });

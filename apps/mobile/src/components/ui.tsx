@@ -45,7 +45,6 @@ const MATERIAL_SYMBOLS: Partial<Record<SFSymbol, AndroidSymbol>> = {
   'flame.fill': 'local_fire_department',
   'fork.knife': 'restaurant',
   'info.circle.fill': 'info',
-  'info.circle': 'info',
   'keyboard': 'keyboard',
   'lightbulb.fill': 'lightbulb',
   'link': 'link',
@@ -78,8 +77,6 @@ const MATERIAL_SYMBOLS: Partial<Record<SFSymbol, AndroidSymbol>> = {
   'wave.3.right': 'contactless',
   'waveform': 'record_voice_over',
   'wifi.exclamationmark': 'wifi_off',
-  'wifi.slash': 'wifi_off',
-  'wifi': 'wifi',
   'xmark': 'close',
   'xmark.circle.fill': 'cancel',
 };
@@ -125,7 +122,7 @@ export function Screen({
 
 export function Card({ children, style }: { children: ReactNode; style?: ViewStyle }) {
   const c = useColors();
-  return <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }, style]}>{children}</View>;
+  return <View style={[styles.card, lift, { backgroundColor: c.surface }, style]}>{children}</View>;
 }
 
 type ButtonProps = {
@@ -188,7 +185,7 @@ export function IconButton({
       style={({ pressed }) => [
         styles.iconButton,
         { backgroundColor: tone === 'soft' ? c.surface : 'transparent', opacity: pressed ? 0.6 : 1 },
-        tone === 'soft' && { borderWidth: 1, borderColor: c.border },
+        tone === 'soft' && lift,
       ]}>
       <Icon name={icon} size={20} color={c.text} />
     </Pressable>
@@ -199,13 +196,11 @@ export function Chip({
   label,
   icon,
   selected,
-  disabled = false,
   onPress,
 }: {
   label: string;
   icon?: SFSymbol;
   selected?: boolean;
-  disabled?: boolean;
   onPress: () => void;
 }) {
   const c = useColors();
@@ -214,19 +209,18 @@ export function Chip({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ selected, disabled }}
-      disabled={disabled}
+      accessibilityState={{ selected }}
       onPress={onPress}
       style={({ pressed }) => [
         styles.chip,
         {
           backgroundColor: selected ? c.accent : c.surface,
           borderColor: selected ? c.accent : c.border,
-          opacity: disabled ? 0.45 : pressed ? 0.8 : 1,
+          opacity: pressed ? 0.8 : 1,
         },
       ]}>
       {icon ? <Icon name={icon} size={15} color={fg} /> : null}
-      <Text style={{ color: fg, fontSize: 15, fontWeight: '600', flexShrink: 1 }}>{label}</Text>
+      <Text style={{ color: fg, fontSize: 15, fontWeight: '600' }}>{label}</Text>
     </Pressable>
   );
 }
@@ -291,7 +285,7 @@ export function Segmented<T extends string>({
 }
 
 /** Play/stop toggle for one piece of text; `id` keeps two identical texts independent. */
-export function SpeakButton({ text, lang, id, tone = 'soft', offlineOnly = false }: { text: string; lang: string; id?: string; tone?: 'soft' | 'plain'; offlineOnly?: boolean }) {
+export function SpeakButton({ text, lang, id, tone = 'soft' }: { text: string; lang: string; id?: string; tone?: 'soft' | 'plain' }) {
   const c = useColors();
   const key = id ?? `${lang}:${text}`;
   const speaking = useSpeaking(key);
@@ -301,7 +295,7 @@ export function SpeakButton({ text, lang, id, tone = 'soft', offlineOnly = false
       accessibilityRole="button"
       accessibilityLabel={speaking ? 'Stop reading' : 'Read aloud'}
       hitSlop={8}
-      onPress={() => (speaking ? stopSpeaking() : speak(text, lang, key, playbackVoice(voice), offlineOnly))}
+      onPress={() => (speaking ? stopSpeaking() : speak(text, lang, key, playbackVoice(voice)))}
       style={({ pressed }) => [
         styles.iconButton,
         { backgroundColor: tone === 'soft' ? c.accentSoft : 'transparent', opacity: pressed ? 0.6 : 1 },
@@ -316,10 +310,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingHorizontal: space.md,
+    paddingHorizontal: space.lg,
     paddingBottom: space.md,
   },
-  card: { borderRadius: radius.lg, borderWidth: 1, padding: space.md, gap: space.md },
+  card: { borderRadius: 24, padding: 20, gap: 14 },
   button: {
     flexShrink: 1,
     minWidth: 48,
@@ -332,11 +326,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingVertical: 12,
   },
-  iconButton: { width: touch, height: touch, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  iconButton: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   chip: {
     minHeight: 48,
     paddingHorizontal: 14,
-    paddingVertical: space.sm,
     borderRadius: radius.pill,
     borderWidth: 1,
     flexDirection: 'row',
@@ -344,6 +337,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   segmented: { flexDirection: 'row', borderRadius: radius.md, padding: 3, marginHorizontal: space.md },
-  segment: { flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', minHeight: touch, paddingHorizontal: space.xs, paddingVertical: space.sm, borderRadius: radius.md - 3 },
-  message: { alignItems: 'center', gap: 12, paddingHorizontal: space.md, paddingVertical: space.xl },
+  segment: { flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', minHeight: 48, paddingVertical: 8, borderRadius: radius.md - 3 },
+  message: { alignItems: 'center', gap: space.sm, paddingHorizontal: space.xl, paddingVertical: space.xl },
 });
