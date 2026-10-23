@@ -6,6 +6,7 @@ import {
   setAudioModeAsync,
   useAudioRecorder,
 } from 'expo-audio';
+import { File } from 'expo-file-system';
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, AppState, ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Text, TextInput } from '@/components/typography';
@@ -15,13 +16,11 @@ import { waitForMicrophoneForeground } from '@/lib/microphone';
 import { SPEECH_RECORDING } from '@/lib/recording';
 import { signalFeedback } from '@/lib/feedback';
 import { ProfileSettings } from '@/components/profile-settings';
-import { OfflineReadiness } from '@/components/offline-readiness';
 import { RecordButton, type RecordingPhase } from '@/components/record-button';
 import { useAccessibility, useTextScale } from '@/lib/accessibility';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CameraTranslate } from '@/components/camera-translate';
-import { subscribeTranslationPreferences, translationPreferences } from '@/lib/translation-preferences';
 import { LanguagePicker } from '@/components/language-picker';
 import { type Shown, ShowThem } from '@/components/show-them';
 import { TextTranslate } from '@/components/text-translate';
@@ -61,9 +60,8 @@ export default function Talk() {
   const { fontScale: phoneFontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const focused = useIsFocused();
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const focusedRef = useRef(focused && !settingsOpen);
-  useEffect(() => { focusedRef.current = focused && !settingsOpen; }, [focused, settingsOpen]);
+  const focusedRef = useRef(focused);
+  useEffect(() => { focusedRef.current = focused; }, [focused]);
   const accessibility = useAccessibility();
   const accessibilityRef = useRef(accessibility);
   useEffect(() => { accessibilityRef.current = accessibility; }, [accessibility]);
@@ -108,17 +106,6 @@ export default function Talk() {
   const sendRef = useRef(send);
   useEffect(() => { sendRef.current = send; });
   useEffect(() => {
-    let previous = translationPreferences().mode;
-    return subscribeTranslationPreferences(() => {
-      const next = translationPreferences().mode;
-      if (next === previous) return;
-      previous = next;
-      conversation.current?.stop();
-      request.current?.abort();
-      stopSpeaking();
-    });
-  }, []);
-  useEffect(() => {
     const loop = new HandsFreeConversation(recorder, {
       onActive: active => { setHandsFree(active); if (!active) setRecoveryNotice(null); },
       isForeground: () => focusedRef.current && AppState.currentState === 'active',
@@ -126,7 +113,8 @@ export default function Talk() {
       onError: setError,
       onRecovery: setRecoveryNotice,
       onTurn: async (uri, active) => {
-        if (active()) await sendRef.current({ audio: { uri, mimeType: 'audio/mp4' } }, active);
+        const data = await new File(uri).base64();
+        if (active()) await sendRef.current({ audio: { data, mimeType: 'audio/mp4' } }, active);
       },
     });
     conversation.current = loop;
@@ -146,11 +134,11 @@ export default function Talk() {
     return () => { subscription.remove(); loop.stop(); conversation.current = null; };
   }, [recorder]);
   useEffect(() => {
-    if (!focused || settingsOpen || mode !== 'talk' || typing || showing || picking) {
+    if (!focused || mode !== 'talk' || typing || showing || picking) {
       conversation.current?.stop();
       if (automaticRequest.current) request.current?.abort();
     }
-  }, [focused, settingsOpen, mode, typing, showing, picking]);
+  }, [focused, mode, typing, showing, picking]);
 
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboard(true));
@@ -190,7 +178,6 @@ export default function Talk() {
       failedTurns.current = 0; unclearTurns.current = 0;
       setRecoveryNotice(null);
       setPending(null);
-      if (res.engine === 'device') setNotice('Translated on this phone. Check important details.');
       if (!res.reviewRequired) history.current = [...history.current, { original: res.transcript, translation: res.translation }].slice(-6);
       setTurns((t) => [
         ...t,
@@ -338,8 +325,9 @@ export default function Talk() {
       await recorder.stop();
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       if (Date.now() - startedAt.current < MIN_HOLD_MS || !recorder.uri) throw new Error('No speech recorded. Tap the microphone and try again, or type instead.');
+      const data = await new File(recorder.uri).base64();
       if (revision !== captureRevision.current) return;
-      await send({ audio: { uri: recorder.uri, mimeType: 'audio/mp4' } });
+      await send({ audio: { data, mimeType: 'audio/mp4' } });
     } catch (error) {
       if (revision !== captureRevision.current) return;
       setError(error instanceof Error ? error.message : 'Could not finish recording. Try again.');
@@ -351,19 +339,14 @@ export default function Talk() {
   }
 
   useEffect(() => {
-    if (focused && !settingsOpen) return;
+    if (focused) return;
     captureRevision.current++;
     stopSpeaking();
-    if (settingsOpen) {
-      request.current?.abort();
-      playbackRevision.current++;
-      if (!recording.current && !recordingLock.current && !sending.current) setPhase('idle');
-    }
     if (recording.current) {
       recording.current = false;
       void recorder.stop().catch(() => {}).then(() => setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true })).catch(() => {}).finally(() => setPhase('idle'));
     }
-  }, [focused, settingsOpen, recorder]);
+  }, [focused, recorder]);
 
   useEffect(() => () => {
     if (recording.current) {
@@ -435,14 +418,11 @@ export default function Talk() {
             }}
           />
         ) : null}
-        <ProfileSettings mine={mine} partner={partner} onOpenChange={setSettingsOpen} />
+        <View pointerEvents={handsFree ? 'none' : 'auto'} accessibilityElementsHidden={handsFree} importantForAccessibility={handsFree ? 'no-hide-descendants' : 'auto'} style={{ opacity: handsFree ? 0.4 : 1 }}><ProfileSettings /></View>
       </View>
 
       <Segmented disabled={phase !== 'idle'} options={MODES} value={mode} onChange={next => { if (phase === 'idle') setMode(next); }} />
-      <View style={{ marginHorizontal: space.md, marginVertical: space.xs, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
-        <OfflineReadiness mine={mine} partner={partner} compact onOpenChange={setSettingsOpen} />
-        <CommunicationCards compact disabled={phase !== 'idle'} />
-      </View>
+      <View style={{ marginHorizontal: space.md, marginVertical: space.sm }}><CommunicationCards disabled={phase !== 'idle'} /></View>
 
     </>
   );
@@ -454,7 +434,7 @@ export default function Talk() {
       {mode === 'text' ? (
         <TextTranslate mine={mine} partner={partner} bottom={keyboard ? space.md : TAB_CLEARANCE} />
       ) : mode === 'camera' ? (
-        <CameraTranslate mine={mine} partner={partner} bottom={TAB_CLEARANCE} />
+        <CameraTranslate mine={mine} bottom={TAB_CLEARANCE} />
       ) : (
       <>
       <FlatList
@@ -467,7 +447,7 @@ export default function Talk() {
         ListHeaderComponent={
           <View style={{ marginHorizontal: -space.md }}>
             {header}
-      <View style={[styles.langBar, { backgroundColor: c.surface, borderColor: c.border }]}>
+      <View style={[styles.langBar, lift, { backgroundColor: c.surface }]}>
         <Pressable accessibilityRole="button"
           accessibilityLabel={`Your language: ${autoMine ? `Auto-detect (${languageName(mine)})` : languageName(mine)}. Change`}
           disabled={busy}
@@ -496,6 +476,7 @@ export default function Talk() {
           </View>
         </Pressable>
       </View>
+
           </View>
         }
         onContentSizeChange={() => { if (turns.length) list.current?.scrollToEnd({ animated: !accessibility.reducedMotion }); }}
@@ -564,7 +545,6 @@ export default function Talk() {
           </View>
         ) : (
           <View style={styles.micRow}>
-            <View style={styles.sideGroup}>
             <Pressable accessibilityRole="button" accessibilityLabel="Type instead"
               disabled={handsFree || busy} accessibilityState={{ disabled: handsFree || busy }}
               onPress={() => setTyping(true)}
@@ -572,8 +552,6 @@ export default function Talk() {
               <View style={[styles.sideIcon, lift, { backgroundColor: c.surface }]}><Icon name="keyboard" size={22} color={c.text} /></View>
               <Text maxFontSizeMultiplier={2} style={[font.caption, { color: c.muted, textAlign: 'center' }]}>Type</Text>
             </Pressable>
-            <View style={{ width: 44 }}><ProfileSettings entryPoint="offline" mine={mine} partner={partner} onOpenChange={setSettingsOpen} /></View>
-            </View>
             {handsFree ? (
               <Pressable accessibilityRole="button" accessibilityLabel="Stop hands-free conversation"
                 onPress={() => { conversation.current?.stop(); request.current?.abort(); }}
@@ -585,7 +563,7 @@ export default function Talk() {
               </Pressable>
             ) : <RecordButton phase={phase === 'speaking' || pending ? 'thinking' : phase} onPress={() => { void (phase === 'listening' ? stopListening() : startListening()); }} />}
             {handsFree ? (
-              <View style={styles.handsFreeAction} accessible accessibilityLabel="Hands-free active">
+              <View style={styles.sideAction} accessible accessibilityLabel="Hands-free active">
                 <View style={[styles.sideIcon, { backgroundColor: c.accentSoft }]}><Icon name="waveform" size={22} color={c.accent} /></View>
                 <Text maxFontSizeMultiplier={2} style={[font.caption, { color: c.accent, fontWeight: '600', textAlign: 'center' }]}>Hands-free</Text>
               </View>
@@ -594,7 +572,7 @@ export default function Talk() {
                 accessibilityHint="Listens for pauses, translates, and speaks each reply. Stop at any time."
                 disabled={busy} accessibilityState={{ disabled: busy }}
                 onPress={() => { if (!sending.current && !recording.current && !recordingLock.current) { setError(null); setNotice(null); setRecoveryNotice(null); failedTurns.current = 0; unclearTurns.current = 0; void conversation.current?.start(); } }}
-                style={({ pressed }) => [styles.handsFreeAction, { opacity: busy ? 0.4 : pressed ? 0.7 : 1 }]}>
+                style={({ pressed }) => [styles.sideAction, { opacity: busy ? 0.4 : pressed ? 0.7 : 1 }]}>
                 <View style={[styles.sideIcon, { backgroundColor: c.accentSoft }]}><Icon name="waveform" size={22} color={c.accent} /></View>
                 <Text maxFontSizeMultiplier={2} style={[font.caption, { color: c.accent, fontWeight: '600', textAlign: 'center' }]}>Hands-free</Text>
               </Pressable>
@@ -677,11 +655,10 @@ function Bubble({ turn, busy, onShow, onPlay }: { turn: Turn; busy: boolean; onS
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, paddingBottom: space.md },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.lg, paddingBottom: space.md },
   langBar: {
     marginHorizontal: space.md,
     borderRadius: radius.lg,
-    borderWidth: 1,
     paddingVertical: 12,
     paddingHorizontal: space.md,
     flexDirection: 'row',
@@ -693,11 +670,9 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: '86%', borderRadius: radius.lg, paddingHorizontal: space.md, paddingVertical: 12, gap: 6 },
   action: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 48 },
   dock: { paddingHorizontal: space.md, paddingTop: space.sm, gap: space.sm },
-  sideAction: { width: 44, minHeight: 72, alignItems: 'center', gap: 6 },
-  sideGroup: { width: 92, flexDirection: 'row', alignItems: 'flex-start', gap: space.xs },
-  handsFreeAction: { width: 92, minHeight: 72, alignItems: 'center', gap: 6 },
-  sideIcon: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-  micRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.xs },
+  sideAction: { width: 76, minHeight: 72, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  sideIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  micRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md },
   typeRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   input: { flex: 1, minHeight: 48, borderRadius: radius.pill, paddingHorizontal: space.md + 2, fontSize: 17 },
   send: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },

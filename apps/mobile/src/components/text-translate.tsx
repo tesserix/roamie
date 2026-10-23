@@ -5,25 +5,23 @@ import { Text, TextInput } from '@/components/typography';
 import { LanguagePicker } from '@/components/language-picker';
 import { type Shown, ShowThem } from '@/components/show-them';
 import { Button, Icon, IconButton, SpeakButton } from '@/components/ui';
-import { font, radius, space, useColors } from '@/constants/theme';
+import { font, lift, radius, space, useColors } from '@/constants/theme';
 import { ApiError, type TextTranslation, translateText } from '@/lib/api';
 import { signalFeedback } from '@/lib/feedback';
 import { useAccessibility } from '@/lib/accessibility';
 import { languageName } from '@/lib/languages';
-import { useTranslationPreferences } from '@/lib/translation-preferences';
 
 const DEBOUNCE_MS = 700;
 const MAX = 5000;
 
 type Pick = 'from' | 'to' | null;
 
-export function TextTranslate({ mine, partner, bottom, offlineOnly = false }: { mine: string; partner: string | null; bottom: number; offlineOnly?: boolean }) {
+export function TextTranslate({ mine, partner, bottom }: { mine: string; partner: string | null; bottom: number }) {
   const c = useColors();
   const { vibration } = useAccessibility();
-  const { mode } = useTranslationPreferences();
   const feedback = useRef(vibration);
   useEffect(() => { feedback.current = vibration; }, [vibration]);
-  const [from, setFrom] = useState<string | null>(offlineOnly ? mine : null);
+  const [from, setFrom] = useState<string | null>(null);
   const [to, setTo] = useState(partner ?? mine);
   const [text, setText] = useState('');
   const [result, setResult] = useState<{ query: string; from: string | null; to: string; value: TextTranslation } | null>(null);
@@ -43,7 +41,7 @@ export function TextTranslate({ mine, partner, bottom, offlineOnly = false }: { 
     const t = setTimeout(async () => {
       setPending({ query, from, to, attempt });
       try {
-        const res = await translateText(query, to, from ?? undefined, controller.signal, offlineOnly);
+        const res = await translateText(query, to, from ?? undefined, controller.signal);
         if (live) {
           setResult({ query, from, to, value: res });
           signalFeedback(feedback.current);
@@ -54,13 +52,13 @@ export function TextTranslate({ mine, partner, bottom, offlineOnly = false }: { 
       } finally {
         if (live) setPending(null);
       }
-    }, offlineOnly || mode === 'offline' ? 250 : DEBOUNCE_MS);
+    }, DEBOUNCE_MS);
     return () => {
       live = false;
       controller.abort();
       clearTimeout(t);
     };
-  }, [query, from, to, attempt, offlineOnly, mode]);
+  }, [query, from, to, attempt]);
 
   const shownResult = result?.query === query && result.from === from && result.to === to ? result.value : null;
   const source = from ?? shownResult?.detected ?? null;
@@ -74,7 +72,7 @@ export function TextTranslate({ mine, partner, bottom, offlineOnly = false }: { 
 
   return (
     <>
-      <View style={[styles.langBar, { backgroundColor: c.surface, borderColor: c.border }]}>
+      <View style={[styles.langBar, lift, { backgroundColor: c.surface }]}>
         <LangButton
           label={from ? languageName(from) : shownResult ? `${languageName(shownResult.detected)} · detected` : 'Detect language'}
           onPress={() => setPicking('from')}
@@ -87,7 +85,7 @@ export function TextTranslate({ mine, partner, bottom, offlineOnly = false }: { 
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: space.md, gap: space.md, paddingBottom: bottom }}
         keyboardShouldPersistTaps="handled">
-        <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+        <View style={[styles.card, lift, { backgroundColor: c.surface }]}>
           <TextInput
             accessibilityLabel="Text to translate"
             autoCorrect={false}
@@ -104,7 +102,7 @@ export function TextTranslate({ mine, partner, bottom, offlineOnly = false }: { 
           <View style={styles.row}>
             {text ? (
               <>
-                {source ? <SpeakButton text={query} lang={source} tone="plain" offlineOnly={offlineOnly} /> : null}
+                {source ? <SpeakButton text={query} lang={source} tone="plain" /> : null}
                 <Text style={[font.caption, { color: c.faint, flex: 1, textAlign: 'right' }]}>
                   {text.length} / {MAX}
                 </Text>
@@ -122,7 +120,7 @@ export function TextTranslate({ mine, partner, bottom, offlineOnly = false }: { 
         ) : null}
 
         {shownResult ? (
-          <View style={[styles.card, { backgroundColor: c.accentSoft, borderColor: c.border }]}>
+          <View style={[styles.card, { backgroundColor: c.accentSoft }]}>
             <View style={styles.row}>
               <Text style={[font.overline, { color: c.accent, flex: 1 }]}>{languageName(to)}</Text>
               {busy ? <ActivityIndicator color={c.accent} /> : null}
@@ -130,14 +128,13 @@ export function TextTranslate({ mine, partner, bottom, offlineOnly = false }: { 
             <Text selectable style={{ color: c.text, fontSize: 24, lineHeight: 32, fontWeight: '600' }}>
               {shownResult.translation}
             </Text>
-            {shownResult.engine === 'device' ? <Text style={[font.caption, { color: c.muted }]}>Translated on this phone</Text> : null}
             {shownResult.romanized ? (
               <Text selectable style={[font.body, { color: c.muted, fontStyle: 'italic' }]}>
                 {shownResult.romanized}
               </Text>
             ) : null}
             <View style={[styles.row, { paddingTop: space.xs }]}>
-              <SpeakButton text={shownResult.translation} lang={to} offlineOnly={offlineOnly} />
+              <SpeakButton text={shownResult.translation} lang={to} />
               <IconButton icon="square.and.arrow.up" label="Share or copy" onPress={() => Share.share({ message: shownResult.translation })} />
               <View style={{ flex: 1 }} />
               <Pressable
@@ -175,7 +172,7 @@ export function TextTranslate({ mine, partner, bottom, offlineOnly = false }: { 
         onPick={(code) => (picking === 'from' ? setFrom(code) : setTo(code))}
         onClose={() => setPicking(null)}
       />
-      <ShowThem shown={shown} onClose={() => setShown(null)} offlineOnly={offlineOnly} />
+      <ShowThem shown={shown} onClose={() => setShown(null)} />
     </>
   );
 }
@@ -188,7 +185,7 @@ function LangButton({ label, onPress, end }: { label: string; onPress: () => voi
       accessibilityLabel={`${label}. Change`}
       onPress={onPress}
       style={({ pressed }) => [styles.lang, end && { justifyContent: 'flex-end' }, { opacity: pressed ? 0.6 : 1 }]}>
-      <Text style={[font.headline, { color: c.text, flexShrink: 1 }]}>
+      <Text style={[font.headline, { color: c.text, flexShrink: 1 }]} numberOfLines={1}>
         {label}
       </Text>
       <Icon name="chevron.down" size={12} color={c.muted} />
@@ -200,7 +197,6 @@ const styles = StyleSheet.create({
   langBar: {
     marginHorizontal: space.md,
     borderRadius: radius.lg,
-    borderWidth: 1,
     paddingVertical: 6,
     paddingHorizontal: space.md,
     flexDirection: 'row',
@@ -208,7 +204,7 @@ const styles = StyleSheet.create({
     gap: space.xs,
   },
   lang: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 44 },
-  card: { borderRadius: radius.lg, borderWidth: 1, padding: space.md, gap: space.sm },
+  card: { borderRadius: radius.lg, padding: space.md, gap: space.sm },
   input: { fontSize: 22, lineHeight: 30, minHeight: 110, textAlignVertical: 'top' },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 40 },
   show: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, minHeight: 44, borderRadius: radius.pill },

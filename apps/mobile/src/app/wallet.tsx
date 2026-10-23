@@ -196,7 +196,7 @@ export default function Wallet() {
   if (groupBudget) return <GroupBudget home={home} accountId={accountId} displayName={session.current()?.name ?? ''} trips={trips} onClose={() => setGroupBudget(false)} />;
 
   return (
-    <Screen title="Budget" subtitle={`Everything in ${home}`} right={<IconButton icon="ellipsis" label="More" tone="soft" onPress={menu} />}>
+    <Screen title="Wallet" subtitle={`Everything in ${home}`} right={<IconButton icon="ellipsis" label="More" tone="soft" onPress={menu} />}>
       <FlatList
         data={expenses}
         keyExtractor={(e) => e.id}

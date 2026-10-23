@@ -80,11 +80,3 @@ test('statement photos, HEIC included, upload as JPEG', async () => {
   expect(await statementData({ uri: 'file:///cache/statement.heic', name: 'statement.heic', mimeType: 'image/heic' })).toEqual({ data: '/9j/JPEG', mimeType: 'image/jpeg' });
   expect(mockDeleted).toEqual(['file:///cache/photo.jpg']);
 });
-
-
-test('offline photo normalization returns a JPEG URI without a base64 copy', async () => {
-  mockPicked = { width: 3024, height: 4032 };
-  const photo = await toJpeg('file:///picked/menu.heic', false);
-  expect(photo).toEqual({ uri: 'file:///cache/photo.jpg', width: 1536, height: 2048, mimeType: 'image/jpeg' });
-  expect(mockSave).toHaveBeenCalledWith({ format: 'jpeg', compress: 0.7, base64: false });
-});

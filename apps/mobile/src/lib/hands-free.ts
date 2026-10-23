@@ -1,5 +1,4 @@
 import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync, setAudioModeAsync, type RecordingOptions } from 'expo-audio';
-import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { File } from 'expo-file-system';
 import { stopSpeaking } from './voice';
 import { waitForMicrophoneForeground } from './microphone';
@@ -21,10 +20,7 @@ type Callbacks = {
   isForeground: () => boolean;
 };
 
-let conversationId = 0;
-
 export class HandsFreeConversation {
-  private readonly awakeTag = `roamie-hands-free-${++conversationId}`;
   private active = false;
   private running = false;
   private requestingPermission = false;
@@ -63,7 +59,6 @@ export class HandsFreeConversation {
     this.callbacks.onActive(true);
     this.callbacks.onPhase('starting');
     let prepared = false;
-    let awake = false;
     let interruptions = 0;
     try {
       const existing = await getRecordingPermissionsAsync();
@@ -80,8 +75,6 @@ export class HandsFreeConversation {
       if (!current()) return;
       if (!permission.granted) throw new Error('Allow microphone access in Settings, or use Type instead.');
       if (!this.callbacks.isForeground()) throw new Error('Return to Roamie, then start hands-free again.');
-      await activateKeepAwakeAsync(this.awakeTag).then(() => { awake = true; }).catch(() => {});
-      if (!current()) return;
       stopSpeaking();
       while (current()) {
         this.callbacks.onPhase('starting');
@@ -95,8 +88,6 @@ export class HandsFreeConversation {
         if (interruptions) this.callbacks.onRecovery('Still listening. Please repeat.');
         let interrupted = false;
         let voicedMs = 0, lastVoice = 0, heardSpeech = false, previous = 0;
-        let speechLevel = -Infinity;
-        const levels: number[] = [];
         const started = Date.now();
         while (current()) {
           await this.pause(100);
@@ -105,20 +96,13 @@ export class HandsFreeConversation {
           if (!status.isRecording || status.mediaServicesDidReset) { interrupted = true; break; }
           if (status.metering == null || !Number.isFinite(status.metering)) throw new Error('Hands-free is unavailable on this device. Use tap to talk instead.');
           const elapsed = Date.now() - started;
-          levels.push(status.metering);
-          if (levels.length > 5) levels.shift();
-          const threshold = heardSpeech ? Math.max(-42, speechLevel - 12) : -42;
-          if (status.metering > threshold) {
+          if (status.metering > -42) {
             voicedMs += Math.min(200, elapsed - previous);
-            if (levels.length >= 3) {
-              const sorted = [...levels].sort((a, b) => a - b);
-              speechLevel = Math.max(speechLevel, sorted[Math.floor(sorted.length / 2)]);
-            }
             lastVoice = elapsed;
             if (voicedMs >= 300) heardSpeech = true;
           } else if (!heardSpeech) voicedMs = 0;
           previous = elapsed;
-          if (heardSpeech && (elapsed - lastVoice >= 800 || elapsed >= 30000)) break;
+          if (heardSpeech && (elapsed - lastVoice >= 1200 || elapsed >= 30000)) break;
           if (elapsed >= 30000) break;
         }
         if (!current()) break;
@@ -147,7 +131,7 @@ export class HandsFreeConversation {
         await Promise.race([this.callbacks.onTurn(this.recorder.uri, current), canceled]);
         interruptions = 0;
         this.removeRecording();
-        if (current()) await this.pause(100);
+        if (current()) await this.pause(350);
       }
     } catch (error) {
       if (current()) this.callbacks.onError(error instanceof Error ? error.message : 'Conversation paused. Please try again.');
@@ -156,7 +140,6 @@ export class HandsFreeConversation {
       if (prepared) await this.recorder.stop().catch(() => {});
       this.removeRecording();
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
-      if (awake) await deactivateKeepAwake(this.awakeTag).catch(() => {});
       this.cancel = null;
       this.running = false;
       this.callbacks.onActive(false);

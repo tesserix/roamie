@@ -20,7 +20,7 @@ import { applyReviewedPlan } from '@/lib/trip-manager';
 import { TripReadiness } from '@/components/trip-readiness';
 import { TripManager, PlanCard } from '@/components/trip-manager';
 import { TripMemoryCard } from '@/components/trip-memory-card';
-import { font, radius, space, useColors } from '@/constants/theme';
+import { font, useColors } from '@/constants/theme';
 import { format, toMinor } from '@/lib/money';
 import { useStore } from '@/lib/store';
 import { useTrips } from '@/lib/trip-store';
@@ -49,7 +49,7 @@ function NewTrip({ done, cancel }: { done: (id: string) => void; cancel: () => v
   const [budget, setBudget] = useState(''), [people, setPeople] = useState('1'), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const field = (key: keyof PlanRequest) => (value: string) => setRequest(r => ({ ...r, [key]: key === 'currency' ? value.toUpperCase() : value }));
   async function create() { setBusy(true); setError(''); try { if (!request.startDate) throw new Error('Choose your departure date.'); if (request.startDate < localDate()) throw new Error('Choose today or a future departure date.'); if (!destination || stays.some(stay => !stay.destination)) throw new Error('Search and select every destination first.'); const periods = stayDates(request.startDate, stays.map(stay => Number(stay.days))); const amount = budget ? toMinor(budget, request.currency) : 0; if (amount === null) throw new Error('Enter a valid budget.'); const trip = createTrip({ ...request, interests: combineInterests(request.interests, interestDraft), destination: destination.label, endDate: periods[periods.length-1].end, stays: stays.map(stay => ({destination:stay.destination!,days:Number(stay.days)})), diet: foods.map(food => food.toLowerCase()).find(food => ['vegetarian', 'vegan', 'jain', 'pescatarian', 'halal', 'kosher'].includes(food)) ?? 'none', budgetMinor: amount, travellers: Number(people), preferences: { styles, foodPreferences: foods, adults: Number(people) - Number(children), children: Number(children), luggage: Number(luggage) } }); await store.save({ ...trip, destinationDetails: destination }); done(trip.id); } catch (e) { setError(e instanceof Error ? e.message : 'Could not save your trip.'); } finally { setBusy(false); } }
-  return <Screen title="Where to next?" subtitle="Make room for a little adventure."><KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: space.md, paddingTop: 12, paddingBottom: TAB_CLEARANCE + 24, gap: 28 }}>
+  return <Screen title="Where to next?" subtitle="Make room for a little adventure."><KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: TAB_CLEARANCE + 24, gap: 28 }}>
     <View style={{ gap: 20 }}>
     <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>The essentials</Text>
     <Field label="Trip name" value={request.title} change={field('title')} placeholder="My Japan adventure" />
@@ -106,7 +106,7 @@ function StopEditor({ trip, day, original, close, saved }: { trip: Trip; day: nu
   const [costEntered, setCostEntered] = useState(false);
   const field = (key: 'title' | 'time' | 'note') => (value: string) => setStop(s => ({ ...s, [key]: value }));
   async function save() { setBusy(true); try { const amount = toMinor(cost, trip.currency); if (amount === null) throw new Error('Enter a valid cost.'); await saved(updateStop(trip, day, { ...stop, minutes: Number(duration), costMinor: amount, costUnknown: !!stop.costUnknown && !costEntered })); close(); } catch (e) { setError(e instanceof Error ? e.message : 'Could not save this stop.'); } finally { setBusy(false); } }
-  return <Modal animationType="slide" onRequestClose={close}><KeyboardAvoidingView style={{ flex: 1, backgroundColor: c.background }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.md, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24, gap: 16 }}>
+  return <Modal animationType="slide" onRequestClose={close}><KeyboardAvoidingView style={{ flex: 1, backgroundColor: c.background }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 24, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24, gap: 16 }}>
     <Text style={[font.largeTitle, { color: c.text }]}>A moment in your day</Text><Field label="Place or activity" value={stop.title} change={field('title')} /><Field label="Time · HH:MM" value={stop.time} change={field('time')} /><Field label="Duration in minutes" value={duration} change={setDuration} numeric /><Field label={`Estimated cost · ${trip.currency}`} value={cost} change={value=>{setCost(value);setCostEntered(true);}} numeric /><View style={{ flexDirection: 'row', gap: 8 }}>{['sight', 'lunch', 'dinner'].map(kind => <Chip key={kind} label={kind} selected={stop.kind === kind} onPress={() => setStop(s => ({ ...s, kind }))} />)}</View><Field label="Notes" value={stop.note} change={field('note')} multiline />{error ? <Text accessibilityRole="alert" style={{ color: c.danger }}>{error}</Text> : null}<Button label="Save stop" busy={busy} onPress={() => { void save(); }} /><Button label="Cancel" kind="secondary" onPress={close} />
   </ScrollView></KeyboardAvoidingView></Modal>;
 }
@@ -179,13 +179,13 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
   const dateLabel = (date: string, year = false) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(year ? { year: 'numeric' as const } : {}) });
   const currentDestination = trip.stays?.find(stay => stay.destination.label === trip.days[day].destination)?.destination.name ?? trip.days[day].destination ?? trip.destination;
   return <View style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top + 8 }}>
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.md, paddingBottom: 8 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingBottom: 8 }}>
       <Pressable accessibilityRole="button" accessibilityLabel="All trips" onPress={back} style={({ pressed }) => ({ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 16, opacity: pressed ? 0.6 : 1 })}>
         <Icon name="chevron.left" size={16} color={c.accent} /><Text style={[font.body, { color: c.accent, fontWeight: '600' }]}>All trips</Text>
       </Pressable>
       <ProfileSettings />
     </View>
-    <ScrollView style={{ marginBottom: TAB_CLEARANCE }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: space.md, paddingTop: 8, paddingBottom: 24, gap: 24 }}>
+    <ScrollView style={{ marginBottom: TAB_CLEARANCE }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24, gap: 24 }}>
       <View style={{ gap: 10 }}>
         <Text accessibilityRole="header" style={[font.largeTitle, { color: c.text }]}>{trip.title}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><Icon name="mappin.and.ellipse" size={18} color={c.accent} /><Text style={[font.body, { color: c.muted, flex: 1 }]}>{route}</Text></View>
@@ -297,12 +297,12 @@ export default function Trips() {
   const store = useTrips(), c = useColors();
   const [selected, setSelected] = useState<string | null>(null), [creating, setCreating] = useState(false);
   const trip = store.trips.find(t => t.id === selected);
-  if (!store.ready) return <Screen title="Your trips"><View style={{ padding: space.md, gap: space.md }}><Text style={{ color: c.muted }}>{store.error ?? 'Opening your trips…'}</Text>{store.error && <Button label="Try again" onPress={store.reload} />}</View></Screen>;
+  if (!store.ready) return <Screen title="Your trips"><View style={{ padding: 24, gap: 16 }}><Text style={{ color: c.muted }}>{store.error ?? 'Opening your trips…'}</Text>{store.error && <Button label="Try again" onPress={store.reload} />}</View></Screen>;
   if (creating) return <NewTrip cancel={() => setCreating(false)} done={id => { setSelected(id); setCreating(false); }} />;
   if (trip) return <TripDetails key={trip.id} trip={trip} back={() => setSelected(null)} />;
   if (!store.trips.length) return <Screen title="Your trips" subtitle="Good days. Great memories.">
-    <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.md, paddingTop: 28, paddingBottom: TAB_CLEARANCE + 24, gap: 28 }}>
-      <View style={{ backgroundColor: c.accentSoft, borderRadius: radius.lg, padding: space.lg, gap: space.lg }}>
+    <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 28, paddingBottom: TAB_CLEARANCE + 24, gap: 28 }}>
+      <View style={{ backgroundColor: c.accentSoft, borderRadius: 28, padding: 28, gap: 24 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }}><Icon name="map" size={28} color={c.accent} /></View>
           <Text style={[font.overline, { color: c.accent, flex: 1 }]}>Your next chapter</Text>
@@ -326,7 +326,7 @@ export default function Trips() {
   </Screen>;
   return <Screen title="Your trips" subtitle="Good days. Great memories.">
     <FlatList data={store.trips} keyExtractor={t => t.id}
-      contentContainerStyle={{ paddingHorizontal: space.md, paddingTop: 8, paddingBottom: TAB_CLEARANCE + 24, gap: 20 }}
+      contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: TAB_CLEARANCE + 24, gap: 20 }}
       ListHeaderComponent={<View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
         <Text style={[font.caption, { color: c.muted, flex: 1 }]}>{store.trips.length} {store.trips.length === 1 ? 'saved trip' : 'saved trips'}</Text>
         <Pressable accessibilityRole="button" accessibilityLabel="New trip" onPress={() => setCreating(true)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, paddingHorizontal: 16, borderRadius: 24, backgroundColor: c.accent, opacity: pressed ? 0.75 : 1 })}>
