@@ -11,49 +11,6 @@ const SCOPES: &[&str] = &["https://www.googleapis.com/auth/cloud-platform"];
 
 /// The gateway route that pins Roamie's structured model.
 pub const GATEWAY_MODEL: &str = "roamie-structured";
-pub const TRANSCRIPTION_MODEL: &str = "roamie-transcription";
-const TRANSCRIPTION_VERTEX_MODEL: &str = "gemini-3.8-flash";
-
-#[derive(Clone, Copy)]
-enum ModelRoute {
-    Structured,
-    Transcription,
-}
-
-impl ModelRoute {
-    fn profile(self) -> &'static str {
-        match self {
-            Self::Structured => GATEWAY_MODEL,
-            Self::Transcription => TRANSCRIPTION_MODEL,
-        }
-    }
-
-    fn path(self) -> &'static str {
-        match self {
-            Self::Structured => "/v1/chat/completions",
-            Self::Transcription => "/v1/transcribe",
-        }
-    }
-
-    fn thinking(self) -> Value {
-        match self {
-            Self::Structured => json!({"thinkingBudget":0}),
-            Self::Transcription => json!({"thinkingLevel":"LOW"}),
-        }
-    }
-
-    fn vertex_url(self, url: &str) -> String {
-        match self {
-            Self::Transcription => url
-                .rsplit_once("/models/")
-                .map(|(prefix, _)| {
-                    format!("{prefix}/models/{TRANSCRIPTION_VERTEX_MODEL}:generateContent")
-                })
-                .unwrap_or_else(|| url.to_owned()),
-            Self::Structured => url.to_owned(),
-        }
-    }
-}
 
 /// Gemini on Vertex AI. Every model call in Roamie goes through here.
 pub struct Gemini {
@@ -195,30 +152,9 @@ impl Gemini {
         parts: Vec<Value>,
         schema: Value,
     ) -> Result<T> {
-        self.json_route(system, parts, schema, ModelRoute::Structured)
-            .await
-    }
-
-    pub async fn transcription<T: DeserializeOwned>(
-        &self,
-        system: &str,
-        parts: Vec<Value>,
-        schema: Value,
-    ) -> Result<T> {
-        self.json_route(system, parts, schema, ModelRoute::Transcription)
-            .await
-    }
-
-    async fn json_route<T: DeserializeOwned>(
-        &self,
-        system: &str,
-        parts: Vec<Value>,
-        schema: Value,
-        route: ModelRoute,
-    ) -> Result<T> {
         let (http, auth, url) = match &self.transport {
             Transport::Gateway(gateway) => {
-                return gateway_json(gateway, system, parts, schema, route).await
+                return gateway_json(gateway, system, parts, schema).await
             }
             Transport::Vertex { http, auth, url } => (http, auth, url),
         };
@@ -230,11 +166,11 @@ impl Gemini {
                 "temperature": 0.2,
                 "responseMimeType": "application/json",
                 "responseSchema": schema,
-                "thinkingConfig": route.thinking()
+                "thinkingConfig": { "thinkingBudget": 0 }
             }
         });
         let res = http
-            .post(route.vertex_url(url))
+            .post(url)
             // Multi-day plans take longer than the shared 25s client budget; stays inside the 60s route timeout.
             .timeout(std::time::Duration::from_secs(45))
             .bearer_auth(token.as_str())
@@ -271,7 +207,6 @@ async fn gateway_json<T: DeserializeOwned>(
     system: &str,
     parts: Vec<Value>,
     mut schema: Value,
-    route: ModelRoute,
 ) -> Result<T> {
     json_schema(&mut schema);
     let content: Vec<Value> = parts.into_iter().map(|part| {
@@ -283,10 +218,10 @@ async fn gateway_json<T: DeserializeOwned>(
         }
     }).collect();
     // agentgateway forwards only this camelCase form; reasoning_effort "none" still lets Gemini 2.5 think.
-    let body = json!({"model":route.profile(), "messages":[{"role":"system","content":system},{"role":"user","content":content}], "temperature":0.2, "thinking_config":route.thinking(), "response_format":{"type":"json_schema", "json_schema":{"name":"roamie_response", "schema":schema}}});
+    let body = json!({"model":GATEWAY_MODEL, "messages":[{"role":"system","content":system},{"role":"user","content":content}], "temperature":0.2, "thinking_config":{"thinkingBudget":0}, "response_format":{"type":"json_schema", "json_schema":{"name":"roamie_response", "schema":schema}}});
     let mut response = gateway
         .post(
-            route.path(),
+            "/v1/chat/completions",
             serde_json::to_vec(&body)
                 .map_err(|_| Error::Upstream("invalid model request".into()))?,
             std::time::Duration::from_secs(45),
@@ -343,85 +278,6 @@ fn json_schema(value: &mut Value) {
 mod tests {
     use super::*;
     use axum::{http::HeaderMap, routing::post, Json, Router};
-
-    #[tokio::test]
-    async fn transcription_has_a_separate_model_route_and_supported_low_thinking() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let gateway =
-            crate::gateway::Gateway::for_test(format!("http://{}", listener.local_addr().unwrap()));
-        let app = Router::new().route(
-            "/v1/transcribe",
-            post(|Json(body): Json<Value>| async move {
-                assert_eq!(body["model"], "roamie-transcription");
-                assert_eq!(body["thinking_config"]["thinkingLevel"], "LOW");
-                Json(json!({"choices":[{"message":{"content":"{\"transcript\":\"ନମସ୍କାର\"}"}}]}))
-            }),
-        );
-        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let ai = Gemini::with_gateway(gateway);
-        let result: Value = crate::gateway::scope(
-            "verified-customer".into(),
-            "talk/turn".into(),
-            ai.transcription(
-                "transcribe",
-                vec![Gemini::inline("audio/wav", "AAAA")],
-                json!({"type":"OBJECT"}),
-            ),
-        )
-        .await
-        .unwrap();
-        assert_eq!(result["transcript"], "ନମସ୍କାର");
-        task.abort();
-        let _ = task.await;
-    }
-
-    #[test]
-    fn transcription_resources_match_the_route_and_require_existing_customer_authentication() {
-        let resources: Value =
-            serde_json::from_str(include_str!("../deploy/agentgateway-transcription.json"))
-                .unwrap();
-        let items = resources["items"].as_array().unwrap();
-        assert_eq!(items.len(), 4);
-        let find = |name: &str| {
-            items
-                .iter()
-                .find(|item| item["metadata"]["name"] == name)
-                .unwrap()
-        };
-        let backend = find("roamie-api-transcription-vertex");
-        assert_eq!(
-            backend["spec"]["ai"]["groups"][0]["providers"][0]["vertexai"]["model"],
-            TRANSCRIPTION_VERTEX_MODEL
-        );
-        assert_eq!(
-            backend["spec"]["policies"]["ai"]["routes"][ModelRoute::Transcription.path()],
-            "Completions"
-        );
-        let route = find("roamie-api-transcription");
-        assert_eq!(
-            route["spec"]["rules"][0]["matches"][0]["path"]["value"],
-            ModelRoute::Transcription.path()
-        );
-        let auth = find("roamie-api-transcription-auth");
-        assert_eq!(
-            auth["spec"]["traffic"]["jwtAuthentication"]["mode"],
-            "Strict"
-        );
-        assert!(auth["spec"]["traffic"]["authorization"]
-            .to_string()
-            .contains("jwt.client_id"));
-        let policy = find("roamie-api-transcription-traffic");
-        let expressions = policy["spec"]["traffic"]["authorization"].to_string();
-        assert!(expressions.contains(TRANSCRIPTION_MODEL));
-        assert!(expressions.contains("talk/turn"));
-        assert_eq!(
-            policy["spec"]["traffic"]["buffer"]["request"]["failureMode"],
-            "FailClosed"
-        );
-        assert!(items
-            .iter()
-            .all(|item| item["metadata"]["namespace"] == "agentgateway-system"));
-    }
 
     #[tokio::test]
     async fn gateway_uses_openai_structured_text_and_media_without_google_credentials() {

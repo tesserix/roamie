@@ -1,7 +1,0 @@
-{
-  "repo": "onnx-community/wespeaker-voxceleb-resnet34-LM",
-  "revision": "6a61a1833ff2583aabeba044f5c8221f00b67ceb",
-  "path": "onnx/model.onnx",
-  "sha256": "3955447b0499dc9e0a4541a895df08b03c69098eba4e56c02b5603e9f7f4fcbb",
-  "license": "cc-by-4.0"
-}

@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 ort.workspace = true
-kaldi-fbank.workspace = true
 time.workspace = true
 ts-rs.workspace = true
 image.workspace = true
@@ -42,5 +41,5 @@ aws-lc-rs = "1.18"
 jsonwebtoken = { workspace = true, features = ["use_pem"] }
 
 [lints.rust]
-# Media CI installs ffmpeg; manual_qa opts into the long-running local server.
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(media_tests)", "cfg(manual_qa)"] }
+# Set by the memory-video CI job, which installs ffmpeg.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(media_tests)"] }
