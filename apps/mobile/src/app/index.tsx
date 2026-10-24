@@ -29,7 +29,7 @@ import { TextTranslate } from '@/components/text-translate';
 import { Icon, IconButton, Message, Segmented, TAB_CLEARANCE } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
 import { ApiError, talkTurn, type TurnRequest, type VoiceGender } from '@/lib/api';
-import { offlineStatus } from '@/lib/offline-translation';
+import { isOnline } from '@/lib/offline-translation';
 import { cancelOfflineRecognition, recognizeOffline, stopOfflineRecognition } from '@/lib/offline-speech';
 import { languageName } from '@/lib/languages';
 import { useStore } from '@/lib/store';
@@ -95,6 +95,7 @@ export default function Talk() {
   const failedTurns = useRef(0);
   const unclearTurns = useRef(0);
   const list = useRef<FlatList<Turn>>(null);
+  const [shortcutHelp, setShortcutHelp] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [turns, setTurns] = useState<Turn[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -300,7 +301,7 @@ export default function Talk() {
       if (!permission.granted) throw new Error('Allow microphone access in Settings, or choose Type instead.');
       if (AppState.currentState !== 'active') throw new Error('Return to Roamie, then start recording again.');
       stopSpeaking();
-      if (!(await offlineStatus()).online) {
+      if (!(await isOnline())) {
         const pair = languages.current;
         if (pair.autoMine || pair.autoPartner || !pair.partner) throw new Error('Choose both conversation languages above to use offline voice.');
         offlineRecording.current = true;
@@ -449,8 +450,17 @@ export default function Talk() {
       </View>
 
       <Segmented disabled={phase !== 'idle'} options={MODES} value={mode} onChange={next => { if (phase === 'idle') setMode(next); }} />
-      <View style={{ marginHorizontal: space.md, marginTop: space.sm }}><OfflineLanguages variant="shortcut" disabled={phase !== 'idle' || handsFree} /></View>
-      <View style={{ marginHorizontal: space.md, marginVertical: space.xs, alignItems: 'flex-end' }}><CommunicationCards compact disabled={phase !== 'idle'} /></View>
+      <View style={{ marginHorizontal: space.md, marginVertical: space.xs, gap: space.xs }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: space.xs }}>
+          <OfflineLanguages variant="icon" disabled={phase !== 'idle' || handsFree} />
+          <CommunicationCards compact iconOnly disabled={phase !== 'idle'} />
+          <Pressable accessibilityRole="button" accessibilityLabel="About translation shortcuts" accessibilityState={{ expanded: shortcutHelp }} onPress={() => setShortcutHelp(value => !value)} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}><Icon name="info.circle.fill" size={18} color={c.muted} /></Pressable>
+        </View>
+        {shortcutHelp && <View style={{ padding: space.md, gap: space.sm, borderRadius: radius.md, backgroundColor: c.surface }}>
+          <Text style={[font.caption, { color: c.muted }]}>Offline languages: download text packs before travelling. Voice also needs device speech support. Camera and hands-free need internet.</Text>
+          <Text style={[font.caption, { color: c.muted }]}>Communication cards: show a ready-made message when speaking is difficult.</Text>
+        </View>}
+      </View>
 
     </>
   );
@@ -598,7 +608,7 @@ export default function Talk() {
               <Pressable accessibilityRole="button" accessibilityLabel="Start hands-free conversation"
                 accessibilityHint="Listens for pauses, translates, and speaks each reply. Stop at any time."
                 disabled={busy} accessibilityState={{ disabled: busy }}
-                onPress={() => { if (!sending.current && !recording.current && !recordingLock.current) { setError(null); setNotice(null); setRecoveryNotice(null); failedTurns.current = 0; unclearTurns.current = 0; void offlineStatus().then(device => { if (!device.online) setNotice('Hands-free needs a connection. Use tap-to-talk or Type for offline translation.'); else if (focusedRef.current) void conversation.current?.start(); }).catch(() => setError('Could not check connectivity. Please try again.')); } }}
+                onPress={() => { if (!sending.current && !recording.current && !recordingLock.current) { setError(null); setNotice(null); setRecoveryNotice(null); failedTurns.current = 0; unclearTurns.current = 0; void isOnline().then(online => { if (!online) setNotice('Hands-free needs a connection. Use tap-to-talk or Type for offline translation.'); else if (focusedRef.current) void conversation.current?.start(); }).catch(() => setError('Could not check connectivity. Please try again.')); } }}
                 style={({ pressed }) => [styles.handsFreeAction, { opacity: busy ? 0.4 : pressed ? 0.7 : 1 }]}>
                 <View style={[styles.sideIcon, { backgroundColor: c.accentSoft }]}><Icon name="waveform" size={22} color={c.accent} /></View>
                 <Text maxFontSizeMultiplier={2} style={[font.caption, { color: c.accent, fontWeight: '600', textAlign: 'center' }]}>Hands-free</Text>

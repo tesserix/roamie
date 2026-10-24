@@ -44,6 +44,11 @@ class RoamieOfflineModule : Module() {
         }
       }
     }
+    AsyncFunction("isOnline") {
+      val context = requireNotNull(appContext.reactContext)
+      val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+      cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+    }
     AsyncFunction("status") {
       val context = requireNotNull(appContext.reactContext)
       val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager

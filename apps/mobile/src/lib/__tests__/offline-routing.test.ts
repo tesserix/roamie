@@ -1,8 +1,9 @@
 import { expect, jest, test } from '@jest/globals';
 import { fetch as mockExpoFetch } from 'expo/fetch';
-import { talkTurn } from '../api';
+import { talkTurn, translateText } from '../api';
 import { session } from '../auth-client';
 const mockNative = {
+  isOnline: undefined as undefined | (() => Promise<boolean>),
   status: jest.fn(async () => ({ online: false, wifi: false, supported: ['en', 'fr'], downloaded: ['en', 'fr'] })),
   translate: jest.fn(async () => 'Bonjour'),
 };
@@ -24,4 +25,15 @@ test('network loss during a cloud request switches to installed models before re
   await expect(talkTurn({ text: 'Hello', mine: 'en', partner: 'fr', autoMine: false, partnerLocked: true, history: [] }, undefined, retry)).resolves.toMatchObject({ offline: true, translation: 'Bonjour' });
   expect(mockExpoFetch).toHaveBeenCalledTimes(1);
   expect(retry).not.toHaveBeenCalled();
+});
+
+test('online Talk and Type do not wait for the downloaded-model inventory', async () => {
+  jest.mocked(session.current).mockReturnValue({ sub: 'test-user' } as ReturnType<typeof session.current>);
+  mockNative.isOnline = async () => true;
+  mockNative.status.mockClear();
+  mockNative.status.mockImplementation(async () => { throw new Error('Model inventory should not be on the online path'); });
+  jest.mocked(mockExpoFetch).mockResolvedValue({ ok: true, status: 200, json: async () => ({ translation: 'Bonjour' }) } as Awaited<ReturnType<typeof mockExpoFetch>>);
+  await expect(talkTurn({ text: 'Hello', mine: 'en', partner: 'fr', history: [] })).resolves.toMatchObject({ translation: 'Bonjour' });
+  await expect(translateText('Hello', 'fr', 'en')).resolves.toMatchObject({ translation: 'Bonjour' });
+  expect(mockNative.status).not.toHaveBeenCalled();
 });

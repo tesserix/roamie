@@ -15,7 +15,7 @@ function OfflineAction({ title, onPress, disabled = false }: { title: string; on
   return <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ minHeight: 48, padding: space.md, borderRadius: 14, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, justifyContent: 'center', opacity: disabled ? 0.45 : pressed ? 0.7 : 1 })}><Text style={[font.headline, { color: c.accent }]}>{title}</Text></Pressable>;
 }
 
-export function OfflineLanguages({ label = 'Offline languages', variant = 'button', disabled = false }: { label?: string; variant?: 'button' | 'shortcut'; disabled?: boolean }) {
+export function OfflineLanguages({ label = 'Offline languages', variant = 'button', disabled = false }: { label?: string; variant?: 'button' | 'shortcut' | 'icon'; disabled?: boolean }) {
   const c = useColors(), insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false), [status, setStatus] = useState<OfflineStatus | null>(null);
   const [from, setFrom] = useState('en'), [to, setTo] = useState('fr');
@@ -123,7 +123,7 @@ export function OfflineLanguages({ label = 'Offline languages', variant = 'butto
     {notice ? <Text accessibilityLiveRegion="polite" style={[font.body, { color: c.text }]}>{notice}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={[font.body, { color: c.danger }]}>{error}</Text> : null}
   </View>;
-  return <>{variant === 'shortcut' ? <Pressable
+  return <>{variant === 'icon' ? <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityHint="Download and manage languages for offline translation." accessibilityState={{ disabled }} disabled={disabled} onPress={() => setOpen(true)} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface, opacity: disabled ? 0.45 : pressed ? 0.7 : 1 })}><FontAwesome name="download" size={18} color={c.accent} accessible={false} /></Pressable> : variant === 'shortcut' ? <Pressable
     accessibilityRole="button" accessibilityLabel={label} accessibilityHint="Download and manage languages for translation without an internet connection."
     accessibilityState={{ disabled }} disabled={disabled} onPress={() => setOpen(true)}
     style={({ pressed }) => ({ minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.sm, paddingHorizontal: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, opacity: disabled ? 0.45 : pressed ? 0.7 : 1 })}>

@@ -3,6 +3,7 @@ import type { TurnRequest, TurnResponse } from './api';
 
 export type OfflineStatus = { available: boolean; online: boolean; wifi: boolean; supported: string[]; downloaded: string[] };
 type NativeTranslator = {
+  isOnline?(): Promise<boolean>;
   status(): Promise<Omit<OfflineStatus, 'available'>>;
   translate(text: string, from: string, to: string): Promise<string>;
   download(from: string, to: string, cellular: boolean): Promise<void>;
@@ -34,6 +35,12 @@ async function waitForInference(signal: AbortSignal): Promise<void> {
     listeners.add(changed); signal.addEventListener('abort', aborted, { once: true });
     if (signal.aborted) aborted(); else changed();
   });
+}
+
+export async function isOnline(): Promise<boolean> {
+  const module = native();
+  if (!module) return true;
+  return module.isOnline ? module.isOnline() : (await module.status()).online;
 }
 
 export async function offlineStatus(): Promise<OfflineStatus> {

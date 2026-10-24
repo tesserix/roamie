@@ -836,7 +836,7 @@ test('native startup finishes before Listening and cannot rearm after background
 
 test('home shortcut opens offline downloads without opening Profile and returns to Talk', async () => {
   await open();
-  expect(screen.getByText('Download for offline use')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Offline languages' })).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Offline languages' }));
   expect(screen.getByRole('header', { name: 'Offline languages' })).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Close offline languages' }));
@@ -852,4 +852,16 @@ test('offline shortcut cannot interrupt an active microphone session', async () 
   expect(shortcut.props.accessibilityState.disabled).toBe(true);
   await fireEvent.press(shortcut);
   expect(screen.queryByRole('header', { name: 'Offline languages' })).toBeNull();
+});
+
+test('compact shortcut icons explain their purpose only when help is opened', async () => {
+  await open();
+  expect(screen.getByRole('button', { name: 'Offline languages' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Communication cards' })).toBeTruthy();
+  expect(screen.queryByText('Download for offline use')).toBeNull();
+  await fireEvent.press(screen.getByRole('button', { name: 'About translation shortcuts' }));
+  expect(screen.getByText('Offline languages: download text packs before travelling. Voice also needs device speech support. Camera and hands-free need internet.')).toBeTruthy();
+  expect(screen.getByText('Communication cards: show a ready-made message when speaking is difficult.')).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'About translation shortcuts' }));
+  expect(screen.queryByText('Communication cards: show a ready-made message when speaking is difficult.')).toBeNull();
 });

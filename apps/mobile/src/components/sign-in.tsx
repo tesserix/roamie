@@ -51,7 +51,7 @@ export default function SignIn() {
       <Text style={[font.caption, { color: c.muted }]}>Your wallet stays on this phone. Connected planning uses your trip preferences. Emergency help is always available.</Text>
       <Button label="Emergency help" kind="secondary" onPress={() => setEmergency(true)} />
       <CommunicationCards />
-      <OfflineLanguages label="Offline translator" />
+      <OfflineLanguages variant="shortcut" label="Offline translator" />
     </ScrollView>
   );
 }
