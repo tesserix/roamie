@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, expect, jest, test } from '@jest/globals';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, render, screen, waitFor } from '@testing-library/react-native';
-import { Platform, Settings, Text } from 'react-native';
+import { AppState, Platform, Settings, Text } from 'react-native';
 
+import { fxRates } from '../api';
 import { useCardPaymentCapture } from '../card-payment-capture';
 import { PAYMENTS_KEY } from '../card-payments';
 import { accountStorageKey, StoreProvider, useStore } from '../store';
 import { TripsProvider } from '../trip-store';
 import { createTrip, tripStorageKey } from '../trips';
 
+jest.mock('../api', () => ({ fxRates: jest.fn() }));
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn() }));
 jest.mock('react-native/Libraries/Settings/Settings', () => ({ __esModule: true, default: { get: jest.fn(), set: jest.fn(), watchKeys: jest.fn(), clearWatch: jest.fn() } }));
 jest.mock('expo-notifications', () => ({ setNotificationHandler: jest.fn(), scheduleNotificationAsync: jest.fn(async () => ''), getPermissionsAsync: jest.fn(async () => ({ granted: false })) }));
@@ -95,4 +97,42 @@ test('a failed save preserves the queue and retry imports only once', async () =
   await open();
   await waitFor(() => expect(native[PAYMENTS_KEY]).toEqual([]));
   expect(JSON.parse(stored.get(accountStorageKey(account))!).expenses).toHaveLength(1);
+});
+
+
+test('keeps an unmatched payment until trip dates are corrected, then imports it once', async () => {
+  stored.set(tripStorageKey(account), JSON.stringify([]));
+  const first = await open();
+  await screen.findByText('No expenses');
+  await waitFor(() => expect(Settings.watchKeys).toHaveBeenCalled());
+  expect(native[PAYMENTS_KEY]).toEqual([payment]);
+  await first.unmount();
+  stored.set(tripStorageKey(account), JSON.stringify([trip]));
+  const second = await open();
+  await screen.findByText('Test cafe');
+  await waitFor(() => expect(native[PAYMENTS_KEY]).toEqual([]));
+  await second.unmount();
+  await open();
+  await screen.findByText('Test cafe');
+  expect(JSON.parse(stored.get(accountStorageKey(account))!).expenses).toHaveLength(1);
+});
+
+
+test('retains a foreign payment offline and imports it on foreground when rates recover', async () => {
+  const foreign = { ...payment, currency: 'USD', amount: '10.00' };
+  native[PAYMENTS_KEY] = [foreign];
+  jest.mocked(fxRates).mockRejectedValue(new Error('Offline'));
+  const events = jest.spyOn(AppState, 'addEventListener');
+  await open();
+  await waitFor(() => expect(fxRates).toHaveBeenCalledWith('AUD'));
+  expect(native[PAYMENTS_KEY]).toEqual([foreign]);
+  expect(JSON.parse(stored.get(accountStorageKey(account))!).expenses).toHaveLength(0);
+  jest.mocked(fxRates).mockResolvedValue({ base: 'AUD', asOf: '2026-10-21', rates: { USD: 0.5 } });
+  await act(async () => {
+    const listener = events.mock.calls.filter(([event]) => event === 'change').at(-1)![1];
+    listener('active');
+  });
+  await screen.findByText('Test cafe');
+  await waitFor(() => expect(native[PAYMENTS_KEY]).toEqual([]));
+  expect(JSON.parse(stored.get(accountStorageKey(account))!).expenses).toEqual([expect.objectContaining({ currency: 'USD', amountMinor: 1000, homeMinor: 2000 })]);
 });

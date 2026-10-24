@@ -14,10 +14,10 @@ test('payments made during a trip become expenses converted home', () => {
   expect(done).toEqual(['a', 'b']);
 });
 
-test('payments outside every trip and unreadable payments are dropped', () => {
+test('payments outside every trip wait while unreadable payments are dropped', () => {
   const { add, done } = capturePayments([payment('home', '2026-10-09', '5', 'AUD'), payment('bad', '2026-10-03', 'abc', 'AUD'), payment('neg', '2026-10-03', '-5', 'AUD')], trips, 'AUD', {});
   expect(add).toEqual([]);
-  expect(done).toEqual(['home', 'bad', 'neg']);
+  expect(done).toEqual(['bad', 'neg']);
 });
 
 test('payments that cannot be converted yet wait for rates', () => {
