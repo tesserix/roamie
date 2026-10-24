@@ -1,0 +1,5 @@
+plugins { id 'com.android.library'; id 'expo-module-gradle-plugin' }
+group = 'app.roamie.offline'
+version = '1.0.0'
+android { namespace 'app.roamie.offline'; defaultConfig { versionCode 1; versionName '1.0.0' } }
+dependencies { implementation 'com.google.mlkit:translate:17.0.3' }

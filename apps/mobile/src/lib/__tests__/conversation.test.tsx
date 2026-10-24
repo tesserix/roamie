@@ -9,6 +9,8 @@ import Talk from '../../app/index';
 import { StoreProvider, useStore } from '../store';
 import { session } from '../auth-client';
 import { AccessibilityProvider } from '../accessibility';
+const mockOfflineModules = new Map<string, unknown>();
+jest.mock('expo', () => ({ ...jest.requireActual<Record<string, unknown>>('expo'), requireOptionalNativeModule: (name: string) => mockOfflineModules?.get(name) ?? null }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn(async () => {}) }));
 jest.mock('expo', () => ({ ...jest.requireActual<typeof import('expo')>('expo'), requireOptionalNativeModule: jest.fn(() => null) }));
@@ -33,7 +35,35 @@ async function open(talkLanguage?: string | null) {
 }
 const originalFetch = global.fetch;
 const originalAppState = AppState.currentState;
-afterEach(() => { jest.restoreAllMocks(); global.fetch = originalFetch; AppState.currentState = originalAppState; });
+afterEach(() => { mockOfflineModules.clear(); jest.restoreAllMocks(); global.fetch = originalFetch; AppState.currentState = originalAppState; });
+
+test('tap-to-talk uses on-device dictation and translation in airplane mode', async () => {
+  const listeners = new Map<string, (event: unknown) => void>();
+  const start = jest.fn();
+  const translate = jest.fn(async () => 'Bonjour');
+  mockOfflineModules.set('RoamieOffline', {
+    status: async () => ({ online: false, wifi: false, supported: ['en', 'fr'], downloaded: ['en', 'fr'] }),
+    speechLocale: async () => 'en-US', offlineVoices: async () => [], translate,
+  });
+  mockOfflineModules.set('ExpoSpeechRecognition', {
+    supportsOnDeviceRecognition: () => true,
+    getSupportedLocales: async () => ({ installedLocales: ['en-US'], locales: ['en-US'] }),
+    requestMicrophonePermissionsAsync: async () => ({ granted: true }),
+    start, abort: jest.fn(), stop: jest.fn(),
+    addListener: (name: string, handler: (event: unknown) => void) => { listeners.set(name, handler); return { remove: () => listeners.delete(name) }; },
+  });
+  AppState.currentState = 'active';
+  jest.spyOn(session, 'current').mockReturnValue({ sub: 'offline-test', name: 'Test', email: 'test@example.invalid' });
+  jest.mocked(AsyncStorage.getItem).mockResolvedValue(JSON.stringify({ profile: { language: 'en', homeCurrency: 'AUD', budgetMinor: 0, diet: 'none' }, talkLanguage: 'en', talkPartner: 'fr', expenses: [] }));
+  global.fetch = jest.fn<typeof fetch>().mockRejectedValue(new Error('No network'));
+  await render(<StoreProvider accountId="offline-test"><ReadyTalk /></StoreProvider>);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Start recording' }));
+  await waitFor(() => expect(start).toHaveBeenCalledWith(expect.objectContaining({ requiresOnDeviceRecognition: true })));
+  await act(async () => { listeners.get('result')?.({ isFinal: true, results: [{ transcript: 'Hello' }] }); });
+  await waitFor(() => expect(translate).toHaveBeenCalledWith('Hello', 'en', 'fr'));
+  expect(global.fetch).not.toHaveBeenCalled();
+  expect(screen.getAllByText('Bonjour').length).toBeGreaterThan(0);
+});
 
 test('changing display size from Translate keeps settings open for another choice', async () => {
  jest.mocked(AsyncStorage.getItem).mockImplementation(async key => key === 'roamie.accessibility.v1' ? null : JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, expenses: [] }));

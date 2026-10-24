@@ -1,5 +1,6 @@
 import { ApiError as RequestError, apiRequest } from './trip-api';
 import type { StatementLine } from './statement';
+import { offlineStatus, offlineTurn, translateOffline } from './offline-translation';
 const OFFLINE = "Can't reach Roamie. Check your connection and try again.";
 
 export class ApiError extends Error {
@@ -29,6 +30,7 @@ async function call<T>(path: string, payload?: unknown, signal?: AbortSignal, mi
 }
 
 export type TurnResponse = {
+  offline?: boolean;
   mine?: string;
   fromMe?: boolean;
   reviewRequired?: boolean;
@@ -57,12 +59,22 @@ export type TurnRequest = {
 };
 
 export async function talkTurn(req: TurnRequest, signal?: AbortSignal, onRetry?: () => void): Promise<TurnResponse> {
+  if (signal?.aborted) throw new ApiError('Request cancelled.', undefined, 'cancelled');
+  const local = async () => {
+    try {
+      const result = await offlineTurn(req, signal);
+      if (signal?.aborted) throw new Error('Request cancelled.');
+      return result;
+    } catch (error) { throw new ApiError(error instanceof Error ? error.message : 'Offline translation could not finish.', undefined, 'offline'); }
+  };
+  if (!(await offlineStatus()).online) return local();
   const input = req.audio ? { ...req, history: [] } : req;
   const deadline = Date.now() + 90000;
   for (let attempt = 0; ; attempt++) {
     try {
       return await call<TurnResponse>('/v1/talk/turn', input, signal, Math.min(65000, Math.max(1, deadline - Date.now())));
     } catch (error) {
+      if (!signal?.aborted && error instanceof ApiError && ['network', 'timeout'].includes(error.code ?? '') && !(await offlineStatus()).online) return local();
       const temporary = error instanceof ApiError && error.retryable;
       if (!temporary || attempt >= 1 || signal?.aborted || Date.now() >= deadline) throw error;
       onRetry?.();
@@ -82,6 +94,7 @@ export const synthesizeSpeech = (text: string, language: string, voice: VoiceGen
   call<{ data: string; mimeType: 'audio/wav' }>('/v1/talk/speech', { text, language, voice }, signal);
 
 export type TextTranslation = {
+  offline?: boolean;
   detected: string;
   translation: string;
   romanized: string;
@@ -89,8 +102,23 @@ export type TextTranslation = {
   alternatives: string[];
 };
 
-export const translateText = (text: string, to: string, from?: string, signal?: AbortSignal) =>
-  call<TextTranslation>('/v1/translate/text', { text, to, from }, signal);
+export async function translateText(text: string, to: string, from?: string, signal?: AbortSignal): Promise<TextTranslation> {
+  if (signal?.aborted) throw new ApiError('Request cancelled.', undefined, 'cancelled');
+  const local = async (): Promise<TextTranslation> => {
+    if (!from) throw new ApiError('Choose the source language to translate offline.', undefined, 'offline');
+    try {
+      const translation = await translateOffline(text, from, to, signal);
+      if (signal?.aborted) throw new Error('Request cancelled.');
+      return { offline: true, detected: from, translation, romanized: '', sourceRomanized: '', alternatives: [] };
+    } catch (error) { throw new ApiError(error instanceof Error ? error.message : 'Offline translation could not finish.', undefined, 'offline'); }
+  };
+  if (!(await offlineStatus()).online) return local();
+  try { return await call<TextTranslation>('/v1/translate/text', { text, to, from }, signal); }
+  catch (error) {
+    if (!signal?.aborted && error instanceof ApiError && ['network', 'timeout'].includes(error.code ?? '') && !(await offlineStatus()).online) return local();
+    throw error;
+  }
+}
 
 export type SignLine = {
   original: string;

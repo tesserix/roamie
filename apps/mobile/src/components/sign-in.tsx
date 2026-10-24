@@ -9,6 +9,7 @@ import { font, space, useColors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { providersFor } from '@/lib/auth-client';
 import { CommunicationCards } from '@/components/communication-cards';
+import { OfflineLanguages } from '@/components/offline-languages';
 
 export default function SignIn() {
   const c = useColors(); const insets = useSafeAreaInsets(); const auth = useAuth();
@@ -50,6 +51,7 @@ export default function SignIn() {
       <Text style={[font.caption, { color: c.muted }]}>Your wallet stays on this phone. Connected planning uses your trip preferences. Emergency help is always available.</Text>
       <Button label="Emergency help" kind="secondary" onPress={() => setEmergency(true)} />
       <CommunicationCards />
+      <OfflineLanguages label="Offline translator" />
     </ScrollView>
   );
 }

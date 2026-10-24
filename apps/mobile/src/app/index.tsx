@@ -28,6 +28,8 @@ import { TextTranslate } from '@/components/text-translate';
 import { Icon, IconButton, Message, Segmented, TAB_CLEARANCE } from '@/components/ui';
 import { font, lift, radius, space, useColors } from '@/constants/theme';
 import { ApiError, talkTurn, type TurnRequest, type VoiceGender } from '@/lib/api';
+import { offlineStatus } from '@/lib/offline-translation';
+import { cancelOfflineRecognition, recognizeOffline, stopOfflineRecognition } from '@/lib/offline-speech';
 import { languageName } from '@/lib/languages';
 import { useStore } from '@/lib/store';
 import { playbackVoice, speak, stopSpeaking } from '@/lib/voice';
@@ -79,6 +81,7 @@ export default function Talk() {
   const recorder = useMemo(() => new SpeechRecorder(legacyRecorder), [legacyRecorder]);
   const startedAt = useRef(0);
   const recording = useRef(false);
+  const offlineRecording = useRef(false);
   const captureRevision = useRef(0);
   const recordingLock = useRef(false);
   const requestingPermission = useRef(false);
@@ -122,6 +125,7 @@ export default function Talk() {
     conversation.current = loop;
     const subscription = AppState.addEventListener('change', state => {
       if (state !== 'active') {
+        cancelOfflineRecognition();
         loop.onAppBackground();
         if (!requestingPermission.current) captureRevision.current++;
         if (recording.current) {
@@ -208,6 +212,7 @@ export default function Talk() {
       if (rememberedPartner && rememberedPartner !== turnMine) setTalkPair({ mine: turnMine, partner: rememberedPartner });
       expectedSpeaker.current = fromMe ? 'partner' : 'mine';
       if (!current.partner && fromMe) setNotice('Let the other person speak once so we can detect their language, or choose it above.');
+      if (res.offline) setNotice('Offline mode · translated on this phone by Google.');
       if (focusedRef.current && !res.sameLanguage && !accessibilityRef.current.quiet && (!accessibilityRef.current.screenReader || automatic)) {
         playbackCanceled.current = false;
         setPhase('speaking');
@@ -294,6 +299,17 @@ export default function Talk() {
       if (!permission.granted) throw new Error('Allow microphone access in Settings, or choose Type instead.');
       if (AppState.currentState !== 'active') throw new Error('Return to Roamie, then start recording again.');
       stopSpeaking();
+      if (!(await offlineStatus()).online) {
+        const pair = languages.current;
+        if (pair.autoMine || pair.autoPartner || !pair.partner) throw new Error('Choose both conversation languages above to use offline voice.');
+        offlineRecording.current = true;
+        setPhase('listening');
+        try {
+          const transcript = await recognizeOffline(pair.mine);
+          if (revision === captureRevision.current && focusedRef.current) await send({ text: transcript });
+        } finally { offlineRecording.current = false; }
+        return;
+      }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync(SPEECH_RECORDING);
       if (revision !== captureRevision.current) {
@@ -323,6 +339,7 @@ export default function Talk() {
   }
 
   async function stopListening() {
+    if (offlineRecording.current) { stopOfflineRecognition(); return; }
     if (!recording.current || recordingLock.current) return;
     recordingLock.current = true;
     const revision = captureRevision.current;
@@ -348,6 +365,7 @@ export default function Talk() {
   useEffect(() => {
     if (focused) return;
     captureRevision.current++;
+    cancelOfflineRecognition();
     stopSpeaking();
     if (recording.current) {
       recording.current = false;
@@ -356,6 +374,7 @@ export default function Talk() {
   }, [focused, recorder]);
 
   useEffect(() => () => {
+    cancelOfflineRecognition();
     if (recording.current) {
       recording.current = false;
       void recorder.stop().catch(() => {});
@@ -577,7 +596,7 @@ export default function Talk() {
               <Pressable accessibilityRole="button" accessibilityLabel="Start hands-free conversation"
                 accessibilityHint="Listens for pauses, translates, and speaks each reply. Stop at any time."
                 disabled={busy} accessibilityState={{ disabled: busy }}
-                onPress={() => { if (!sending.current && !recording.current && !recordingLock.current) { setError(null); setNotice(null); setRecoveryNotice(null); failedTurns.current = 0; unclearTurns.current = 0; void conversation.current?.start(); } }}
+                onPress={() => { if (!sending.current && !recording.current && !recordingLock.current) { setError(null); setNotice(null); setRecoveryNotice(null); failedTurns.current = 0; unclearTurns.current = 0; void offlineStatus().then(device => { if (!device.online) setNotice('Hands-free needs a connection. Use tap-to-talk or Type for offline translation.'); else if (focusedRef.current) void conversation.current?.start(); }).catch(() => setError('Could not check connectivity. Please try again.')); } }}
                 style={({ pressed }) => [styles.handsFreeAction, { opacity: busy ? 0.4 : pressed ? 0.7 : 1 }]}>
                 <View style={[styles.sideIcon, { backgroundColor: c.accentSoft }]}><Icon name="waveform" size={22} color={c.accent} /></View>
                 <Text maxFontSizeMultiplier={2} style={[font.caption, { color: c.accent, fontWeight: '600', textAlign: 'center' }]}>Hands-free</Text>

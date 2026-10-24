@@ -128,6 +128,7 @@ export function TextTranslate({ mine, partner, bottom }: { mine: string; partner
             <Text selectable style={{ color: c.text, fontSize: 24, lineHeight: 32, fontWeight: '600' }}>
               {shownResult.translation}
             </Text>
+            {shownResult.offline ? <Text style={[font.caption, { color: c.muted }]}>Offline mode · translated on this phone by Google</Text> : null}
             {shownResult.romanized ? (
               <Text selectable style={[font.body, { color: c.muted, fontStyle: 'italic' }]}>
                 {shownResult.romanized}
