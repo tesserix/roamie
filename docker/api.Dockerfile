@@ -23,7 +23,7 @@ FROM ${TESSERIX_RUNTIME}
 USER root
 RUN apt-get update \
     && apt-get upgrade -y \
-    && apt-get install --no-install-recommends -y ffmpeg fonts-dejavu-core libstdc++6 \
+    && apt-get install --no-install-recommends -y ffmpeg fonts-dejavu-core libstdc++6 libbrotli1 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 USER 10001:10001
