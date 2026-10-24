@@ -61,7 +61,7 @@ export function LanguagePicker({ visible, title, selected, allowAuto = false, av
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>
       <View style={{ flex: 1, backgroundColor: c.background }}>
         <View style={styles.head}>
-          <Text style={[font.title, { color: c.text }]}>{title}</Text>
+          <Text style={[font.title, { color: c.text, flex: 1 }]}>{title}</Text>
           <Pressable accessibilityRole="button" onPress={close} hitSlop={12}>
             <Text style={[font.headline, { color: c.accent }]}>Done</Text>
           </Pressable>
@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    height: 40,
+    minHeight: 40,
     borderRadius: radius.sm,
     paddingHorizontal: 12,
     marginHorizontal: space.md,
