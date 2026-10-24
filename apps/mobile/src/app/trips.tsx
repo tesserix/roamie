@@ -13,6 +13,7 @@ import { Button, Card, Chip, Icon, Screen, TAB_CLEARANCE } from '@/components/ui
 import { ProfileSettings } from '@/components/profile-settings';
 import { TripDatePicker, localDate, tripDateLabel } from '@/components/trip-date-picker';
 import { DestinationLookup } from '@/components/destination-lookup';
+import { StopPlaceLookup } from '@/components/stop-place-lookup';
 import { InterestList, combineInterests } from '@/components/interest-list';
 import { FOOD_PREFERENCES, TRIP_STYLES, type Destination } from '@/lib/trip-contract';
 import { SearchPicker } from '@/components/search-picker';
@@ -106,10 +107,18 @@ function StopEditor({ trip, day, original, close, saved }: { trip: Trip; day: nu
   const [stop, setStop] = useState<TripStop>(original ?? { id: newId(), time: '09:00', minutes: 60, kind: 'sight', title: '', note: '', costMinor: 0, place: null, transport: [] });
   const [duration, setDuration] = useState(String(stop.minutes)), [cost, setCost] = useState(String(stop.costMinor / 10 ** (new Intl.NumberFormat('en', { style: 'currency', currency: trip.currency }).resolvedOptions().maximumFractionDigits ?? 2))), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const [costEntered, setCostEntered] = useState(false);
+  let destination = trip.destinationDetails;
+  let remaining = day;
+  for (const stay of trip.stays ?? []) {
+    if (remaining < stay.days) { destination = stay.destination; break; }
+    remaining -= stay.days;
+  }
   const field = (key: 'title' | 'time' | 'note') => (value: string) => setStop(s => ({ ...s, [key]: value }));
   async function save() { setBusy(true); try { const amount = toMinor(cost, trip.currency); if (amount === null) throw new Error('Enter a valid cost.'); await saved(updateStop(trip, day, { ...stop, minutes: Number(duration), costMinor: amount, costUnknown: !!stop.costUnknown && !costEntered })); close(); } catch (e) { setError(e instanceof Error ? e.message : 'Could not save this stop.'); } finally { setBusy(false); } }
   return <Modal animationType="slide" onRequestClose={close}><KeyboardAvoidingView style={{ flex: 1, backgroundColor: c.background }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.md, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24, gap: 16 }}>
-    <Text style={[font.largeTitle, { color: c.text }]}>A moment in your day</Text><Field label="Place or activity" value={stop.title} change={field('title')} /><Field label="Time · HH:MM" value={stop.time} change={field('time')} /><Field label="Duration in minutes" value={duration} change={setDuration} numeric /><Field label={`Estimated cost · ${trip.currency}`} value={cost} change={value=>{setCost(value);setCostEntered(true);}} numeric /><View style={{ flexDirection: 'row', gap: 8 }}>{['sight', 'lunch', 'dinner'].map(kind => <Chip key={kind} label={kind} selected={stop.kind === kind} onPress={() => setStop(s => ({ ...s, kind }))} />)}</View><Field label="Notes" value={stop.note} change={field('note')} multiline />{error ? <Text accessibilityRole="alert" style={{ color: c.danger }}>{error}</Text> : null}<Button label="Save stop" busy={busy} onPress={() => { void save(); }} /><Button label="Cancel" kind="secondary" onPress={close} />
+    <Text style={[font.largeTitle, { color: c.text }]}>A moment in your day</Text><StopPlaceLookup destination={destination} destinationLabel={trip.days[day].destination ?? trip.destination} value={stop.title}
+      onChange={title => setStop(s => ({ ...s, title, place: null }))}
+      onSelect={place => setStop(s => ({ ...s, title: place.name, place, costUnknown: costEntered ? s.costUnknown : true }))} /><Field label="Time · HH:MM" value={stop.time} change={field('time')} /><Field label="Duration in minutes" value={duration} change={setDuration} numeric /><Field label={`Estimated cost · ${trip.currency}`} value={cost} change={value=>{setCost(value);setCostEntered(true);}} numeric /><View style={{ flexDirection: 'row', gap: 8 }}>{['sight', 'lunch', 'dinner'].map(kind => <Chip key={kind} label={kind} selected={stop.kind === kind} onPress={() => setStop(s => ({ ...s, kind }))} />)}</View><Field label="Notes" value={stop.note} change={field('note')} multiline />{error ? <Text accessibilityRole="alert" style={{ color: c.danger }}>{error}</Text> : null}<Button label="Save stop" busy={busy} onPress={() => { void save(); }} /><Button label="Cancel" kind="secondary" onPress={close} />
   </ScrollView></KeyboardAvoidingView></Modal>;
 }
 function MemoryPlayer({ uri, disabled, discard }: { uri: string; disabled: boolean; discard: () => void }) {
