@@ -159,3 +159,27 @@ test('separates current, upcoming and automatically archived trips without delet
  expect(await screen.findByRole('header',{name:'Last holiday'})).toBeTruthy();
  expect(screen.getByRole('tab',{name:'Memories'})).toBeTruthy();
 });
+
+test('selects a sight for the active destination day and clears its map data when renamed', async () => {
+ process.env.EXPO_PUBLIC_AUTH_ENABLED = 'false';
+ const kyoto={placeId:'kyoto',name:'Kyoto',label:'Kyoto, Japan',country:'Japan',countryCode:'JP',latitude:35,longitude:135};
+ const osaka={...kyoto,placeId:'osaka',name:'Osaka',label:'Osaka, Japan',latitude:34.7,longitude:135.5};
+ const trip={...createTrip({title:'Stop picks',destination:kyoto.label,startDate:'2026-10-25',endDate:'2026-10-26',currency:'AUD',budgetMinor:0,travellers:1,diet:'none',interests:'',stays:[{destination:kyoto,days:1},{destination:osaka,days:1}]}),destinationDetails:kyoto};
+ jest.mocked(AsyncStorage.getItem).mockImplementation(async key=>key.startsWith('roamie.ai-consent.')?'allowed':key===tripStorageKey('stop-picks')?JSON.stringify([trip]):null);
+ const place={id:'castle',name:'Osaka Castle',address:'Osaka park',lat:34.68,lng:135.52,mapsUri:'https://maps.google.com/?q=castle',rating:4.5,distanceM:800,openNow:null,why:''};
+ jest.mocked(fetch).mockResolvedValue({ok:true,status:200,json:async()=>({places:[place],relaxed:[]})} as Awaited<ReturnType<typeof fetch>>);
+ await render(<StoreProvider accountId="stop-picks"><TripsProvider accountId="stop-picks"><Trips /></TripsProvider></StoreProvider>);
+ await fireEvent.press(await screen.findByRole('button',{name:'Open Stop picks'}));
+ await fireEvent.press(screen.getByRole('button',{name:/^Day 2,/}));
+ await fireEvent.press(screen.getByRole('button',{name:'Add a stop'}));
+ await fireEvent(screen.getByLabelText('Place or activity'),'focus');
+ await fireEvent.press(await screen.findByRole('button',{name:'Choose Osaka Castle, Osaka park'}));
+ expect(fetch).toHaveBeenCalledWith(expect.stringContaining('lat=34.7&lng=135.5'),expect.anything());
+ await fireEvent.press(screen.getByRole('button',{name:'Save stop'}));
+ const saved=()=>JSON.parse(jest.mocked(AsyncStorage.setItem).mock.calls.filter(([key])=>key===tripStorageKey('stop-picks')).at(-1)![1])[0];
+ expect(saved().days[1].stops[0]).toEqual(expect.objectContaining({title:'Osaka Castle',costUnknown:true,place:expect.objectContaining({id:'castle',lat:34.68})}));
+ await fireEvent.press(screen.getByRole('button',{name:'Edit'}));
+ await fireEvent.changeText(screen.getByLabelText('Place or activity'),'A picnic elsewhere');
+ await fireEvent.press(screen.getByRole('button',{name:'Save stop'}));
+ expect(saved().days[1].stops[0].place).toBeNull();
+});
