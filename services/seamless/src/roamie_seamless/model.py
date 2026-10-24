@@ -49,7 +49,7 @@ def load_model() -> Inference:
             if request.audio is None:
                 raise ValueError("Audio required")
             inputs = processor(
-                audios=decode_audio(request.audio),
+                audio=decode_audio(request.audio),
                 sampling_rate=16000,
                 return_tensors="pt",
             )

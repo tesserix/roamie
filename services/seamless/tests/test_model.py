@@ -18,7 +18,11 @@ def test_transformers_outputs_are_decoded_for_text_and_audio(
     monkeypatch.setitem(sys.modules, "torch", torch)
     monkeypatch.setitem(sys.modules, "transformers", transformers)
     processor = transformers.AutoProcessor.from_pretrained.return_value
-    processor.return_value = {"input_ids": [1, 2]}
+
+    def process(*, text=None, audio=None, src_lang=None, sampling_rate=None, return_tensors):
+        return {"input_ids": [1, 2]}
+
+    processor.side_effect = process
     processor.decode.return_value = "Bonjour"
     loaded = transformers.SeamlessM4Tv2Model.from_pretrained.return_value
     model = loaded.to.return_value.eval.return_value
