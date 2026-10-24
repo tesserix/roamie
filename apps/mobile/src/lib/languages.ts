@@ -50,6 +50,8 @@ export function countryLanguage(country: string | null | undefined): string | un
   return country ? BY_COUNTRY[country.toUpperCase()] : undefined;
 }
 
+const OFFLINE_NAMES: Record<string, string> = { af: 'Afrikaans', sq: 'Albanian', be: 'Belarusian', bg: 'Bulgarian', ca: 'Catalan', hr: 'Croatian', cs: 'Czech', da: 'Danish', eo: 'Esperanto', et: 'Estonian', fi: 'Finnish', gl: 'Galician', ka: 'Georgian', gu: 'Gujarati', ht: 'Haitian Creole', hu: 'Hungarian', is: 'Icelandic', ga: 'Irish', kn: 'Kannada', lv: 'Latvian', lt: 'Lithuanian', mk: 'Macedonian', mt: 'Maltese', no: 'Norwegian', ro: 'Romanian', sk: 'Slovak', sl: 'Slovenian', te: 'Telugu', tl: 'Filipino', cy: 'Welsh' };
+
 export function languageName(code: string): string {
-  return LANGUAGES[code] ?? code.toUpperCase();
+  return LANGUAGES[code] ?? OFFLINE_NAMES[code] ?? code.toUpperCase();
 }

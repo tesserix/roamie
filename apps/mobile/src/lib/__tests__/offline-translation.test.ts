@@ -1,5 +1,7 @@
 import { beforeEach, expect, jest, test } from '@jest/globals';
 import { translateOffline, downloadOfflineLanguages, downloadOfflinePair, offlineTurn, removeOfflineLanguage } from '../offline-translation';
+let mockFreeBytes = 2_000_000_000;
+jest.mock('expo-file-system', () => ({ Paths: { get availableDiskSpace() { return mockFreeBytes; } } }));
 const mockNative = {
   status: jest.fn(async () => ({ online: false, wifi: false, supported: ['en', 'fr', 'tl'], downloaded: ['en', 'fr'] })),
   translate: jest.fn(async () => 'Bonjour'),
@@ -7,7 +9,7 @@ const mockNative = {
   remove: jest.fn(async () => {}),
 };
 jest.mock('expo', () => ({ requireOptionalNativeModule: () => mockNative }));
-beforeEach(() => { jest.clearAllMocks(); });
+beforeEach(() => { jest.clearAllMocks(); mockFreeBytes = 2_000_000_000; });
 test('translates using installed native models without calling the network', async () => {
   const fetchSpy = jest.spyOn(global, 'fetch');
   await expect(translateOffline('Hello', 'en', 'fr')).resolves.toBe('Bonjour');
@@ -72,13 +74,10 @@ test('latest typed request waits for the previous inference and discards cancell
   expect(mockNative.translate).toHaveBeenLastCalledWith('Latest', 'en', 'fr');
 });
 
-test('downloads five selected languages sequentially and retains existing packs', async () => {
- const installed = new Set(['en', 'fr']);
- mockNative.status.mockImplementationOnce(async () => ({online:true,wifi:true,supported:['en','fr','hi','ja','es','de'],downloaded:[...installed]}));
- mockNative.download.mockImplementation(async (from?: string, to?: string) => { if (from) installed.add(from); if (to) installed.add(to); });
- await downloadOfflineLanguages(['en','hi','ja','es','de']);
- expect([...installed].sort()).toEqual(['de','en','es','fr','hi','ja']);
- expect(mockNative.download.mock.calls).toEqual([['en','hi',false],['en','ja',false],['en','es',false],['en','de',false]]);
+test('rejects a sixth total pack without deleting existing languages', async () => {
+ mockNative.status.mockResolvedValueOnce({online:true,wifi:true,supported:['en','fr','hi','ja','es','de'],downloaded:['en','fr']});
+ await expect(downloadOfflineLanguages(['en','hi','ja','es','de'])).rejects.toThrow('five');
+ expect(mockNative.download).not.toHaveBeenCalled();
  expect(mockNative.remove).not.toHaveBeenCalled();
 });
 test('unsupported Odia is rejected before any language download starts', async () => {
@@ -90,4 +89,32 @@ test('adding one language reuses an existing pack without downloading an unselec
  mockNative.status.mockResolvedValueOnce({online:true,wifi:true,supported:['en','hi'],downloaded:['en']});
  await downloadOfflineLanguages(['hi']);
  expect(mockNative.download).toHaveBeenCalledWith('en','hi',false);
+});
+
+test.each([0, 10_000_000, NaN])('blocks download when device space is insufficient or unknown: %s', async free => {
+ mockFreeBytes = free;
+ mockNative.status.mockResolvedValueOnce({online:true,wifi:true,supported:['en','hi'],downloaded:['en']});
+ await expect(downloadOfflineLanguages(['hi'])).rejects.toThrow(/storage/);
+ expect(mockNative.download).not.toHaveBeenCalled();
+});
+
+test('counts duplicate selections once and permits exactly five total packs', async () => {
+ mockNative.status.mockResolvedValueOnce({online:true,wifi:true,supported:['en','hi','fr','de','ja'],downloaded:['en','hi']});
+ await downloadOfflineLanguages(['fr','fr','de','ja']);
+ expect(mockNative.download.mock.calls).toEqual([['fr','de',false],['fr','ja',false]]);
+ expect(mockNative.remove).not.toHaveBeenCalled();
+});
+test('existing installations above the new limit are preserved', async () => {
+ mockNative.status.mockResolvedValueOnce({online:true,wifi:true,supported:['en','hi','fr','de','ja','es','gu'],downloaded:['en','hi','fr','de','ja','es']});
+ await expect(downloadOfflineLanguages(['gu'])).rejects.toThrow('five');
+ expect(mockNative.download).not.toHaveBeenCalled();
+ expect(mockNative.remove).not.toHaveBeenCalled();
+});
+
+test('rechecks storage between downloads and stops if another app fills the disk', async () => {
+ mockNative.status.mockResolvedValueOnce({online:true,wifi:true,supported:['en','hi','fr','de'],downloaded:['en']});
+ mockNative.download.mockImplementationOnce(async () => { mockFreeBytes = 0; });
+ await expect(downloadOfflineLanguages(['hi','fr','de'])).rejects.toThrow('storage');
+ expect(mockNative.download).toHaveBeenCalledTimes(1);
+ expect(mockNative.remove).not.toHaveBeenCalled();
 });

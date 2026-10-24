@@ -77,6 +77,16 @@ export default function Talk() {
   const languages = useRef({ mine, partner, autoMine, autoPartner });
   languages.current = { mine, partner, autoMine, autoPartner };
   const expectedSpeaker = useRef<TurnRequest['expectedSpeaker']>(undefined);
+  const [offlineMode, setOfflineMode] = useState(false);
+  const [offlineSpeaker, setOfflineSpeaker] = useState<'mine' | 'partner'>('mine');
+  useEffect(() => {
+    if (!focused) return;
+    let live = true;
+    const refresh = () => { void isOnline().then(online => { if (live) setOfflineMode(!online); }).catch(() => {}); };
+    refresh();
+    const listener = AppState.addEventListener('change', state => { if (state === 'active') refresh(); });
+    return () => { live = false; listener.remove(); };
+  }, [focused]);
 
   const legacyRecorder = useAudioRecorder(SPEECH_RECORDING);
   const recorder = useMemo(() => new SpeechRecorder(legacyRecorder), [legacyRecorder]);
@@ -157,7 +167,7 @@ export default function Talk() {
     };
   }, []);
 
-  async function send(input: Pick<TurnRequest, 'audio' | 'text'>, automatic?: () => boolean) {
+  async function send(input: Pick<TurnRequest, 'audio' | 'text' | 'expectedSpeaker'>, automatic?: () => boolean) {
     if (sending.current) return;
     sending.current = true;
     const controller = new AbortController();
@@ -173,7 +183,7 @@ export default function Talk() {
       if (!current.autoMine && !current.autoPartner && current.mine === current.partner) {
         throw new ApiError('Choose two different conversation languages above, then try again.', 422, 'language_mismatch');
       }
-      const res = await talkTurn({ mine: current.mine, partner: current.partner ?? current.mine, autoMine: current.autoMine, partnerLocked: !current.autoPartner, expectedSpeaker: current.autoPartner ? expectedSpeaker.current : 'mine', history: history.current, ...input }, controller.signal, () => setRecoveryNotice('Connection interrupted. Retrying…'));
+      const res = await talkTurn({ mine: current.mine, partner: current.partner ?? current.mine, autoMine: current.autoMine, partnerLocked: !current.autoPartner, expectedSpeaker: offlineMode ? offlineSpeaker : current.autoPartner ? expectedSpeaker.current : 'mine', history: history.current, ...input }, controller.signal, () => setRecoveryNotice('Connection interrupted. Retrying…'));
       if (controller.signal.aborted || (automatic && !automatic())) return;
       const fromMe = !current.autoPartner && current.autoMine ? res.detected !== current.partner : res.fromMe ?? res.detected === current.mine;
       const turnMine = current.autoMine && fromMe ? res.detected : current.mine;
@@ -301,14 +311,17 @@ export default function Talk() {
       if (!permission.granted) throw new Error('Allow microphone access in Settings, or choose Type instead.');
       if (AppState.currentState !== 'active') throw new Error('Return to Roamie, then start recording again.');
       stopSpeaking();
-      if (!(await isOnline())) {
+      const online = await isOnline();
+      setOfflineMode(!online);
+      if (!online) {
         const pair = languages.current;
         if (pair.autoMine || pair.autoPartner || !pair.partner) throw new Error('Choose both conversation languages above to use offline voice.');
         offlineRecording.current = true;
         setPhase('listening');
         try {
-          const transcript = await recognizeOffline(pair.mine);
-          if (revision === captureRevision.current && focusedRef.current) await send({ text: transcript });
+          const speaker = offlineSpeaker;
+          const transcript = await recognizeOffline(speaker === 'mine' ? pair.mine : pair.partner);
+          if (revision === captureRevision.current && focusedRef.current) await send({ text: transcript, expectedSpeaker: speaker });
         } finally { offlineRecording.current = false; }
         return;
       }
@@ -524,7 +537,7 @@ export default function Talk() {
               icon="bubble.left.and.bubble.right.fill"
               title={handsFree ? "Speak naturally" : "Talk to anyone"}
               body={
-                handsFree ? "Take turns speaking. Pause briefly when you finish, then wait for the translation before replying." : partner
+                offlineMode ? "Choose the speaking language below before each turn. Offline speech cannot automatically switch languages." : handsFree ? "Take turns speaking. Pause briefly when you finish, then wait for the translation before replying." : partner
                   ? `Tap to speak. Tap again to translate. Replies switch automatically between ${languageName(mine)} and the other person’s language.`
                   : `Let the other person speak first. We’ll detect their language and translate into ${languageName(mine)}. Then reply in ${languageName(mine)}.`
               }
@@ -553,6 +566,14 @@ export default function Talk() {
           </Text>
         ) : null}
         {phase === 'speaking' && !handsFree ? <IconButton icon="stop.fill" label="Stop speaking" onPress={() => { playbackCanceled.current = true; stopSpeaking(); }} /> : null}
+        {offlineMode && !autoMine && !autoPartner && partner ? <View style={{ gap: space.sm }}>
+          <Text style={[font.caption, { color: c.muted, textAlign: 'center' }]}>Offline: choose who is speaking or typing</Text>
+          <View style={{ flexDirection: 'row', gap: space.sm }}>
+            {(['mine', 'partner'] as const).map(speaker => <Pressable key={speaker} accessibilityRole="button" accessibilityLabel={`Speak ${languageName(speaker === 'mine' ? mine : partner)}`} accessibilityState={{ selected: offlineSpeaker === speaker, disabled: busy }} disabled={busy} onPress={() => setOfflineSpeaker(speaker)} style={({ pressed }) => ({ flex: 1, minHeight: 44, padding: space.sm, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: offlineSpeaker === speaker ? c.accentSoft : c.surface, opacity: pressed ? 0.7 : 1 })}>
+              <Text style={[font.headline, { color: c.accent }]}>{languageName(speaker === 'mine' ? mine : partner)} → {languageName(speaker === 'mine' ? partner : mine)}</Text>
+            </Pressable>)}
+          </View>
+        </View> : null}
         {typing ? (
           <View style={styles.typeRow}>
             <TextInput
@@ -563,7 +584,7 @@ export default function Talk() {
               onChangeText={setDraft}
               onSubmitEditing={submitDraft}
               returnKeyType="send"
-              placeholder="Type in any language"
+              placeholder={offlineMode ? `Type in ${languageName(offlineSpeaker === 'mine' ? mine : partner ?? mine)}` : 'Type in any language'}
               placeholderTextColor={c.faint}
               style={[styles.input, lift, { color: c.text, backgroundColor: c.surface }]}
             />
