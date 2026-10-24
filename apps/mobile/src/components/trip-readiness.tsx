@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, View } from 'react-native';
 import { Text } from '@/components/typography';
 import { font, useColors } from '@/constants/theme';
+import { useReminders } from '@/lib/reminder-provider';
 import { checkTripReadiness, type DestinationCheck } from '@/lib/trip-readiness';
 import type { Trip } from '@/lib/trips';
 import { Button, Card } from './ui';
 
 export function TripReadiness({ trip }: { trip: Trip }) {
-  const c = useColors();
+  const c = useColors(), reminders = useReminders();
   const [checks, setChecks] = useState<DestinationCheck[]>([]);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const task = useRef<AbortController | null>(null);
@@ -15,7 +16,7 @@ export function TripReadiness({ trip }: { trip: Trip }) {
   async function check() {
     if (task.current) return;
     const controller = new AbortController(); task.current = controller; setBusy(true); setError(''); setChecks([]);
-    try { const result = await checkTripReadiness(trip, controller.signal); if (!controller.signal.aborted) setChecks(result); }
+    try { const result = await checkTripReadiness(trip, controller.signal); if (!controller.signal.aborted) { setChecks(result); await reminders?.rememberWeather(trip, result); } }
     catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Trip checks are unavailable.'); }
     finally { if (task.current === controller) { task.current = null; setBusy(false); } }
   }

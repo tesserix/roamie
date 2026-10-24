@@ -36,6 +36,7 @@ import {
   type Participant,
 } from "@/lib/group-budget";
 import { newId, type Trip } from "@/lib/trips";
+import { useReminders } from '@/lib/reminder-provider';
 import { useGroupCurrency } from "@/lib/group-currency";
 
 type Props = {
@@ -44,6 +45,7 @@ type Props = {
   displayName: string;
   trips: Pick<Trip, "id" | "title" | "currency">[];
   onClose: () => void;
+  initialGroupId?: string;
 };
 type Pane =
   "Balances" | "Expenses" | "Travellers" | "Repayments" | "Email reminders";
@@ -62,7 +64,10 @@ export function GroupBudget({
   displayName,
   trips,
   onClose,
+  initialGroupId,
 }: Props) {
+  const reminders = useReminders();
+  const rememberGroup = reminders?.rememberGroup, forgetGroup = reminders?.forgetGroup;
   const preference = useGroupCurrency(initialHome, accountId),
     home = preference.home;
   const homeRef = useRef(home);
@@ -79,6 +84,7 @@ export function GroupBudget({
     nextCursor: null,
   });
   const [group, setGroup] = useState<Group | null>(null);
+  useEffect(() => { if (group && rememberGroup) void rememberGroup(group); }, [group, rememberGroup]);
   const [pane, setPane] = useState<Pane>("Balances");
   const [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
@@ -168,7 +174,6 @@ export function GroupBudget({
     async (id: string) => {
       const signal = controller.current.signal;
       requested.current = id;
-      setLoading(true);
       try {
         const data = await api.getGroup(id, signal);
         if (!signal.aborted && requested.current === id) {
@@ -176,6 +181,7 @@ export function GroupBudget({
           setError(null);
         }
       } catch (e) {
+        if (!signal.aborted && e instanceof ApiError && (e.status === 403 || e.status === 404)) void forgetGroup?.(id);
         if (!signal.aborted)
           setError(
             e instanceof Error ? e.message : "Could not open this group.",
@@ -184,8 +190,9 @@ export function GroupBudget({
         if (!signal.aborted) setLoading(false);
       }
     },
-    [accept],
+    [accept, forgetGroup],
   );
+  useEffect(() => { if (initialGroupId) void open(initialGroupId); }, [initialGroupId, open]);
   useEffect(() => {
     void list();
     void rates();
@@ -523,7 +530,7 @@ export function GroupBudget({
         <Button
           label="Refresh shared expenses"
           kind="secondary"
-          onPress={() => void open(group.id)}
+          onPress={() => { setLoading(true); void open(group.id); }}
           busy={loading}
         />
       ) : null}
@@ -887,6 +894,7 @@ export function GroupBudget({
               kind="secondary"
               onPress={() => {
                 setPane("Balances");
+                setLoading(true);
                 void open(item.id);
               }}
               disabled={busy || loading}

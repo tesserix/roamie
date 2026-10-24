@@ -12,6 +12,7 @@ import SignIn from '@/components/sign-in';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { useCardPaymentCapture } from '@/lib/card-payment-capture';
 import { StoreProvider, useStore } from '@/lib/store';
+import { RemindersProvider } from '@/lib/reminder-provider';
 import { TripsProvider } from '@/lib/trip-store';
 import { Button, Message, Screen } from '@/components/ui';
 import Sos from '@/app/sos';
@@ -40,7 +41,7 @@ function Account() {
   useEffect(() => { if (ready) void SplashScreen.hideAsync(); }, [ready]);
   if (!ready) return <TravelLoading><OfflineLanguages variant="shortcut" label="Offline translator" /></TravelLoading>;
   if (!customer) return <SignIn />;
-  return <StoreProvider key={customer.sub} accountId={customer.sub}><TripsProvider accountId={customer.sub}><Root /></TripsProvider></StoreProvider>;
+  return <StoreProvider key={customer.sub} accountId={customer.sub}><TripsProvider accountId={customer.sub}><RemindersProvider><Root /></RemindersProvider></TripsProvider></StoreProvider>;
 }
 
 function AppAppearance() {

@@ -3,10 +3,10 @@ import * as Notifications from 'expo-notifications';
 import { format } from './money';
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
+  handleNotification: async notification => ({
     shouldShowBanner: true,
     shouldShowList: true,
-    shouldPlaySound: false,
+    shouldPlaySound: ['trip-reminder','group-reminder'].includes(String(notification.request.content.data?.kind)),
     shouldSetBadge: false,
   }),
 });
