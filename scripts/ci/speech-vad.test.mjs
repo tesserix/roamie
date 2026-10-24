@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join, resolve} from 'node:path';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
-const root=resolve('apps/mobile/modules/roamie-capture');
+const root=fileURLToPath(new URL('../../apps/mobile/modules/roamie-capture', import.meta.url));
 const sources=dir=>readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?sources(join(dir,e.name)):e.name.endsWith('.c')?[join(dir,e.name)]:[]);
 test('native denoiser suppresses noise and preserves speech detection',()=>{
  const temp=mkdtempSync(join(tmpdir(),'roamie-vad-'));
