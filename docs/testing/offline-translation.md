@@ -4,7 +4,7 @@ Review date: 24 October 2026. Status: automated checks and local native builds p
 
 ## Scope and behavior
 
-Profile → Offline languages manages ML Kit text models on the phone. The same translator is available from sign-in so a network-dependent session refresh cannot prevent local text translation. Select explicit source and target languages and download both before travelling. Readiness comes from the SDK inventory, not a saved UI flag. Filipino maps to `tl`. Khmer, Lao, Burmese, Nepali, Odia and Sinhala are not supported by this offline engine (30 of 36 app languages supported).
+Profile → Offline languages manages ML Kit text models on the phone. The same translator is available from sign-in so a network-dependent session refresh cannot prevent local text translation. Select explicit source and target languages and download both before travelling. Readiness comes from the SDK inventory, not a saved UI flag. Filipino maps to `tl`. The download catalogue uses the complete language list reported by the installed native SDK, independently of the online catalogue. Khmer, Lao, Burmese, Nepali, Odia and Sinhala are not supported by this offline engine. Offline main-screen pickers use downloaded packs only; online pickers retain the online catalogue.
 
 Online translation retains its existing provider. When native connectivity reports offline, text and explicit-language Talk requests use the installed models before authentication or HTTP requests. Network failures recheck native connectivity before local fallback. On iOS a satisfied network path does not guarantee internet access: captive portals and unreachable internet remain a release test case. Camera and hands-free translation remain online-only.
 
@@ -84,3 +84,13 @@ The feature was integrated with main's newer native speech capture implementatio
 CI exposed GHSA-mrhx-c7xc-m3w5 in the existing Expo CLI Zod dependency. The dependency is overridden to patched Zod 4.6.6; no new audit allowlist entry was added. The trust boundary here is development-tool plugin metadata/output parsed by Expo CLI, rather than traveller text sent to the on-device translation engine. CLI schema smoke checks cover accepted plugin metadata/results and rejection of invalid commands/parameters; export, lint, typecheck and Expo doctor are rechecked with the patched dependency. Remove the override when Expo's dependency range includes a patched version. Existing audit exceptions are unchanged.
 
 User authorized commit, push, merge and TestFlight distribution for physical-device testing. App Store release remains pending user feedback and the release gates above.
+
+## TestFlight candidate 1.1.3
+
+The download catalogue includes every native-supported language, labels installed packs, and limits the union of installed/new packs to five. Older installations with more than five packs are preserved; users must remove packs before adding another. Disk space is read from Expo FileSystem immediately before downloading and between pair downloads. Budget 100 MiB per new pack plus a 200 MiB reserve for temporary files. This is conservative headroom, not a measured model-size guarantee; native download errors remain visible and completed packs remain available.
+
+Offline Talk previously always dictated in the traveller's language and submitted every utterance as the traveller. Hindi replies could therefore be transcribed as Latin-script Hindi and sent through English → Hindi translation. Offline Talk now offers an explicit speaking/typing-language choice and carries that direction through recognition and translation. It does not claim automatic offline speaker detection. Online recognition/routing is unchanged.
+
+Regression checks cover native-only catalogue entries (Gujarati/Kannada), installed-only offline choices, the full online catalogue, a sixth total pack, duplicate selections, older inventories over the limit, low/unknown storage, storage exhaustion between downloads, and Hindi recognition → English translation through the conversation screen. Speech-engine output is mocked in the screen test; it establishes routing, not real-device speech quality.
+
+Physical iPhone testing is pending device connection. At the user's request, the dedicated Android and iOS QA emulators were stopped and removed; the newly attempted Android instrumentation run did not complete. Do not use that run as evidence of translation quality. No App Store production release is authorized by these automated checks.

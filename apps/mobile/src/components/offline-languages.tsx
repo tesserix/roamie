@@ -7,7 +7,7 @@ import { Text, TextInput } from './typography';
 import { LanguagePicker } from './language-picker';
 import { font, radius, space, useColors } from '@/constants/theme';
 import { languageName } from '@/lib/languages';
-import { downloadOfflineLanguages, offlineCode, offlineModelBusy, offlineStatus, removeOfflineLanguage, subscribeOfflineModels, translateOffline, type OfflineStatus } from '@/lib/offline-translation';
+import { downloadOfflineLanguages, MAX_OFFLINE_LANGUAGES, offlineFreeStorage, offlineCode, offlineModelBusy, offlineStatus, removeOfflineLanguage, subscribeOfflineModels, translateOffline, type OfflineStatus } from '@/lib/offline-translation';
 import { cancelOfflineRecognition, downloadOfflineSpeech, offlineSpeechStatus, recognizeOffline, speakOffline, stopOfflineRecognition, stopOfflineSpeech, type OfflineSpeechStatus } from '@/lib/offline-speech';
 
 function OfflineAction({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
@@ -20,6 +20,7 @@ export function OfflineLanguages({ label = 'Offline languages', variant = 'butto
   const [open, setOpen] = useState(false), [status, setStatus] = useState<OfflineStatus | null>(null);
   const [from, setFrom] = useState('en'), [to, setTo] = useState('fr');
   const [picker, setPicker] = useState<'from' | 'to' | 'download' | null>(null);
+  const [freeStorage, setFreeStorage] = useState<number | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
   const [cellular, setCellular] = useState(false), [busy, setBusy] = useState('');
   const [text, setText] = useState(''), [result, setResult] = useState(''), [error, setError] = useState('');
@@ -30,6 +31,7 @@ export function OfflineLanguages({ label = 'Offline languages', variant = 'butto
     if (!open) return;
     let live = true;
     const refresh = () => {
+      setFreeStorage(offlineFreeStorage());
       void offlineStatus().then(value => { if (live) setStatus(value); }).catch(() => { if (live) setError('Could not check downloaded languages. Close and reopen to retry.'); });
       void offlineSpeechStatus(from, to).then(value => { if (live) setSpeech(value); }).catch(() => { if (live) setSpeech(null); });
     };
@@ -66,7 +68,7 @@ export function OfflineLanguages({ label = 'Offline languages', variant = 'butto
     catch (e) { if (isCurrent()) setError(e instanceof Error ? e.message : 'Could not finish. Please retry.'); }
     finally {
       try { const next = await offlineStatus(); if (isCurrent()) setStatus(next); } catch { /* Preserve the original operation error. */ }
-      if (isCurrent()) setBusy(''); working.current = false;
+      if (isCurrent()) { setBusy(''); setFreeStorage(offlineFreeStorage()); } working.current = false;
     }
   }
   const close = () => {
@@ -78,8 +80,9 @@ export function OfflineLanguages({ label = 'Offline languages', variant = 'butto
     {!status ? <Text accessibilityLiveRegion="polite">Checking installed languages…</Text> : !status.available ? <Text accessibilityRole="alert">Offline translation requires a new iOS or Android app build.</Text> : <>
       <Text style={[font.body, { color: c.text }]}>{status.online ? 'Connected · downloads available' : 'Offline mode · using this phone'}</Text>
       <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>{status.downloaded.length} languages downloaded</Text>
-      <Text style={[font.body, { color: c.muted }]}>Keep five or more languages for your trip, with no app limit. Choose at least two for your first download. Download while connected, then switch between downloaded languages in airplane mode.</Text>
+      <Text style={[font.body, { color: c.muted }]}>Keep up to five languages for your trip. Choose at least two for your first download. Download while connected, then switch between downloaded languages in airplane mode.</Text>
       <Text style={[font.caption, { color: c.muted }]}>Text packs are typically around 30 MB each; actual storage varies. Remove unused languages below to free device storage. Odia is not supported by the current offline engine.</Text>
+      <Text style={[font.caption, { color: c.muted }]}>{freeStorage === null ? 'Device storage could not be checked. Downloads will retry the check.' : `${(freeStorage / 1024 ** 3).toFixed(1)} GB free on this device. Storage is checked before each download.`}</Text>
       <OfflineAction title="Choose languages to download" disabled={locked || !status.online} onPress={() => setPicker('download')} />
       {selection.length ? <Text style={[font.body, { color: c.text }]}>Selected: {selection.map(languageName).join(', ')}</Text> : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}><Text style={[font.body, { flex: 1, color: c.text }]}>Allow mobile data for this download</Text><Switch accessibilityLabel="Allow mobile data for this download" value={cellular} onValueChange={setCellular} disabled={locked} /></View>
@@ -143,8 +146,9 @@ export function OfflineLanguages({ label = 'Offline languages', variant = 'butto
         <OfflineAction title={`Remove ${languageName(item === 'tl' ? 'fil' : item)}`} disabled={locked} onPress={() => { setResult(''); void perform('Removing language…', () => removeOfflineLanguage(item)); }} />
       </View>} />
       <LanguagePicker visible={picker !== null} title={picker === 'download' ? 'Choose languages to download' : 'Downloaded languages'} selected={picker === 'from' ? from : to}
+        downloadedCodes={status?.downloaded} maxDownloads={MAX_OFFLINE_LANGUAGES}
         catalogue={picker === 'download'} multiple={picker === 'download'} selectedCodes={selection}
-        availableCodes={picker === 'download' ? status?.supported.filter(code => !status.downloaded.includes(code)) ?? [] : status?.downloaded ?? []}
+        availableCodes={picker === 'download' ? status?.supported ?? [] : status?.downloaded ?? []}
         onClose={() => setPicker(null)} onPick={code => {
           if (picker === 'download') { setSelection(previous => previous.includes(code) ? previous.filter(item => item !== code) : [...previous, code]); return; }
           const pair = picker === 'from' ? [code, to] : [from, code];

@@ -63,6 +63,35 @@ test('tap-to-talk uses on-device dictation and translation in airplane mode', as
   expect(screen.getAllByText('Bonjour').length).toBeGreaterThan(0);
 });
 
+test('Hindi speaker uses Hindi recognition and translates back to English offline', async () => {
+  const listeners = new Map<string, (event: unknown) => void>();
+  const start = jest.fn();
+  const translate = jest.fn(async () => 'No, I do not want to go today.');
+  mockOfflineModules.set('RoamieOffline', {
+    status: async () => ({ online: false, wifi: false, supported: ['en', 'hi'], downloaded: ['en', 'hi'] }),
+    speechLocale: async (code: string) => code === 'hi' ? 'hi-IN' : 'en-US', offlineVoices: async () => [], translate,
+  });
+  mockOfflineModules.set('ExpoSpeechRecognition', {
+    supportsOnDeviceRecognition: () => true,
+    getSupportedLocales: async () => ({ installedLocales: ['en-US'], locales: ['en-US'] }),
+    requestMicrophonePermissionsAsync: async () => ({ granted: true }),
+    start, abort: jest.fn(), stop: jest.fn(),
+    addListener: (name: string, handler: (event: unknown) => void) => { listeners.set(name, handler); return { remove: () => listeners.delete(name) }; },
+  });
+  AppState.currentState = 'active';
+  jest.spyOn(session, 'current').mockReturnValue({ sub: 'offline-test', name: 'Test', email: 'test@example.invalid' });
+  jest.mocked(AsyncStorage.getItem).mockResolvedValue(JSON.stringify({ profile: { language: 'en', homeCurrency: 'AUD', budgetMinor: 0, diet: 'none' }, talkLanguage: 'en', talkPartner: 'hi', expenses: [] }));
+  global.fetch = jest.fn<typeof fetch>().mockRejectedValue(new Error('No network'));
+  await render(<StoreProvider accountId="offline-test"><ReadyTalk /></StoreProvider>);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Speak Hindi' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Start recording' }));
+  await waitFor(() => expect(start).toHaveBeenCalledWith(expect.objectContaining({ requiresOnDeviceRecognition: true, lang: 'hi-IN' })));
+  await act(async () => { listeners.get('result')?.({ isFinal: true, results: [{ transcript: 'नहीं, मैं आज नहीं जाना चाहता।' }] }); });
+  await waitFor(() => expect(translate).toHaveBeenCalledWith('नहीं, मैं आज नहीं जाना चाहता।', 'hi', 'en'));
+  expect(global.fetch).not.toHaveBeenCalled();
+  expect(screen.getAllByText('No, I do not want to go today.').length).toBeGreaterThan(0);
+});
+
 test('changing display size from Translate keeps settings open for another choice', async () => {
  jest.mocked(AsyncStorage.getItem).mockImplementation(async key => key === 'roamie.accessibility.v1' ? null : JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, expenses: [] }));
  await render(<AccessibilityProvider><StoreProvider accountId="display-test"><ReadyTalk /></StoreProvider></AccessibilityProvider>);

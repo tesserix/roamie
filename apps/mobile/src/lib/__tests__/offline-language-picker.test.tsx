@@ -25,3 +25,19 @@ test('empty offline inventory explains how to download instead of offering unusa
  await waitFor(()=>expect(screen.getByText('No downloaded languages. Open Offline languages while connected to download packs.')).toBeTruthy());
  expect(screen.queryByText('English')).toBeNull();
 });
+
+test('download catalogue includes native languages outside the online app list', async () => {
+ await render(<LanguagePicker visible title="Download languages" selected="" catalogue multiple availableCodes={['en','hi','gu','kn']} onPick={()=>{}} onClose={()=>{}}/>);
+ expect(screen.getByText('Gujarati')).toBeTruthy();
+ expect(screen.getByText('Kannada')).toBeTruthy();
+});
+
+test('download catalogue marks installed packs and prevents selecting a sixth total language', async () => {
+ const pick = jest.fn();
+ await render(<LanguagePicker visible title="Download languages" selected="" catalogue multiple availableCodes={['en','hi','fr','de','ja','gu']} downloadedCodes={['en','hi']} selectedCodes={['fr','de','ja']} maxDownloads={5} onPick={pick} onClose={()=>{}}/>);
+ await fireEvent.changeText(screen.getByLabelText('Search languages'), 'Gujarati');
+ await fireEvent.press(screen.getByRole('checkbox', {name:'Gujarati'}));
+ expect(pick).not.toHaveBeenCalled();
+ await fireEvent.changeText(screen.getByLabelText('Search languages'), 'English');
+ expect(screen.getByRole('checkbox', {name:'English, downloaded'}).props.accessibilityState.disabled).toBe(true);
+});

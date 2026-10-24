@@ -4,8 +4,8 @@ import { Text, TextInput } from '@/components/typography';
 
 import { Icon } from '@/components/ui';
 import { font, radius, space, touch, useColors } from '@/constants/theme';
-import { offlineCode, offlineStatus, type OfflineStatus } from '@/lib/offline-translation';
-import { LANGUAGES } from '@/lib/languages';
+import { MAX_OFFLINE_LANGUAGES, offlineCode, offlineStatus, type OfflineStatus } from '@/lib/offline-translation';
+import { LANGUAGES, languageName } from '@/lib/languages';
 
 const ITEMS = Object.entries(LANGUAGES).sort((a, b) => a[1].localeCompare(b[1]));
 const ROW = touch + 4;
@@ -19,11 +19,13 @@ type Props = {
   multiple?: boolean;
   selectedCodes?: string[];
   catalogue?: boolean;
+  downloadedCodes?: string[];
+  maxDownloads?: number;
   onPick: (code: string) => void;
   onClose: () => void;
 };
 
-export function LanguagePicker({ visible, title, selected, allowAuto = false, availableCodes, multiple = false, selectedCodes = [], catalogue = false, onPick, onClose }: Props) {
+export function LanguagePicker({ visible, title, selected, allowAuto = false, availableCodes, multiple = false, selectedCodes = [], catalogue = false, downloadedCodes = [], maxDownloads = MAX_OFFLINE_LANGUAGES, onPick, onClose }: Props) {
   const c = useColors();
   const [query, setQuery] = useState('');
   const [inventory, setInventory] = useState<OfflineStatus | null>(null);
@@ -43,7 +45,7 @@ export function LanguagePicker({ visible, title, selected, allowAuto = false, av
   const allowed = availableCodes ?? (offline ? inventory.downloaded : undefined);
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const languages = loading || failed ? [] : allowed ? ITEMS.filter(([code]) => allowed.includes(offlineCode(code))) : ITEMS;
+    const languages = loading || failed ? [] : allowed ? [...new Set(allowed)].map(code => [code === 'tl' ? 'fil' : code, languageName(code)]).sort((a, b) => a[1].localeCompare(b[1])) : ITEMS;
     const choices = allowAuto && !offline && !allowed && !loading && !failed ? [['', 'Auto-detect'], ...languages] : languages;
     return q ? choices.filter(([code, name]) => name.toLowerCase().includes(q) || code === q) : choices;
   }, [query, allowAuto, allowed, offline, loading, failed]);
@@ -77,6 +79,7 @@ export function LanguagePicker({ visible, title, selected, allowAuto = false, av
             style={{ flex: 1, fontSize: 17, color: c.text }}
           />
         </View>
+        {catalogue ? <Text style={[font.caption, { color: c.muted, marginHorizontal: space.lg, marginBottom: space.sm }]}>All supported offline languages · {downloadedCodes.length} downloaded · {selectedCodes.length} selected. Keep up to {maxDownloads} languages; remove a downloaded pack to make room.</Text> : null}
         {offline ? <Text style={[font.caption, { color: c.muted, marginHorizontal: space.lg, marginBottom: space.sm }]}>Only downloaded languages are available offline.</Text> : null}
         <FlatList
           data={items}
@@ -86,18 +89,23 @@ export function LanguagePicker({ visible, title, selected, allowAuto = false, av
           getItemLayout={(_, index) => ({ length: ROW, offset: ROW * index, index })}
           contentContainerStyle={{ paddingBottom: space.xl }}
           renderItem={({ item: [code, name] }) => {
+            const installed = catalogue && downloadedCodes.includes(offlineCode(code));
+            const full = new Set([...downloadedCodes, ...selectedCodes.map(offlineCode)]).size >= maxDownloads;
+            const disabled = installed || (multiple && full && !selectedCodes.includes(code));
             const on = multiple ? selectedCodes.includes(code) : code === selected;
             return (
               <Pressable
                 accessibilityRole={multiple ? "checkbox" : "button"}
-                accessibilityState={multiple ? { checked: on } : { selected: on }}
+                accessibilityLabel={installed ? `${name}, downloaded` : name}
+                disabled={disabled}
+                accessibilityState={multiple ? { checked: on || installed, disabled } : { selected: on }}
                 onPress={() => {
                   onPick(code);
                   if (!multiple) close();
                 }}
                 style={({ pressed }) => [styles.row, { borderColor: c.border, backgroundColor: pressed ? c.card : 'transparent' }]}>
-                <Text style={[font.body, { color: on ? c.accent : c.text, fontWeight: on ? '600' : '400' }]}>{name}</Text>
-                {on ? <Icon name="checkmark" size={17} color={c.accent} /> : null}
+                <Text style={[font.body, { color: disabled ? c.muted : on ? c.accent : c.text, fontWeight: on ? '600' : '400' }]}>{name}</Text>
+                {installed ? <Text style={[font.caption, { color: c.muted }]}>Downloaded</Text> : on ? <Icon name="checkmark" size={17} color={c.accent} /> : null}
               </Pressable>
             );
           }}

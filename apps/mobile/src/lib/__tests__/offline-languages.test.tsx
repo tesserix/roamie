@@ -2,6 +2,7 @@ import { expect, jest, test } from '@jest/globals';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { OfflineLanguages } from '../../components/offline-languages';
 import { ProfileSettings } from '../../components/profile-settings';
+jest.mock('expo-file-system', () => ({ Paths: { availableDiskSpace: 2_000_000_000 } }));
 const mockNative = {
   status: jest.fn(async () => ({ online: false, wifi: false, supported: ['en', 'fr'], downloaded: ['en', 'fr'] })),
   translate: jest.fn(async () => 'Bonjour'),
