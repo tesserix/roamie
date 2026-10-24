@@ -16,6 +16,7 @@ import { waitForMicrophoneForeground } from '@/lib/microphone';
 import { SPEECH_RECORDING } from '@/lib/recording';
 import { SpeechRecorder } from '@/lib/speech-recorder';
 import { signalFeedback } from '@/lib/feedback';
+import { OfflineLanguages } from '@/components/offline-languages';
 import { ProfileSettings } from '@/components/profile-settings';
 import { RecordButton, type RecordingPhase } from '@/components/record-button';
 import { useAccessibility, useTextScale } from '@/lib/accessibility';
@@ -448,6 +449,7 @@ export default function Talk() {
       </View>
 
       <Segmented disabled={phase !== 'idle'} options={MODES} value={mode} onChange={next => { if (phase === 'idle') setMode(next); }} />
+      <View style={{ marginHorizontal: space.md, marginTop: space.sm }}><OfflineLanguages variant="shortcut" disabled={phase !== 'idle' || handsFree} /></View>
       <View style={{ marginHorizontal: space.md, marginVertical: space.xs, alignItems: 'flex-end' }}><CommunicationCards compact disabled={phase !== 'idle'} /></View>
 
     </>

@@ -833,3 +833,23 @@ test('native startup finishes before Listening and cannot rearm after background
   await waitFor(() => expect(native.stopCapture).toHaveBeenCalled());
   expect(screen.getByRole('button', { name: 'Start recording' }).props.accessibilityState.disabled).toBe(false);
 });
+
+test('home shortcut opens offline downloads without opening Profile and returns to Talk', async () => {
+  await open();
+  expect(screen.getByText('Download for offline use')).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Offline languages' }));
+  expect(screen.getByRole('header', { name: 'Offline languages' })).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Close offline languages' }));
+  expect(screen.queryByRole('header', { name: 'Offline languages' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Start recording' })).toBeTruthy();
+});
+
+test('offline shortcut cannot interrupt an active microphone session', async () => {
+  await open();
+  await fireEvent.press(screen.getByRole('button', { name: 'Start recording' }));
+  await screen.findByRole('button', { name: 'Finish and translate' });
+  const shortcut = screen.getByRole('button', { name: 'Offline languages' });
+  expect(shortcut.props.accessibilityState.disabled).toBe(true);
+  await fireEvent.press(shortcut);
+  expect(screen.queryByRole('header', { name: 'Offline languages' })).toBeNull();
+});

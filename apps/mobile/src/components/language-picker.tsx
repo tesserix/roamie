@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { AppState, FlatList, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { Text, TextInput } from '@/components/typography';
 
 import { Icon } from '@/components/ui';
 import { font, radius, space, touch, useColors } from '@/constants/theme';
+import { offlineCode, offlineStatus, type OfflineStatus } from '@/lib/offline-translation';
 import { LANGUAGES } from '@/lib/languages';
 
 const ITEMS = Object.entries(LANGUAGES).sort((a, b) => a[1].localeCompare(b[1]));
@@ -14,21 +15,43 @@ type Props = {
   title: string;
   selected: string;
   allowAuto?: boolean;
+  availableCodes?: string[];
+  multiple?: boolean;
+  selectedCodes?: string[];
+  catalogue?: boolean;
   onPick: (code: string) => void;
   onClose: () => void;
 };
 
-export function LanguagePicker({ visible, title, selected, allowAuto = false, onPick, onClose }: Props) {
+export function LanguagePicker({ visible, title, selected, allowAuto = false, availableCodes, multiple = false, selectedCodes = [], catalogue = false, onPick, onClose }: Props) {
   const c = useColors();
   const [query, setQuery] = useState('');
+  const [inventory, setInventory] = useState<OfflineStatus | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!visible || catalogue || availableCodes) return;
+    let live = true;
+    const refresh = () => {
+      void offlineStatus().then(value => { if (live) { setInventory(value); setFailed(false); } }).catch(() => { if (live) { setInventory(null); setFailed(true); } });
+    };
+    refresh();
+    const listener = AppState.addEventListener('change', state => { if (state === 'active') refresh(); });
+    return () => { live = false; listener.remove(); };
+  }, [visible, catalogue, availableCodes]);
+  const loading = !catalogue && !availableCodes && !inventory && !failed;
+  const offline = !catalogue && inventory?.available && !inventory.online;
+  const allowed = availableCodes ?? (offline ? inventory.downloaded : undefined);
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const choices = allowAuto ? [['', 'Auto-detect'], ...ITEMS] : ITEMS;
+    const languages = loading || failed ? [] : allowed ? ITEMS.filter(([code]) => allowed.includes(offlineCode(code))) : ITEMS;
+    const choices = allowAuto && !offline && !allowed && !loading && !failed ? [['', 'Auto-detect'], ...languages] : languages;
     return q ? choices.filter(([code, name]) => name.toLowerCase().includes(q) || code === q) : choices;
-  }, [query, allowAuto]);
+  }, [query, allowAuto, allowed, offline, loading, failed]);
 
   const close = () => {
     setQuery('');
+    setInventory(null);
+    setFailed(false);
     onClose();
   };
 
@@ -54,21 +77,23 @@ export function LanguagePicker({ visible, title, selected, allowAuto = false, on
             style={{ flex: 1, fontSize: 17, color: c.text }}
           />
         </View>
+        {offline ? <Text style={[font.caption, { color: c.muted, marginHorizontal: space.lg, marginBottom: space.sm }]}>Only downloaded languages are available offline.</Text> : null}
         <FlatList
           data={items}
+          ListEmptyComponent={<Text style={[font.body, { color: c.muted, margin: space.lg }]}>{loading ? 'Checking downloaded languages…' : failed ? 'Could not check languages. Close and reopen to retry.' : offline && !inventory?.downloaded.length ? 'No downloaded languages. Open Offline languages while connected to download packs.' : 'No matching languages.'}</Text>}
           keyExtractor={([code]) => code}
           keyboardShouldPersistTaps="handled"
           getItemLayout={(_, index) => ({ length: ROW, offset: ROW * index, index })}
           contentContainerStyle={{ paddingBottom: space.xl }}
           renderItem={({ item: [code, name] }) => {
-            const on = code === selected;
+            const on = multiple ? selectedCodes.includes(code) : code === selected;
             return (
               <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
+                accessibilityRole={multiple ? "checkbox" : "button"}
+                accessibilityState={multiple ? { checked: on } : { selected: on }}
                 onPress={() => {
                   onPick(code);
-                  close();
+                  if (!multiple) close();
                 }}
                 style={({ pressed }) => [styles.row, { borderColor: c.border, backgroundColor: pressed ? c.card : 'transparent' }]}>
                 <Text style={[font.body, { color: on ? c.accent : c.text, fontWeight: on ? '600' : '400' }]}>{name}</Text>

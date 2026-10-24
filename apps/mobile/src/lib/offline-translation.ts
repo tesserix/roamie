@@ -60,13 +60,24 @@ export async function translateOffline(text: string, from: string, to: string, s
 }
 
 export async function downloadOfflinePair(from: string, to: string, cellular = false): Promise<void> {
+  return downloadOfflineLanguages([from, to], cellular);
+}
+
+export async function downloadOfflineLanguages(languages: string[], cellular = false): Promise<void> {
   return runModelOperation('download', async () => {
-  const module = native();
-  if (!module) throw new Error('Offline translation needs the latest mobile app.');
-  const status = await offlineStatus();
-  if (!status.online) throw new Error('Connect to the internet to download languages.');
-  if (!status.wifi && !cellular) throw new Error('Connect to Wi-Fi, or allow mobile data for this download.');
-  await module.download(offlineCode(from), offlineCode(to), cellular);
+    const module = native();
+    if (!module) throw new Error('Offline translation needs the latest mobile app.');
+    const status = await offlineStatus();
+    if (!status.online) throw new Error('Connect to the internet to download languages.');
+    if (!status.wifi && !cellular) throw new Error('Connect to Wi-Fi, or allow mobile data for this download.');
+    const selected = [...new Set(languages.map(offlineCode))];
+    if (!selected.length) throw new Error('Select languages to download.');
+    if (selected.some(code => !status.supported.includes(code))) throw new Error('A selected language is not supported offline.');
+    const anchor = selected.length > 1 ? selected[0] : status.downloaded.find(code => code !== selected[0] && status.supported.includes(code));
+    if (!anchor) throw new Error('Select at least two languages for your first download.');
+    for (const code of selected) {
+      if (code !== anchor) await module.download(anchor, code, cellular);
+    }
   });
 }
 

@@ -33,5 +33,44 @@ test('removing a language updates readiness from the device inventory', async ()
   await fireEvent.press(await screen.findByRole('button', { name: 'Remove French' }));
   await waitFor(() => expect(screen.getByText('Download both languages to use this pair offline')).toBeTruthy());
   expect(mockNative.remove).toHaveBeenCalledWith('fr');
+  await fireEvent.press(screen.getByRole('button', { name: 'To: Choose downloaded language' }));
+  expect(screen.queryByRole('button', { name: 'French' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'English' })).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Done' }));
   expect(screen.getByRole('button', { name: 'Translate on this phone' }).props.accessibilityState.disabled).toBe(true);
+});
+
+test('downloads five selected languages and restricts translation choices to installed packs', async () => {
+  const downloaded: string[] = [];
+  mockNative.status.mockImplementation(async () => ({ online: true, wifi: true, supported: ['en', 'hi', 'fr', 'de', 'ja'], downloaded: [...downloaded] }));
+  mockNative.download.mockImplementation(async (...args: unknown[]) => {
+    for (const code of args.slice(0, 2) as string[]) if (!downloaded.includes(code)) downloaded.push(code);
+  });
+  await render(<OfflineLanguages />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Offline languages' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Choose languages to download' }));
+  for (const name of ['English', 'Hindi', 'French', 'German', 'Japanese']) {
+    await fireEvent.changeText(screen.getByLabelText('Search languages'), name);
+    await fireEvent.press(screen.getByRole('checkbox', { name }));
+  }
+  await fireEvent.press(screen.getByRole('button', { name: 'Done' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Download selected languages' }));
+  await waitFor(() => expect(screen.getByText('5 languages downloaded')).toBeTruthy());
+  await fireEvent.press(screen.getByRole('button', { name: 'From: English' }));
+  expect(screen.queryByRole('button', { name: 'Spanish' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Hindi' })).toBeTruthy();
+});
+test('a partial download keeps completed packs visible and can be retried', async () => {
+  const downloaded = ['en'];
+  mockNative.status.mockImplementation(async () => ({ online: true, wifi: true, supported: ['en', 'fr', 'hi'], downloaded: [...downloaded] }));
+  mockNative.download.mockImplementationOnce(async () => { downloaded.push('fr'); throw new Error('Connection interrupted'); });
+  await render(<OfflineLanguages />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Offline languages' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Choose languages to download' }));
+  await fireEvent.press(screen.getByRole('checkbox', { name: 'French' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Done' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Download selected languages' }));
+  await waitFor(() => expect(screen.getByText('Connection interrupted')).toBeTruthy());
+  expect(screen.getByText('2 languages downloaded')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Download selected languages' }).props.accessibilityState.disabled).toBe(false);
 });
