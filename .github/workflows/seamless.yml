@@ -91,8 +91,8 @@ jobs:
           set -euo pipefail
           tag="deploy-${GITHUB_SHA::7}"
           digest=$(docker buildx imagetools inspect "ghcr.io/tesserix/roamie-seamless:sha-${GITHUB_SHA}" --format '{{.Manifest.Digest}}')
-          docker buildx imagetools create --tag "ghcr.io/tesserix/roamie-seamless:${tag}" "ghcr.io/tesserix/roamie-seamless@${digest}"
+          docker buildx imagetools create --prefer-index=false --tag "ghcr.io/tesserix/roamie-seamless:${tag}" "ghcr.io/tesserix/roamie-seamless@${digest}"
           printf '%s' "$GCP_TOKEN" | docker login asia-south1-docker.pkg.dev -u oauth2accesstoken --password-stdin
           mirror="asia-south1-docker.pkg.dev/tesseracthub-480811/ghcr-remote/tesserix/roamie-seamless:${tag}"
           test "$(docker buildx imagetools inspect "$mirror" --format '{{.Manifest.Digest}}')" = "$digest"
-          docker buildx imagetools create --tag "asia-south1-docker.pkg.dev/tesseracthub-480811/global/roamie-seamless:${tag}" "${mirror}@${digest}"
+          docker buildx imagetools create --prefer-index=false --tag "asia-south1-docker.pkg.dev/tesseracthub-480811/global/roamie-seamless:${tag}" "${mirror}@${digest}"
