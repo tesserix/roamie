@@ -3,7 +3,6 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync, useAudioRecorder } from 'expo-audio';
 import { AppState } from 'react-native';
-import * as Expo from 'expo';
 import * as Speech from 'expo-speech';
 import Talk from '../../app/index';
 import { StoreProvider, useStore } from '../store';
@@ -13,7 +12,6 @@ const mockOfflineModules = new Map<string, unknown>();
 jest.mock('expo', () => ({ ...jest.requireActual<Record<string, unknown>>('expo'), requireOptionalNativeModule: (name: string) => mockOfflineModules?.get(name) ?? null }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn(async () => {}) }));
-jest.mock('expo', () => ({ ...jest.requireActual<typeof import('expo')>('expo'), requireOptionalNativeModule: jest.fn(() => null) }));
 jest.mock('expo-router', () => ({ useIsFocused: () => true }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 jest.mock('expo-location', () => ({ getForegroundPermissionsAsync: jest.fn(async () => ({ granted: false })) }));
@@ -824,7 +822,7 @@ test('native startup finishes before Listening and cannot rearm after background
     stopCapture: jest.fn(async () => ({ uri: 'file:///native.wav' })),
     addListener: jest.fn(() => ({ remove: jest.fn() })),
   };
-  jest.mocked(Expo.requireOptionalNativeModule).mockReturnValueOnce(native as never);
+  mockOfflineModules.set('RoamieCapture', native);
   await open();
   await fireEvent.press(screen.getByRole('button', { name: 'Start recording' }));
   await waitFor(() => expect(native.startCapture).toHaveBeenCalledTimes(1));
