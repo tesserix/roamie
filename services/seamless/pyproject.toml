@@ -1,0 +1,26 @@
+[project]
+name = "roamie-seamless"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1", "pydantic-settings>=2.8,<3", "numpy>=2,<3"]
+[project.optional-dependencies]
+model = ["torch>=2.8,<3", "transformers==5.20.2", "sentencepiece>=0.2,<1", "accelerate>=1,<2", "protobuf>=5,<7"]
+[dependency-groups]
+dev = ["pytest>=8,<10", "httpx>=0.28,<1", "ruff>=0.14,<1", "mypy>=1.18,<2"]
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+[tool.ruff]
+line-length = 100
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "S", "RUF"]
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+[tool.mypy]
+strict = true
