@@ -17,6 +17,7 @@ import { Button, Message, Screen } from '@/components/ui';
 import Sos from '@/app/sos';
 import { signOut } from '@/lib/sign-out';
 import { font, space, useColors } from '@/constants/theme';
+import { OfflineLanguages } from '@/components/offline-languages';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -30,14 +31,14 @@ function Root() {
   }, [ready, error]);
   if (emergency) return <View style={{ flex: 1 }}><Button label="Back to Roamie" kind="secondary" onPress={() => setEmergency(false)} /><Sos /></View>;
   if (!ready && error) return <Screen title="Your saved wallet"><Message icon="exclamationmark.triangle" title="Couldn't open your wallet" body={error} action={<View style={{ gap: space.sm }}><Button label="Retry loading wallet" onPress={retry} /><Button label="Emergency help" kind="secondary" onPress={() => setEmergency(true)} /><Button label="Sign out" kind="secondary" onPress={() => void signOut()} /></View>} /></Screen>;
-  if (!ready) return <TravelLoading />;
+  if (!ready) return <View style={{ flex: 1 }}><TravelLoading /><OfflineLanguages label="Offline translator" /></View>;
   return <View style={{ flex: 1 }}>{error && <View style={{ padding: space.md, backgroundColor: colors.warnSoft, gap: space.sm }}><Text accessibilityRole="alert" style={[font.body, { color: colors.text }]}>{error}</Text><Button label="Retry saving wallet" kind="secondary" onPress={retry} /></View>}{profile ? <AppTabs /> : <Welcome />}</View>;
 }
 
 function Account() {
   const { customer, ready } = useAuth();
   useEffect(() => { if (ready) void SplashScreen.hideAsync(); }, [ready]);
-  if (!ready) return <TravelLoading />;
+  if (!ready) return <View style={{ flex: 1 }}><TravelLoading /><OfflineLanguages label="Offline translator" /></View>;
   if (!customer) return <SignIn />;
   return <StoreProvider key={customer.sub} accountId={customer.sub}><TripsProvider accountId={customer.sub}><Root /></TripsProvider></StoreProvider>;
 }

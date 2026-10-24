@@ -2,7 +2,7 @@
   "expo": {
     "name": "Roamie",
     "slug": "roamie",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "orientation": "portrait",
     "icon": "./assets/brand/roamie-icon.png",
     "scheme": "roamie",
@@ -107,6 +107,13 @@
             "enableShrinkResourcesInReleaseBuilds": true
           }
         }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Roamie uses the microphone when you choose offline voice translation.",
+          "speechRecognitionPermission": "Roamie recognizes speech on this phone for offline translation."
+        }
       ]
     ],
     "experiments": {
@@ -122,6 +129,9 @@
     },
     "web": {
       "favicon": "./assets/brand/roamie-mark.png"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     }
   }
 }

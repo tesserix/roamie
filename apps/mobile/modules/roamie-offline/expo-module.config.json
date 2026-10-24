@@ -1,0 +1,1 @@
+{"platforms":["apple","android"],"apple":{"modules":["RoamieOfflineModule"]},"android":{"modules":["app.roamie.offline.RoamieOfflineModule"]}}

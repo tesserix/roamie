@@ -3,15 +3,15 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync, useAudioRecorder } from 'expo-audio';
 import { AppState } from 'react-native';
-import * as Expo from 'expo';
 import * as Speech from 'expo-speech';
 import Talk from '../../app/index';
 import { StoreProvider, useStore } from '../store';
 import { session } from '../auth-client';
 import { AccessibilityProvider } from '../accessibility';
+const mockOfflineModules = new Map<string, unknown>();
+jest.mock('expo', () => ({ ...jest.requireActual<Record<string, unknown>>('expo'), requireOptionalNativeModule: (name: string) => mockOfflineModules?.get(name) ?? null }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn(async () => {}) }));
-jest.mock('expo', () => ({ ...jest.requireActual<typeof import('expo')>('expo'), requireOptionalNativeModule: jest.fn(() => null) }));
 jest.mock('expo-router', () => ({ useIsFocused: () => true }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 jest.mock('expo-location', () => ({ getForegroundPermissionsAsync: jest.fn(async () => ({ granted: false })) }));
@@ -33,7 +33,35 @@ async function open(talkLanguage?: string | null) {
 }
 const originalFetch = global.fetch;
 const originalAppState = AppState.currentState;
-afterEach(() => { jest.restoreAllMocks(); global.fetch = originalFetch; AppState.currentState = originalAppState; });
+afterEach(() => { mockOfflineModules.clear(); jest.restoreAllMocks(); global.fetch = originalFetch; AppState.currentState = originalAppState; });
+
+test('tap-to-talk uses on-device dictation and translation in airplane mode', async () => {
+  const listeners = new Map<string, (event: unknown) => void>();
+  const start = jest.fn();
+  const translate = jest.fn(async () => 'Bonjour');
+  mockOfflineModules.set('RoamieOffline', {
+    status: async () => ({ online: false, wifi: false, supported: ['en', 'fr'], downloaded: ['en', 'fr'] }),
+    speechLocale: async () => 'en-US', offlineVoices: async () => [], translate,
+  });
+  mockOfflineModules.set('ExpoSpeechRecognition', {
+    supportsOnDeviceRecognition: () => true,
+    getSupportedLocales: async () => ({ installedLocales: ['en-US'], locales: ['en-US'] }),
+    requestMicrophonePermissionsAsync: async () => ({ granted: true }),
+    start, abort: jest.fn(), stop: jest.fn(),
+    addListener: (name: string, handler: (event: unknown) => void) => { listeners.set(name, handler); return { remove: () => listeners.delete(name) }; },
+  });
+  AppState.currentState = 'active';
+  jest.spyOn(session, 'current').mockReturnValue({ sub: 'offline-test', name: 'Test', email: 'test@example.invalid' });
+  jest.mocked(AsyncStorage.getItem).mockResolvedValue(JSON.stringify({ profile: { language: 'en', homeCurrency: 'AUD', budgetMinor: 0, diet: 'none' }, talkLanguage: 'en', talkPartner: 'fr', expenses: [] }));
+  global.fetch = jest.fn<typeof fetch>().mockRejectedValue(new Error('No network'));
+  await render(<StoreProvider accountId="offline-test"><ReadyTalk /></StoreProvider>);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Start recording' }));
+  await waitFor(() => expect(start).toHaveBeenCalledWith(expect.objectContaining({ requiresOnDeviceRecognition: true })));
+  await act(async () => { listeners.get('result')?.({ isFinal: true, results: [{ transcript: 'Hello' }] }); });
+  await waitFor(() => expect(translate).toHaveBeenCalledWith('Hello', 'en', 'fr'));
+  expect(global.fetch).not.toHaveBeenCalled();
+  expect(screen.getAllByText('Bonjour').length).toBeGreaterThan(0);
+});
 
 test('changing display size from Translate keeps settings open for another choice', async () => {
  jest.mocked(AsyncStorage.getItem).mockImplementation(async key => key === 'roamie.accessibility.v1' ? null : JSON.stringify({ profile: { language: 'en', homeCurrency: 'USD', budgetMinor: 0, diet: 'none' }, expenses: [] }));
@@ -794,7 +822,7 @@ test('native startup finishes before Listening and cannot rearm after background
     stopCapture: jest.fn(async () => ({ uri: 'file:///native.wav' })),
     addListener: jest.fn(() => ({ remove: jest.fn() })),
   };
-  jest.mocked(Expo.requireOptionalNativeModule).mockReturnValueOnce(native as never);
+  mockOfflineModules.set('RoamieCapture', native);
   await open();
   await fireEvent.press(screen.getByRole('button', { name: 'Start recording' }));
   await waitFor(() => expect(native.startCapture).toHaveBeenCalledTimes(1));

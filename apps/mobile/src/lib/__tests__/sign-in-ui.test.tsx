@@ -29,6 +29,12 @@ test.each<typeof Platform.OS>(['ios', 'android'])('%s shows only supported socia
 });
 
 afterEach(() => { jest.restoreAllMocks(); });
+test('offline translator remains reachable when sign-in cannot connect', async () => {
+ await session.clear();
+ global.fetch = jest.fn<typeof fetch>().mockRejectedValue(new Error('offline'));
+ await render(<AuthProvider><SignIn /></AuthProvider>);
+ expect(screen.getByRole('button', { name: 'Offline translator' })).toBeTruthy();
+});
 test.each<typeof Platform.OS>(['ios', 'android'])('%s keeps account privacy actions out of sign-in', async platform => {
  jest.replaceProperty(Platform, 'OS', platform);
  await session.clear();

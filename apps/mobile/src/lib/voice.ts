@@ -5,6 +5,8 @@ import { File, Paths } from 'expo-file-system';
 import { useSyncExternalStore } from 'react';
 import { synthesizeSpeech, type VoiceGender } from './api';
 import type { VoicePreference } from './accessibility';
+import { offlineStatus } from './offline-translation';
+import { speakOffline, stopOfflineSpeech } from './offline-speech';
 
 // Speech slightly under normal pace is far easier to follow in a second language.
 const RATE = 0.92;
@@ -96,6 +98,13 @@ export function speak(text: string, lang: string, key = text, gender?: VoiceGend
       player.play();
     };
     const play = async () => {
+      const device = await offlineStatus();
+      if (finished || revision !== speechRevision) return;
+      if (!device.online) {
+        setCurrent(key);
+        done(await speakOffline(text, lang));
+        return;
+      }
       voices ??= Speech.getAvailableVoicesAsync().catch(() => []);
       const region = lang === getLocales()[0]?.languageCode ? (getLocales()[0]?.regionCode ?? undefined) : undefined;
       const voice = pickVoice(await voices, lang, region, gender);
@@ -115,6 +124,7 @@ export function stopSpeaking() {
   speechRevision++;
   finishSpeech?.(false);
   finishSpeech = null;
+  stopOfflineSpeech();
   void Promise.resolve(Speech.stop()).catch(() => {});
   setCurrent(null);
 }
