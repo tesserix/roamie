@@ -1,7 +1,7 @@
-export type ReminderPreferences = { start: boolean; packing: boolean; preparation?: boolean; agenda?: boolean; complete?: boolean; visits?: boolean; weather?: boolean; balances?: boolean };
+export type ReminderPreferences = { start: boolean; packing: boolean; preparation?: boolean; agenda?: boolean; complete?: boolean; visits?: boolean; weather?: boolean; balances?: boolean; documents?: boolean; expenses?: boolean };
 export type ReminderTrip = { id: string; title: string; startDate: string; endDate: string; days?: {date: string; stops: {time: string; title: string}[]}[] };
 export type TripReminder = { tripId: string; groupId?: string; kind: keyof ReminderPreferences; title: string; body: string; date: Date };
-export const DEFAULT_REMINDERS: ReminderPreferences = { start: false, packing: false, preparation: false, agenda: false, complete: false, visits: false, weather: false, balances: false };
+export const DEFAULT_REMINDERS: ReminderPreferences = { start: false, packing: false, preparation: false, agenda: false, complete: false, visits: false, weather: false, balances: false, documents: false, expenses: false };
 
 function localDate(value: string, hour: number): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
@@ -16,6 +16,17 @@ export function buildTripReminders(trips: ReminderTrip[], preferences: ReminderP
     const start = localDate(trip.startDate, 8), end = localDate(trip.endDate, 18);
     if (!start || !end || end < start) continue;
     const title = trip.title.slice(0, 120);
+    if (preferences.documents) {
+      const date = new Date(start); date.setDate(date.getDate() - 7); date.setHours(18);
+      if (date > now) reminders.push({tripId:trip.id,kind:'documents',title:'Review your travel essentials',body:`${title}: check official entry requirements, passport validity, insurance and booking details. Save essential documents securely.`,date});
+    }
+    if (preferences.expenses) {
+      const date = new Date(Math.max(start.getTime(), now.getTime())); date.setHours(20,0,0,0);
+      const last = new Date(end); last.setHours(20,0,0,0);
+      for (let day = 0; day < 40 && date <= last; day++, date.setDate(date.getDate() + 1)) {
+        if (date > now) reminders.push({tripId:trip.id,kind:'expenses',title:'Record today’s trip expenses',body:`${title}: add any missing expenses and receipts, then review your budget and shared balances.`,date:new Date(date)});
+      }
+    }
     if (preferences.start && start > now) reminders.push({ tripId: trip.id, kind: 'start', title: 'Your trip starts today', body: `${title}: check your itinerary, tickets and travel essentials.`, date: start });
     if (preferences.preparation) {
       const before = new Date(start); before.setDate(before.getDate() - 1); before.setHours(18);

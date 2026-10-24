@@ -2,11 +2,11 @@
 
 ## Implemented behavior
 
-Profile settings contains eight independent, opt-in categories: preparation, departure,
-daily itinerary, timed visits, packing, trip completion, weather, and shared balances.
+Profile settings contains ten independent, opt-in categories: preparation, departure,
+daily itinerary, timed visits, packing, trip completion, weather, shared balances, advance documents/bookings, and evening expenses.
 Visit notices arrive 30 minutes before a saved timed activity. Daily summaries are at
 07:00, departure at 08:00, preparation and packing at 18:00 the preceding day, and
-completion at 09:00 the next day. The phone timezone at scheduling applies.
+completion at 09:00 the next day. The documents checklist is at 18:00 seven days before departure; expense check-ins are at 20:00 each trip day. The phone timezone at scheduling applies.
 
 Trips automatically appear as Current, Upcoming, or Past based on their saved dates.
 Past trips retain the itinerary, expenses association, and memories; archiving deletes
@@ -26,7 +26,7 @@ Settlements and revoked membership cancel notices when the app next refreshes th
   and its Memories tab; retained content remained accessible.
 - Tests cover date boundaries, invalid dates and times, scheduling limits, Android
   channel-before-permission ordering, denied permissions, idempotent reconciliation,
-  cancellation and sign-out races, account-safe tap targets, cold-start routing,
+  cancellation and sign-out races, simultaneous-notice combination, account-safe tap targets, cold-start routing,
   preference persistence, forecast freshness/source validation and balance arithmetic.
 - Forecast persistence regression verifies weather saving preserves balance snapshots.
 - QA fixture uses a test account and test trips outside the shipping repository. Native
@@ -49,3 +49,14 @@ Settlements and revoked membership cancel notices when the app next refreshes th
 Android physical-device delivery, battery-saver behavior, and native notification taps
 still require device verification. OS Focus settings may suppress or delay presentation.
 Only iOS simulators were used; no Android emulator was started. No App Store release.
+
+## Additional reminder review
+
+Existing budget threshold notices remain available when recording expenses. The new
+advance checklist covers official entry guidance, passport validity, insurance and
+booking review without claiming the app knows expiry dates. Preparation already includes
+offline language downloads; completion includes settlement and memories.
+
+Flight check-in, live delays, hotel checkout, passport expiry and remote group-change
+alerts need confirmed booking/document data or a server push integration. Current plan
+suggestions are not confirmed reservations, so they do not generate invented deadlines.

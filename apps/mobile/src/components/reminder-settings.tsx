@@ -12,6 +12,8 @@ export function ReminderSettings() {
     <Text style={[font.body,{color:c.muted}]}>Choose useful reminders for this phone. Scheduled reminders can arrive offline or with Roamie closed. Times use your phone’s timezone when scheduled; Focus and battery settings may delay them.</Text>
     <View style={{borderRadius:radius.lg,backgroundColor:c.surface,borderWidth:1,borderColor:c.border}}>
       {([
+        ['documents','Documents and bookings','6 pm seven days before departure: review entry requirements, passport validity, insurance and bookings.'],
+        ['expenses','Evening expense check-in','8 pm each trip day: record expenses and receipts, then review your budget.'],
         ['preparation','Before you travel','6 pm the day before departure: essentials and offline downloads.'],
         ['balances','Shared balance reminders','6 pm for seven days after viewing an unsettled group. Open the reminder for current amounts and repayments.'],
         ['visits','Planned visits','30 minutes before each saved place or activity. Allow extra time for travel.'],

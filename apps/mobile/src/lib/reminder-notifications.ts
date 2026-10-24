@@ -47,11 +47,14 @@ export function reconcileTripReminders(owner: string, plans: TripReminder[]): Pr
     const permission = await Notifications.getPermissionsAsync();
     const pending = await Notifications.getAllScheduledNotificationsAsync();
     const otherCount = pending.filter(item => !item.identifier.startsWith(PREFIX)).length;
-    const desired = new Map((permission.granted ? plans : []).slice(0, Math.max(0, 60 - otherCount)).map(plan => {
-      const signature = JSON.stringify([plan.title, plan.body, plan.date.getTime()]);
+    const combined = new Map<string, TripReminder>();
+    for (const plan of permission.granted ? plans : []) {
       const identifier = `${PREFIX}${encodeURIComponent(owner)}:${encodeURIComponent(plan.tripId)}:${plan.kind}:${plan.date.getTime()}`;
-      return [identifier, {plan, signature}];
-    }));
+      const previous = combined.get(identifier);
+      combined.set(identifier, previous ? {...previous, body: `${previous.body}\n${plan.body}`} : plan);
+    }
+    const desired = new Map([...combined].slice(0, Math.max(0, 60 - otherCount)).map(([identifier, plan]) =>
+      [identifier, {plan, signature: JSON.stringify([plan.title, plan.body, plan.date.getTime()])}]));
     const existing = new Map(pending.map(item => [item.identifier, item]));
     for (const item of pending) {
       if (!active()) return 0;
