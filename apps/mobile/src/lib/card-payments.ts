@@ -22,10 +22,11 @@ export function capturePayments(payments: CardPayment[], trips: TripDates[], hom
     const day = typeof p.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.date) ? new Date(`${p.date}T12:00:00Z`) : null;
     const validDate = day !== null && Number.isFinite(day.getTime()) && day.toISOString().slice(0, 10) === p.date;
     const onTrip = validDate && trips.some(t => t.startDate <= p.date && p.date <= t.endDate);
-    if (!minor || !Number.isSafeInteger(minor) || !onTrip || typeof p.at !== 'string' || !Number.isFinite(Date.parse(p.at))) {
+    if (!minor || !Number.isSafeInteger(minor) || !validDate || typeof p.at !== 'string' || !Number.isFinite(Date.parse(p.at))) {
       done.push(p.id);
       continue;
     }
+    if (!onTrip) continue;
     const homeMinor = currency === home ? minor : rates ? toHome(minor, currency, home, rates) : null;
     if (homeMinor === null || !Number.isSafeInteger(homeMinor) || homeMinor < 0) continue;
     add.push({ paymentId: p.id, amountMinor: minor, currency, homeMinor, category: 'other', note: String(p.merchant ?? '').trim().slice(0, 120), at: p.at });

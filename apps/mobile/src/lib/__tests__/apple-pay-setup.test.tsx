@@ -11,11 +11,13 @@ test('explains the blank-automation step, transaction variables and a synthetic 
   await render(<ApplePaySetup home="AUD" tripCount={0} onClose={() => {}} />);
   expect(screen.getByText(/Get Started/)).toBeTruthy();
   expect(screen.getByText(/New Blank Automation/)).toBeTruthy();
-  expect(screen.getByText(/Shortcut Input/)).toBeTruthy();
-  expect(screen.getByText(/Log card payment/)).toBeTruthy();
+  expect(screen.getByText(/Tap Merchant in the Roamie action/)).toBeTruthy();
+  expect(screen.getByText(/Search actions for Roamie and choose Log card payment/)).toBeTruthy();
   expect(screen.getByText(/Add a trip in Trips/)).toBeTruthy();
-  expect(screen.getByText(/Test cafe/)).toBeTruthy();
+  expect(screen.getByText(/For a test trip that includes today/)).toBeTruthy();
   expect(screen.getByText(/1.00 AUD/)).toBeTruthy();
+  expect(screen.getByText(/Tap Amount → Select Variable → Shortcut Input → Amount/)).toBeTruthy();
+  expect(screen.getByRole('header', { name: 'If a payment does not appear' })).toBeTruthy();
   const launch = jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('Unavailable'));
   const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   await fireEvent.press(screen.getByRole('button', { name: 'Open Shortcuts' }));
