@@ -29,6 +29,7 @@ public class RoamieOfflineModule: Module {
     AsyncFunction("offlineVoices") { () -> [[String: String]] in
       AVSpeechSynthesisVoice.speechVoices().map { ["identifier": $0.identifier, "language": $0.language] }
     }
+    AsyncFunction("isOnline") { self.monitor.currentPath.status == .satisfied }
     AsyncFunction("status") { () -> [String: Any] in
       let path = self.monitor.currentPath
       return ["online": path.status == .satisfied, "wifi": path.usesInterfaceType(.wifi),

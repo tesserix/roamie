@@ -1,8 +1,8 @@
 import Feather from '@expo/vector-icons/Feather';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Image } from 'expo-image';
-import { useEffect, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, StyleSheet, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { AccessibilityInfo, Animated, Easing, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -42,7 +42,7 @@ export function TravelHero() {
   </View>;
 }
 
-export function TravelLoading() {
+export function TravelLoading({ children }: { children?: ReactNode }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const { reducedMotion, screenReader } = useAccessibility();
@@ -63,7 +63,7 @@ export function TravelLoading() {
     }
     return () => { live = false; animation?.stop(); };
   }, [progress, reducedMotion, screenReader]);
-  return <View onLayout={() => { void import('expo-splash-screen').then(splash => splash.hideAsync()); }} style={[styles.loading, { backgroundColor: c.background, paddingTop: insets.top + 32, paddingBottom: insets.bottom + 32 }]}>
+  return <ScrollView contentContainerStyle={[styles.loading, { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 32 }]} onLayout={() => { void import('expo-splash-screen').then(splash => splash.hideAsync()); }} style={{ backgroundColor: c.background }} testID="startup-content">
     <BrandHeader />
     <View accessible accessibilityRole="progressbar" accessibilityLabel="Getting Roamie ready" accessibilityState={{ busy: true }} style={styles.loadingCenter}>
       <RoamieMark size={112} />
@@ -73,8 +73,8 @@ export function TravelLoading() {
         {(['plane', 'car', 'train'] as const).map((name, index) => <Animated.View key={name} style={{ transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-7, 7] }) }, { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [0, index === 0 ? -10 : 0] }) }] }}><FontAwesome name={name} size={25} color={c.accent} /></Animated.View>)}
       </View>
     </View>
-    <Text style={[font.caption, { color: c.muted, textAlign: 'center' }]}>A little less planning. A lot more exploring.</Text>
-  </View>;
+    <View style={{ gap: 20 }}><Text style={[font.caption, { color: c.muted, textAlign: 'center' }]}>A little less planning. A lot more exploring.</Text>{children}</View>
+  </ScrollView>;
 }
 
 const styles = StyleSheet.create({
@@ -85,7 +85,7 @@ const styles = StyleSheet.create({
   earth: { width: 130, height: 130, borderRadius: 65 },
   orbit: { position: 'absolute', width: 164, height: 164, borderRadius: 82, borderWidth: 1, borderStyle: 'dashed', opacity: 0.35 },
   plane: { position: 'absolute', top: 0, right: -3, backgroundColor: '#F4C76B', width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-15deg' }] },
-  loading: { flex: 1, paddingHorizontal: 28 },
-  loadingCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 22 },
+  loading: { flexGrow: 1, paddingHorizontal: 28 },
+  loadingCenter: { flex: 1, minHeight: 320, alignItems: 'center', justifyContent: 'center', gap: 22 },
   transport: { marginTop: 12, padding: 20, flexDirection: 'row', gap: 34, borderBottomWidth: 1 },
 });

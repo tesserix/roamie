@@ -5,7 +5,7 @@ import { File, Paths } from 'expo-file-system';
 import { useSyncExternalStore } from 'react';
 import { synthesizeSpeech, type VoiceGender } from './api';
 import type { VoicePreference } from './accessibility';
-import { offlineStatus } from './offline-translation';
+import { isOnline } from './offline-translation';
 import { speakOffline, stopOfflineSpeech } from './offline-speech';
 
 // Speech slightly under normal pace is far easier to follow in a second language.
@@ -98,9 +98,9 @@ export function speak(text: string, lang: string, key = text, gender?: VoiceGend
       player.play();
     };
     const play = async () => {
-      const device = await offlineStatus();
+      const online = await isOnline();
       if (finished || revision !== speechRevision) return;
-      if (!device.online) {
+      if (!online) {
         setCurrent(key);
         done(await speakOffline(text, lang));
         return;

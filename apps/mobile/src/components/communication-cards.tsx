@@ -15,7 +15,7 @@ const cards = [
   { title: 'Help getting there', text: 'Could you help me find my destination? Please ask how you can help before touching me or my mobility aid.' },
 ];
 
-export function CommunicationCards({ disabled = false, compact = false }: { disabled?: boolean; compact?: boolean }) {
+export function CommunicationCards({ disabled = false, compact = false, iconOnly = false }: { disabled?: boolean; compact?: boolean; iconOnly?: boolean }) {
   const c = useColors(), insets = useSafeAreaInsets(), { reducedMotion, voice } = useAccessibility();
   const [page, setPage] = useState<'closed' | 'list' | 'edit' | 'show'>('closed');
   const [message, setMessage] = useState('');
@@ -28,9 +28,9 @@ export function CommunicationCards({ disabled = false, compact = false }: { disa
     </Pressable>;
   }
   return <>
-    {compact ? <Pressable accessibilityRole="button" accessibilityLabel="Communication cards" accessibilityState={{ disabled }} disabled={disabled} onPress={() => setPage('list')} style={({ pressed }) => ({ flexShrink: 1, minHeight: 44, paddingHorizontal: space.sm, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 })}>
-      <FontAwesome name="commenting-o" size={14} color={c.muted} accessible={false} />
-      <Text style={[font.caption, { color: c.muted, flexShrink: 1 }]}>Communication cards</Text>
+    {compact ? <Pressable accessibilityRole="button" accessibilityLabel="Communication cards" accessibilityState={{ disabled }} disabled={disabled} onPress={() => setPage('list')} style={({ pressed }) => ({ flexShrink: 1, width: iconOnly ? 44 : undefined, borderRadius: 22, backgroundColor: iconOnly ? c.surface : undefined, justifyContent: 'center', minHeight: 44, paddingHorizontal: space.sm, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 })}>
+      <FontAwesome name="commenting-o" size={iconOnly ? 18 : 14} color={iconOnly ? c.accent : c.muted} accessible={false} />
+      {!iconOnly && <Text style={[font.caption, { color: c.muted, flexShrink: 1 }]}>Communication cards</Text>}
     </Pressable> : action('Communication cards', () => setPage('list'), false, disabled)}
     <Modal visible={page !== 'closed'} onRequestClose={close} animationType={reducedMotion ? 'none' : 'slide'}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} accessibilityViewIsModal style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}>
