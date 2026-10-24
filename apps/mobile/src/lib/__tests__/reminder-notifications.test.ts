@@ -54,3 +54,11 @@ test('sign-out fences pending passes and cancels after in-flight scheduling comp
  await reconcileTripReminders('account',[plan]);
  expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
 });
+
+test('combines simultaneous reminders instead of silently dropping one',async()=>{
+ await reconcileTripReminders('account',[{...plan,body:'Museum at 10:00'},{...plan,body:'Gallery at 10:00'}]);
+ expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
+ const content=jest.mocked(Notifications.scheduleNotificationAsync).mock.calls[0][0].content;
+ expect(content.body).toContain('Museum at 10:00');
+ expect(content.body).toContain('Gallery at 10:00');
+});

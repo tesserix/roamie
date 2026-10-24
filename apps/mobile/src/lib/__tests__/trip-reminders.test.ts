@@ -45,3 +45,12 @@ test('reminds 30 minutes before each planned visit and skips malformed or past t
  expect(plans[0].body).toContain('Museum at 10:00');
  expect(buildTripReminders([journey],{start:false,packing:false,visits:true},new Date(2026,10,5,11))).toHaveLength(1);
 });
+
+test('adds opt-in advance checklist and evening expense prompts for each trip day',()=>{
+ const preferences={start:false,packing:false,documents:true,expenses:true};
+ const plans=buildTripReminders([trip],preferences,new Date(2026,9,20));
+ expect(plans[0]).toMatchObject({kind:'documents',date:new Date(2026,9,29,18)});
+ expect(plans.filter(p=>p.kind==='expenses')).toHaveLength(6);
+ expect(plans.filter(p=>p.kind==='expenses').map(p=>p.date.getHours())).toEqual([20,20,20,20,20,20]);
+ expect(buildTripReminders([trip],preferences,new Date(2026,10,10,21))).toEqual([]);
+});
