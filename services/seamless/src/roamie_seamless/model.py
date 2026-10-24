@@ -66,7 +66,7 @@ def load_model() -> Inference:
             )
         if request.generate_speech:
             text = processor.decode(result.sequences[0].tolist(), skip_special_tokens=True)
-            length = int(result.waveform_lengths[0])
+            length = int(result.waveform_lengths.reshape(-1)[0].item())
             samples = result.waveform[0, :length].detach().cpu().float().numpy()
             return TranslationResult(
                 text=text,

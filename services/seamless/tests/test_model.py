@@ -10,8 +10,10 @@ from roamie_seamless.audio import decode_audio, encode_audio
 from roamie_seamless.model import MODEL_REVISION, load_model
 
 
+@pytest.mark.parametrize("length_shape", [(), (1,)])
 def test_transformers_outputs_are_decoded_for_text_and_audio(
     monkeypatch: pytest.MonkeyPatch,
+    length_shape: tuple[int, ...],
 ) -> None:
     torch = MagicMock()
     transformers = MagicMock()
@@ -33,7 +35,7 @@ def test_transformers_outputs_are_decoded_for_text_and_audio(
     samples.float.return_value.numpy.return_value = np.zeros(100, dtype=np.float32)
     model.generate.return_value = SimpleNamespace(
         sequences=[sequence],
-        waveform_lengths=[100],
+        waveform_lengths=np.array(100).reshape(length_shape),
         waveform=waveform,
     )
     infer = load_model()
