@@ -76,3 +76,11 @@ xcodebuild -workspace Roamie.xcworkspace -scheme Roamie -configuration Debug \
 7. Verify ML Kit attribution against current Google translation terms, signed release builds, native runtime compatibility/versioning and existing online flows before store distribution.
 
 No production deployment, cloud infrastructure change, CUD change, commit or push was performed for this validation. A successful automated suite does not establish zero production risk.
+
+## TestFlight candidate 1.1.1
+
+The feature was integrated with main's newer native speech capture implementation in an isolated worktree. The combined checkout passed 1,640 tests across 65 suites, TypeScript, lint, 21 Expo checks, 11 release-configuration tests, and production bundles for Android/iOS/web. Test mocks select native modules by name so connectivity lookups cannot consume capture mocks.
+
+CI exposed GHSA-mrhx-c7xc-m3w5 in the existing Expo CLI Zod dependency. The dependency is overridden to patched Zod 4.6.6; no new audit allowlist entry was added. The trust boundary here is development-tool plugin metadata/output parsed by Expo CLI, rather than traveller text sent to the on-device translation engine. CLI schema smoke checks cover accepted plugin metadata/results and rejection of invalid commands/parameters; export, lint, typecheck and Expo doctor are rechecked with the patched dependency. Remove the override when Expo's dependency range includes a patched version. Existing audit exceptions are unchanged.
+
+User authorized commit, push, merge and TestFlight distribution for physical-device testing. App Store release remains pending user feedback and the release gates above.
