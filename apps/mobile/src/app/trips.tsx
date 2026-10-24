@@ -1,6 +1,7 @@
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTextScale } from '@/lib/accessibility';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, SectionList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { Text, TextInput } from '@/components/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -24,6 +25,7 @@ import { font, radius, space, useColors } from '@/constants/theme';
 import { format, toMinor } from '@/lib/money';
 import { useStore } from '@/lib/store';
 import { useTrips } from '@/lib/trip-store';
+import { groupTrips } from '@/lib/trip-lifecycle';
 import { createTrip, stayDates, modeName, newId, tripTotal, updateStop, type MemoryPhoto, type PlanRequest, type Trip, type TripStop } from '@/lib/trips';
 import { renderMemory, memoryCapabilities, type MemoryOptions } from '@/lib/trip-api';
 import { choosePhotos, chooseMusic, discardVideo, deletePhotos, exportTrip, photoData, saveToPhotos, saveVideo, shareFile, suggestPhotos, tripDirectory } from '@/lib/trip-media';
@@ -296,10 +298,20 @@ function TripDetails({ trip, back }: { trip: Trip; back: () => void }) {
 export default function Trips() {
   const store = useTrips(), c = useColors();
   const [selected, setSelected] = useState<string | null>(null), [creating, setCreating] = useState(false);
-  const trip = store.trips.find(t => t.id === selected);
+  const reminderRouter = useRouter();
+  const {reminderTrip} = useLocalSearchParams<{reminderTrip?:string}>();
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const refresh = () => setNow(new Date());
+    const listener = AppState.addEventListener('change', state => { if (state === 'active') refresh(); });
+    const midnight = new Date(now); midnight.setHours(24, 0, 0, 0);
+    const timer = setTimeout(refresh, Math.max(1, midnight.getTime() - Date.now()));
+    return () => { listener.remove(); clearTimeout(timer); };
+  }, [now]);
+  const trip = store.trips.find(t => t.id === reminderTrip) ?? store.trips.find(t => t.id === selected);
   if (!store.ready) return <Screen title="Your trips"><View style={{ padding: space.md, gap: space.md }}><Text style={{ color: c.muted }}>{store.error ?? 'Opening your trips…'}</Text>{store.error && <Button label="Try again" onPress={store.reload} />}</View></Screen>;
   if (creating) return <NewTrip cancel={() => setCreating(false)} done={id => { setSelected(id); setCreating(false); }} />;
-  if (trip) return <TripDetails key={trip.id} trip={trip} back={() => setSelected(null)} />;
+  if (trip) return <TripDetails key={trip.id} trip={trip} back={() => { setSelected(null); if (reminderTrip) reminderRouter.setParams({reminderTrip: undefined}); }} />;
   if (!store.trips.length) return <Screen title="Your trips" subtitle="Good days. Great memories.">
     <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.md, paddingTop: 28, paddingBottom: TAB_CLEARANCE + 24, gap: 28 }}>
       <View style={{ backgroundColor: c.accentSoft, borderRadius: radius.lg, padding: space.lg, gap: space.lg }}>
@@ -325,7 +337,9 @@ export default function Trips() {
     </ScrollView>
   </Screen>;
   return <Screen title="Your trips" subtitle="Good days. Great memories.">
-    <FlatList data={store.trips} keyExtractor={t => t.id}
+    <SectionList sections={groupTrips(store.trips, now)} keyExtractor={t => t.id}
+      stickySectionHeadersEnabled={false}
+      renderSectionHeader={({ section }) => <View style={{ gap: 6, paddingTop: space.md }}><Text accessibilityRole="header" style={[font.title, { color: c.text }]}>{section.title} trips · {section.data.length}</Text>{!section.data.length ? <Text style={[font.body, { color: c.muted }]}>No {section.title.toLowerCase()} trips.</Text> : null}{section.title === 'Past' ? <Text style={[font.caption, { color: c.muted }]}>Automatically archived after the final day. Your plans and memories stay here.</Text> : null}</View>}
       contentContainerStyle={{ paddingHorizontal: space.md, paddingTop: 8, paddingBottom: TAB_CLEARANCE + 24, gap: 20 }}
       ListHeaderComponent={<View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
         <Text style={[font.caption, { color: c.muted, flex: 1 }]}>{store.trips.length} {store.trips.length === 1 ? 'saved trip' : 'saved trips'}</Text>

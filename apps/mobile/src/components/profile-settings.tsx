@@ -12,6 +12,7 @@ import { session } from '@/lib/auth-client';
 import { PrivacyLinks } from './privacy-links';
 import { DisplaySettings } from './display-settings';
 import { signOut } from '@/lib/sign-out';
+import { ReminderSettings } from './reminder-settings';
 import { OfflineLanguages } from './offline-languages';
 
 export function ProfileSettings() {
@@ -40,6 +41,7 @@ export function ProfileSettings() {
           </View>}
           <DisplaySettings />
           <OfflineLanguages />
+          <ReminderSettings />
           <Text accessibilityRole="header" style={[font.headline, { color: c.text }]}>Sound & feedback</Text>
           <View style={{ borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, overflow: 'hidden' }}>
             {([

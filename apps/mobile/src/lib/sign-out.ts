@@ -1,11 +1,11 @@
-import * as Notifications from 'expo-notifications';
+import { stopTripReminders } from './reminder-notifications';
 import { Alert } from 'react-native';
 import { session } from './auth-client';
 
 export async function signOut(): Promise<void> {
   const [credentials, notifications] = await Promise.allSettled([
     session.logout(),
-    Notifications.cancelAllScheduledNotificationsAsync(),
+    stopTripReminders(),
   ]);
   if (credentials.status === 'rejected') {
     Alert.alert('Sign-out needs attention', 'We could not clear all sign-in data. Please try again.');

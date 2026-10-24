@@ -145,3 +145,17 @@ test('editing a proposed visit preserves unknown cost until an amount is entered
  await fireEvent.press(screen.getByRole('button',{name:'Save stop'}));
  expect(screen.queryByText('Cost not verified')).toBeNull();
 });
+
+test('separates current, upcoming and automatically archived trips without deleting memories', async () => {
+ const now=new Date(), stamp=(offset:number)=>{const d=new Date(now);d.setDate(d.getDate()+offset);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+ const trip=(title:string,offset:number)=>createTrip({title,destination:'Kyoto',startDate:stamp(offset),endDate:stamp(offset),currency:'JPY',budgetMinor:0,diet:'none',interests:'',travellers:1});
+ const saved=[trip('Travelling today',0),trip('Next adventure',4),trip('Last holiday',-4)];
+ jest.mocked(AsyncStorage.getItem).mockImplementation(async key=>key===tripStorageKey('traveller')?JSON.stringify(saved):null);
+ await render(<StoreProvider accountId="traveller"><TripsProvider accountId="traveller"><Trips /></TripsProvider></StoreProvider>);
+ expect(await screen.findByRole('header',{name:'Current trips · 1'})).toBeTruthy();
+ expect(screen.getByRole('header',{name:'Upcoming trips · 1'})).toBeTruthy();
+ expect(screen.getByRole('header',{name:'Past trips · 1'})).toBeTruthy();
+ await fireEvent.press(screen.getByRole('button',{name:'Open Last holiday'}));
+ expect(await screen.findByRole('header',{name:'Last holiday'})).toBeTruthy();
+ expect(screen.getByRole('tab',{name:'Memories'})).toBeTruthy();
+});

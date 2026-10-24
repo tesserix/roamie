@@ -1,3 +1,4 @@
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getDocumentAsync } from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
 import type { SFSymbol } from 'expo-symbols';
@@ -54,6 +55,8 @@ export default function Wallet() {
   const [error, setError] = useState<string | null>(null);
   const [applePaySetup, setApplePaySetup] = useState(false);
   const [groupBudget, setGroupBudget] = useState(false);
+  const {reminderGroup} = useLocalSearchParams<{reminderGroup?:string}>();
+  const reminderRouter = useRouter();
 
   useEffect(() => {
     fxRates(home)
@@ -193,7 +196,7 @@ export default function Wallet() {
     </View>
   );
 
-  if (groupBudget) return <GroupBudget home={home} accountId={accountId} displayName={session.current()?.name ?? ''} trips={trips} onClose={() => setGroupBudget(false)} />;
+  if (groupBudget || typeof reminderGroup === 'string') return <GroupBudget initialGroupId={typeof reminderGroup === 'string' ? reminderGroup : undefined} home={home} accountId={accountId} displayName={session.current()?.name ?? ''} trips={trips} onClose={() => { setGroupBudget(false); if (reminderGroup) reminderRouter.setParams({reminderGroup:undefined}); }} />;
 
   return (
     <Screen title="Budget" subtitle={`Everything in ${home}`} right={<IconButton icon="ellipsis" label="More" tone="soft" onPress={menu} />}>
